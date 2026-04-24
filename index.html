@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0e0c0a">
@@ -68,9 +69,7 @@ input::placeholder{color:var(--tx3)}
 .ic.sel .tk{display:flex}
 .tk svg{width:11px;height:11px;stroke:#0e0c0a;fill:none;stroke-width:2.5}
 .ibadge{position:absolute;bottom:8px;left:8px;font-size:9px;letter-spacing:1px;padding:3px 8px;border-radius:10px;background:rgba(14,12,10,.75);color:var(--tx3);text-transform:uppercase}
-.prev{display:flex;gap:12px;align-items:center;padding:12px 14px;background:var(--sf);border-radius:var(--r);border:.5px solid var(--bd);margin-bottom:1.5rem}
-.prev img{width:42px;height:52px;object-fit:cover;border-radius:6px;flex-shrink:0}
-.prev-lbl{font-size:11px;color:var(--tx3);letter-spacing:1px}
+.composed-img{width:100%;border-radius:var(--r);display:block;margin-bottom:1.5rem;border:.5px solid var(--bd)}
 .cc{padding:16px 18px;margin-bottom:10px;border:.5px solid var(--bd);border-radius:var(--r);cursor:pointer;font-size:14px;line-height:1.75;color:var(--tx2);background:var(--sf);transition:all .2s}
 .cc:hover{border-color:var(--bd2)}
 .cc.sel{border-color:var(--ac);color:var(--tx);background:var(--ac2)}
@@ -81,14 +80,12 @@ input::placeholder{color:var(--tx3)}
 .ld:nth-child(3){animation-delay:.4s}
 @keyframes lp{0%,80%,100%{opacity:.25;transform:scale(.7)}40%{opacity:1;transform:scale(1.2)}}
 .emsg{font-size:12px;color:var(--err);text-align:center;padding:1rem}
-.smsg{font-size:11px;color:var(--tx3);text-align:center;padding:.5rem;letter-spacing:1px}
 .foot{padding:1rem 1.5rem 1.75rem;flex-shrink:0;border-top:.5px solid var(--bd);background:var(--bg)}
 .suc{text-align:center;padding:4rem 1rem 2rem}
 .sm{font-family:'Cormorant Garamond',serif;font-size:72px;color:var(--ac);line-height:1;margin-bottom:1.5rem}
 .st{font-family:'Cormorant Garamond',serif;font-size:30px;font-weight:300;margin-bottom:8px}
 .ss{font-size:11px;color:var(--tx3);letter-spacing:3px;margin-bottom:3rem;text-transform:uppercase}
-.composed-preview{width:100%;border-radius:var(--r);overflow:hidden;margin-bottom:1.5rem;border:.5px solid var(--bd)}
-.composed-preview img{width:100%;display:block}
+.processing-msg{font-size:12px;color:var(--tx3);text-align:center;letter-spacing:2px;text-transform:uppercase;margin-bottom:1rem}
 </style>
 </head>
 <body>
@@ -112,6 +109,7 @@ input::placeholder{color:var(--tx3)}
   </div>
   <div class="body" id="abody">
 
+    <!-- STEP 1: MOOD -->
     <div class="step on" id="st-mood">
       <div class="prog"><div class="pd on"></div><div class="pd"></div><div class="pd"></div></div>
       <div class="lbl">set the mood</div>
@@ -131,6 +129,7 @@ input::placeholder{color:var(--tx3)}
       </div>
     </div>
 
+    <!-- STEP 2: IMAGES -->
     <div class="step" id="st-images">
       <div class="prog"><div class="pd was"></div><div class="pd on"></div><div class="pd"></div></div>
       <button class="bk" onclick="goTo('st-mood')">← back</button>
@@ -140,19 +139,23 @@ input::placeholder{color:var(--tx3)}
       <div id="ierr" class="emsg" style="display:none"></div>
     </div>
 
+    <!-- STEP 3: CAPTIONS -->
     <div class="step" id="st-captions">
       <div class="prog"><div class="pd was"></div><div class="pd was"></div><div class="pd on"></div></div>
       <button class="bk" onclick="goTo('st-images')">← back</button>
-      <div class="lbl">compositing image...</div>
-      <div id="cload" class="ldr"><div class="ld"></div><div class="ld"></div><div class="ld"></div></div>
+      <div id="cload">
+        <div class="processing-msg">compositing image + writing captions...</div>
+        <div class="ldr"><div class="ld"></div><div class="ld"></div><div class="ld"></div></div>
+      </div>
       <div id="caption-content" style="display:none">
-        <div class="composed-preview"><img id="composed-img" src="" alt=""/></div>
+        <img id="composed-img" class="composed-img" src="" alt=""/>
         <div class="lbl">pick your caption</div>
         <div id="clist"></div>
       </div>
       <div id="cerr" class="emsg" style="display:none"></div>
     </div>
 
+    <!-- SUCCESS -->
     <div class="step" id="st-success">
       <div class="suc">
         <div class="sm">✦</div>
@@ -165,7 +168,7 @@ input::placeholder{color:var(--tx3)}
   </div>
   <div class="foot" id="foot">
     <button class="btn" id="mbtn" onclick="mainAct()" disabled>generate images</button>
-    <button class="btn-g" id="rbtn" style="display:none" onclick="genImages()">regenerate</button>
+    <button class="btn-g" id="rbtn" style="display:none" onclick="genImages()">regenerate images</button>
   </div>
 </div>
 
@@ -174,7 +177,7 @@ const PW='wearth_insta123';
 const FAL='c9d35e47-26a0-4a74-b24b-4075ecc4b1c0:cf04ed86e9925a8d27fc7f93b7cb7c19';
 const UNS='-Nb1r9vFe5Tz2IIRse00Nyfx9m4aVt-aTqm36ITrkEk';
 const HOOK='https://hook.eu1.make.com/h3ebzbkj633q6qrokwxeosywe5qu8bw4';
-let src='fal',selImg=null,selCap=null,composedUrl=null,cur='st-mood';
+let src='fal',selCap=null,composedUrl=null,cur='st-mood';
 
 function login(){
   const v=document.getElementById('pwd').value;
@@ -192,22 +195,38 @@ function setSrc(s){src=s;['fal','unsplash','both'].forEach((x,i)=>document.getEl
 function goTo(id){
   document.querySelectorAll('.step').forEach(s=>s.classList.remove('on'));
   document.getElementById(id).classList.add('on');
-  cur=id;document.getElementById('abody').scrollTop=0;updateFoot();
+  cur=id;
+  document.getElementById('abody').scrollTop=0;
+  updateFoot();
 }
 
 function updateFoot(){
-  const mb=document.getElementById('mbtn'),rb=document.getElementById('rbtn'),ft=document.getElementById('foot');
-  if(cur==='st-mood'){ft.style.display='block';mb.style.display='block';rb.style.display='none';mb.textContent='generate images';mb.disabled=!document.getElementById('mood').value.trim()}
-  else if(cur==='st-images'){ft.style.display='block';mb.style.display='none';rb.style.display='block'}
-  else if(cur==='st-captions'){ft.style.display='block';mb.style.display='block';rb.style.display='none';mb.textContent='post to instagram';mb.disabled=!selCap}
-  else{ft.style.display='none'}
+  const mb=document.getElementById('mbtn'),rb=document.getElementById('rbtn');
+  if(cur==='st-mood'){
+    mb.style.display='block';rb.style.display='none';
+    mb.textContent='generate images';
+    mb.disabled=!document.getElementById('mood').value.trim();
+  } else if(cur==='st-images'){
+    mb.style.display='none';rb.style.display='block';
+  } else if(cur==='st-captions'){
+    mb.style.display='block';rb.style.display='none';
+    mb.textContent='post to instagram';
+    mb.disabled=!selCap;
+  } else {
+    mb.style.display='none';rb.style.display='none';
+  }
 }
 
-function mainAct(){if(cur==='st-mood')genImages();else if(cur==='st-captions')postNow()}
+function mainAct(){
+  if(cur==='st-mood')genImages();
+  else if(cur==='st-captions')postNow();
+}
 
 async function genImages(){
-  const mood=document.getElementById('mood').value.trim();if(!mood)return;
-  selImg=null;selCap=null;composedUrl=null;goTo('st-images');
+  const mood=document.getElementById('mood').value.trim();
+  if(!mood)return;
+  selCap=null;composedUrl=null;
+  goTo('st-images');
   document.getElementById('iload').style.display='flex';
   document.getElementById('igrid').style.display='none';
   document.getElementById('ierr').style.display='none';
@@ -216,81 +235,114 @@ async function genImages(){
     if(src==='fal')urls=await getFal(mood,4);
     else if(src==='unsplash')urls=await getUns(mood,4);
     else{const[f,u]=await Promise.all([getFal(mood,2),getUns(mood,2)]);urls=[...f,...u]}
-    if(!urls.length)throw new Error('empty');
+    if(!urls.length)throw new Error('no images returned');
     document.getElementById('iload').style.display='none';
     const g=document.getElementById('igrid');g.innerHTML='';
     urls.forEach((u,i)=>{
       const d=document.createElement('div');d.className='ic';
       const badge=src==='both'?(i<2?'ai':'photo'):src==='unsplash'?'photo':'ai';
       d.innerHTML=`<img src="${u}" loading="lazy"/><div class="tk"><svg viewBox="0 0 11 11"><polyline points="1.5,5.5 4.5,8.5 9.5,2.5"/></svg></div><div class="ibadge">${badge}</div>`;
-      d.onclick=()=>pickImg(u,d);g.appendChild(d);
+      d.onclick=()=>pickImg(u,d);
+      g.appendChild(d);
     });
-    g.style.display='grid';updateFoot();
+    g.style.display='grid';
+    updateFoot();
   }catch(e){
     document.getElementById('iload').style.display='none';
     document.getElementById('ierr').style.display='block';
-    document.getElementById('ierr').textContent='generation failed — try real photos';
+    document.getElementById('ierr').textContent='image generation failed — try real photos';
     updateFoot();
   }
 }
 
 async function getFal(mood,n){
-  const prompt=`editorial luxury activewear photography, ${mood}, plant-based eucalyptus fabric, natural movement, soft natural light, minimalist aesthetic, no text no logos, high quality fashion photography, 4:5 portrait ratio`;
-  const res=await Promise.all(Array(n).fill(0).map(()=>fetch('https://fal.run/fal-ai/flux/dev',{method:'POST',headers:{'Authorization':`Key ${FAL}`,'Content-Type':'application/json'},body:JSON.stringify({prompt,image_size:'portrait_4_3',num_inference_steps:28,guidance_scale:3.5,num_images:1})}).then(r=>r.json())));
+  const prompt=`editorial luxury activewear photography, ${mood}, plant-based eucalyptus fabric, natural movement, soft natural light, minimalist aesthetic, no text no logos, high quality fashion photography`;
+  const res=await Promise.all(Array(n).fill(0).map(()=>
+    fetch('https://fal.run/fal-ai/flux/dev',{
+      method:'POST',
+      headers:{'Authorization':`Key ${FAL}`,'Content-Type':'application/json'},
+      body:JSON.stringify({prompt,image_size:'portrait_4_3',num_inference_steps:28,guidance_scale:3.5,num_images:1})
+    }).then(r=>r.json())
+  ));
   return res.map(r=>r.images?.[0]?.url).filter(Boolean);
 }
 
 async function getUns(mood,n){
   const q=encodeURIComponent(mood.split(',')[0]+' activewear woman nature');
   const r=await fetch(`https://api.unsplash.com/search/photos?query=${q}&per_page=${n}&orientation=portrait&client_id=${UNS}`);
-  const d=await r.json();return(d.results||[]).map(p=>p.urls.regular);
+  const d=await r.json();
+  return(d.results||[]).map(p=>p.urls.regular);
 }
 
 async function pickImg(url,el){
-  selImg=url;
   document.querySelectorAll('.ic').forEach(c=>c.classList.remove('sel'));
   el.classList.add('sel');
+  selCap=null;composedUrl=null;
   goTo('st-captions');
-  document.getElementById('cload').style.display='flex';
+  document.getElementById('cload').style.display='block';
   document.getElementById('caption-content').style.display='none';
   document.getElementById('cerr').style.display='none';
   document.getElementById('clist').innerHTML='';
-  selCap=null;composedUrl=null;updateFoot();
+  updateFoot();
 
   const mood=document.getElementById('mood').value.trim();
   try{
-    const resp=await fetch('/api/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mood,image_url:url})});
+    const resp=await fetch('/api/generate',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({mood,image_url:url})
+    });
     const data=await resp.json();
-    if(data.error)throw new Error(data.error);
+    if(data.error)throw new Error(data.error+'\n'+data.trace);
 
     composedUrl=data.image_url;
     document.getElementById('composed-img').src=composedUrl;
     document.getElementById('cload').style.display='none';
     document.getElementById('caption-content').style.display='block';
 
-    const cap=data.caption;
-    const d=document.createElement('div');d.className='cc';
-    d.innerHTML=`<div class="cn">caption</div>${cap}`;
-    d.onclick=()=>{selCap=cap;d.classList.add('sel');updateFoot()};
-    document.getElementById('clist').appendChild(d);
+    const captions=data.captions||[data.caption||''];
+    captions.forEach((cap,i)=>{
+      const d=document.createElement('div');
+      d.className='cc';
+      d.innerHTML=`<div class="cn">option ${i+1}</div>${cap}`;
+      d.onclick=()=>{
+        selCap=cap;
+        document.querySelectorAll('.cc').forEach((c,j)=>c.classList.toggle('sel',j===i));
+        updateFoot();
+      };
+      document.getElementById('clist').appendChild(d);
+    });
 
   }catch(e){
     document.getElementById('cload').style.display='none';
     document.getElementById('cerr').style.display='block';
-    document.getElementById('cerr').textContent='generation failed — try again';
+    document.getElementById('cerr').textContent='generation failed — go back and try again';
   }
 }
 
 async function postNow(){
   if(!composedUrl||!selCap)return;
-  const mb=document.getElementById('mbtn');mb.disabled=true;mb.textContent='posting...';
+  const mb=document.getElementById('mbtn');
+  mb.disabled=true;mb.textContent='posting...';
   try{
-    await fetch(HOOK,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({image_url:composedUrl,caption:selCap})});
+    await fetch(HOOK,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({image_url:composedUrl,caption:selCap})
+    });
     goTo('st-success');
-  }catch(e){mb.textContent='failed — try again';mb.disabled=false}
+  }catch(e){
+    mb.textContent='failed — try again';
+    mb.disabled=false;
+  }
 }
 
-function startOver(){selImg=null;selCap=null;composedUrl=null;document.getElementById('mood').value='';goTo('st-mood');updateFoot()}
+function startOver(){
+  selCap=null;composedUrl=null;
+  document.getElementById('mood').value='';
+  goTo('st-mood');
+  updateFoot();
+}
 </script>
 </body>
 </html>
