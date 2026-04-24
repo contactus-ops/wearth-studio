@@ -1,47 +1,42 @@
 from flask import Flask, send_file, request, jsonify
 import os
 import requests
-import base64
 import json
+import traceback
 
 app = Flask(__name__)
 
-IMGBB_KEY = 'e1b80ca6ca87d1afe6a114b80e21cbe3'
 COMPOSITOR_URL = 'https://web-production-48b5f.up.railway.app/compose'
+ANTHROPIC_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
 
-WEARTH_PROMPT = """You are writing Instagram content for WEARTH — Indian activewear made from plant-based eucalyptus. Founded by Shai in India.
-
-The WEARTH tribe: wakes up early because they want to. reads ingredient labels without being asked. switched to natural products quietly, no announcement. moves because it feels good, not for content. done with synthetic, done with fast, done with things that look good but feel wrong.
-
-Mood today: {mood}
-
-Generate ONE Instagram post.
-
-HEADLINE (goes on the image):
-- Maximum 6 words
-- All lowercase
-- Ends with a period
-- Pure feeling or truth — no product mentions
-- Examples: 'your skin breathes differently here.' / 'soft. breathable. from trees.' / 'made to move with you.'
-
-TAGLINE (sits below headline on image):
-- 2-4 words only
-- Format exactly: [words] · wearth
-- Examples: 'move greener · wearth' / 'plant-based · wearth' / 'eucalyptus · wearth'
-- Never use TENCEL or lyocell
-
-CAPTION (Instagram post text):
-- 100-150 words
-- Real person thinking out loud — not a brand, not a copywriter, not an AI
-- Short sentences. Uneven rhythm.
-- No em dashes, no rhetorical questions
-- No words: sacred, ritual, intentional, conscious, shift, journey
-- No tricolon patterns, no exclamation marks
-- Weave in eucalyptus fabric truth naturally
-- End with: #WearthActive #PlantBasedActivewear #IndianActivewear #NoPolyester #EucalyptusActivewear #MoveWithIntention #ActivewearIndia #WorthTheSwitch
-
-CRITICAL: Return ONLY valid JSON. Start with { and end with }.
-{"headline": "your headline here", "tagline": "your tagline here", "caption": "your full caption here"}"""
+WEARTH_PROMPT = (
+    "You are writing Instagram content for WEARTH — Indian activewear made from plant-based eucalyptus. Founded by Shai in India.\n\n"
+    "The WEARTH tribe: wakes up early because they want to. reads ingredient labels without being asked. "
+    "switched to natural products quietly, no announcement. moves because it feels good, not for content. "
+    "done with synthetic, done with fast, done with things that look good but feel wrong.\n\n"
+    "Mood today: MOOD_PLACEHOLDER\n\n"
+    "Generate ONE Instagram post with the following parts.\n\n"
+    "HEADLINE (goes on the image):\n"
+    "- Maximum 6 words, all lowercase, ends with a period\n"
+    "- Pure feeling or truth, no product mentions\n"
+    "- Examples: your skin breathes differently here. / made to move with you.\n\n"
+    "TAGLINE (sits below headline on image):\n"
+    "- 2-4 words only, format: words dot wearth like: plant-based · wearth\n"
+    "- Never use TENCEL or lyocell\n\n"
+    "THREE CAPTIONS (Instagram post text options for Shai to choose from):\n"
+    "- Each 100-150 words\n"
+    "- Real person thinking out loud, not a brand, not a copywriter, not AI\n"
+    "- Short sentences. Uneven rhythm. Like texting a friend who gets it.\n"
+    "- No em dashes, no rhetorical questions, no exclamation marks\n"
+    "- No words: sacred, ritual, intentional, conscious, shift, journey, game-changer\n"
+    "- No tricolon patterns like word. word. word.\n"
+    "- Weave in eucalyptus fabric truth naturally, never as a lecture\n"
+    "- Each must end with: #WearthActive #PlantBasedActivewear #IndianActivewear #NoPolyester #EucalyptusActivewear #MoveWithIntention #ActivewearIndia #WorthTheSwitch\n\n"
+    "Return ONLY a JSON object. No markdown. No code fences. No explanation.\n"
+    "Start with { and end with }.\n"
+    "Use exactly these keys: headline, tagline, captions (array of 3 strings).\n"
+    "Example structure: {\"headline\": \"...\", \"tagline\": \"...\", \"captions\": [\"caption1\", \"caption2\", \"caption3\"]}"
+)
 
 
 @app.route('/')
@@ -66,49 +61,66 @@ def generate():
         mood = data.get('mood', '')
         image_url = data.get('image_url', '')
 
-        # Step 1: Generate headline, tagline, caption from Claude
-        resp = requests.post(
+        prompt = WEARTH_PROMPT.replace('MOOD_PLACEHOLDER', mood)
+
+        claude_resp = requests.post(
             'https://api.anthropic.com/v1/messages',
             headers={
                 'Content-Type': 'application/json',
-                'x-api-key': os.environ.get('ANTHROPIC_API_KEY', ''),
+                'x-api-key': ANTHROPIC_KEY,
                 'anthropic-version': '2023-06-01'
             },
             json={
                 'model': 'claude-sonnet-4-20250514',
-                'max_tokens': 1500,
-                'messages': [{'role': 'user', 'content': WEARTH_PROMPT.replace('{mood}', mood)}]
+                'max_tokens': 2000,
+                'messages': [{'role': 'user', 'content': prompt}]
             },
-            timeout=30
+            timeout=40
         )
-        raw = resp.json()['content'][0]['text']
-        cleaned = raw.replace('```json', '').replace('```', '').strip()
-        parsed = json.loads(cleaned)
 
-        # Step 2: Send to Railway compositor
+        claude_data = claude_resp.json()
+        raw_text = claude_data['content'][0]['text'].strip()
+
+        if '```' in raw_text:
+            parts = raw_text.split('```')
+            raw_text = parts[1] if len(parts) > 1 else parts[0]
+            if raw_text.startswith('json'):
+                raw_text = raw_text[4:]
+            raw_text = raw_text.strip()
+
+        parsed = json.loads(raw_text)
+        headline = parsed.get('headline', 'move with intention.')
+        tagline = parsed.get('tagline', 'plant-based · wearth')
+        captions = parsed.get('captions', [parsed.get('caption', '')])
+        if not isinstance(captions, list):
+            captions = [captions]
+
         comp_resp = requests.post(
             COMPOSITOR_URL,
             json={
                 'photo_url': image_url,
-                'main_text': parsed['headline'],
-                'sub_text': parsed['tagline'],
+                'main_text': headline,
+                'sub_text': tagline,
                 'logo_base64': ''
             },
             timeout=60
         )
+
         comp_data = comp_resp.json()
         stable_url = comp_data.get('url', image_url)
 
         return jsonify({
             'image_url': stable_url,
-            'headline': parsed['headline'],
-            'tagline': parsed['tagline'],
-            'caption': parsed['caption']
+            'headline': headline,
+            'tagline': tagline,
+            'captions': captions
         })
 
     except Exception as e:
-        import traceback
-        return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
+        return jsonify({
+            'error': str(e),
+            'trace': traceback.format_exc()
+        }), 500
 
 
 @app.route('/<path:path>')
