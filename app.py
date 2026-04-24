@@ -77,7 +77,7 @@ def generate():
             json={
                 'model': 'claude-sonnet-4-20250514',
                 'max_tokens': 1500,
-                'messages': [{'role': 'user', 'content': WEARTH_PROMPT.format(mood=mood)}]
+                'messages': [{'role': 'user', 'content': WEARTH_PROMPT.replace('{mood}', mood)}]
             },
             timeout=30
         )
