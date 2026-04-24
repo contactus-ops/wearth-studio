@@ -4,43 +4,78 @@ import requests
 
 app = Flask(__name__)
 
+WEARTH_PROMPT = """You are writing Instagram captions for WEARTH — Indian activewear made from plant-based eucalyptus. Founded by Shai in India.
+
+The WEARTH tribe: wakes up early because they want to. reads ingredient labels without being asked. switched to natural products quietly, no announcement. moves because it feels good, not for content. done with synthetic, done with fast, done with things that look good but feel wrong.
+
+Mood today: {mood}
+
+Write 3 different captions. Each 100-150 words. Rules:
+- Real person thinking out loud — not a brand, not a copywriter, not an AI
+- Short sentences. Uneven rhythm. Like someone texting a friend who gets it.
+- Specific and grounded. Real sensations. Real moments.
+- No em dashes used for dramatic effect
+- No rhetorical questions
+- No words: sacred, ritual, intentional, conscious, frequency, shift, journey, game-changer
+- No tricolon rhythm patterns (word. word. word.) — dead giveaway
+- No exclamation marks ever
+- No sentences starting with There's a or It's not
+- Weave in eucalyptus fabric truth naturally — not as a lecture
+- End with one blank line then exactly: #WearthActive #PlantBasedActivewear #IndianActivewear #NoPolyester #EucalyptusActivewear #MoveWithIntention #ActivewearIndia #WorthTheSwitch
+
+Return ONLY a valid JSON array of 3 strings. No markdown. No explanation. Start with ["""
+
+
 @app.route('/')
 def index():
     return send_file('index.html')
+
 
 @app.route('/manifest.json')
 def manifest():
     return send_file('manifest.json')
 
+
 @app.route('/sw.js')
 def sw():
     return send_file('sw.js')
 
+
 @app.route('/api/captions', methods=['POST'])
 def captions():
-    data = request.json
-    mood = data.get('mood', '')
-    resp = requests.post(
-        'https://api.anthropic.com/v1/messages',
-        headers={
-            'Content-Type': 'application/json',
-            'x-api-key': os.environ.get('ANTHROPIC_API_KEY', ''),
-            'anthropic-version': '2023-06-01'
-        },
-        json={
-            'model': 'claude-sonnet-4-20250514',
-            'max_tokens': 1200,
-            'messages': [{
-                'role': 'user',
-                'content': f'Write 3 Instagram captions for WEARTH — Indian activewear made from plant-based eucalyptus. Founded by Shai in India. Real human voice, never AI-sounding. No TENCEL or lyocell. No polyester positive framing. Lowercase tone, short punchy lines, no exclamation marks. Mood: {mood}.\n\nEnd each with: #WearthActive #PlantBasedActivewear #IndianActivewear #NoPolyester #EucalyptusActivewear #MoveWithIntention\n\nReturn ONLY a JSON array of 3 strings. No markdown. Start with ['
-            }]
-        }
-    )
-    return jsonify(resp.json())
+    try:
+        data = request.json
+        mood = data.get('mood', '')
+
+        resp = requests.post(
+            'https://api.anthropic.com/v1/messages',
+            headers={
+                'Content-Type': 'application/json',
+                'x-api-key': os.environ.get('ANTHROPIC_API_KEY', ''),
+                'anthropic-version': '2023-06-01'
+            },
+            json={
+                'model': 'claude-sonnet-4-20250514',
+                'max_tokens': 1500,
+                'messages': [{
+                    'role': 'user',
+                    'content': WEARTH_PROMPT.format(mood=mood)
+                }]
+            },
+            timeout=30
+        )
+        return jsonify(resp.json())
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 
 @app.route('/<path:path>')
 def static_files(path):
-    return send_file(path)
+    try:
+        return send_file(path)
+    except Exception:
+        return '', 404
+
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
