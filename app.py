@@ -130,41 +130,20 @@ def tryon():
             "wearing plain fitted athletic wear, no logos, high quality photo"
         )
         try:
-            # Submit to queue
-            flux_submit = requests.post(
-                'https://queue.fal.run/fal-ai/flux/dev',
+            # Use synchronous fal.run endpoint with long timeout
+            flux_resp = requests.post(
+                'https://fal.run/fal-ai/flux/dev',
                 headers=fal_headers,
-                json={'input': {'prompt': model_prompt, 'image_size': 'portrait_4_3', 'num_inference_steps': 28, 'guidance_scale': 3.5, 'num_images': 1}},
-                timeout=30
+                json={'prompt': model_prompt, 'image_size': 'portrait_4_3', 'num_inference_steps': 28, 'guidance_scale': 3.5, 'num_images': 1},
+                timeout=120
             )
-            flux_submit.raise_for_status()
-            flux_request_id = flux_submit.json()['request_id']
-
-            # Poll flux
-            model_url = ''
-            for _ in range(30):
-                time.sleep(3)
-                fs = requests.get(
-                    f'https://queue.fal.run/fal-ai/flux/dev/requests/{flux_request_id}/status',
-                    headers=fal_headers, timeout=15
-                )
-                fs_status = fs.json().get('status', '')
-                if fs_status == 'COMPLETED':
-                    fr = requests.get(
-                        f'https://queue.fal.run/fal-ai/flux/dev/requests/{flux_request_id}',
-                        headers=fal_headers, timeout=15
-                    )
-                    fr_data = fr.json()
-                    imgs = fr_data.get('images', []) or fr_data.get('output', {}).get('images', [])
-                    if imgs:
-                        model_url = imgs[0].get('url') if isinstance(imgs[0], dict) else imgs[0]
-                    break
-                elif fs_status in ('FAILED', 'ERROR'):
-                    return jsonify({'error': 'Flux model generation failed', 'step': 'flux', 'raw': fs.json()}), 500
-
+            if flux_resp.status_code != 200 or not flux_resp.text.strip():
+                return jsonify({'error': f'Flux HTTP {flux_resp.status_code}', 'step': 'flux', 'body': flux_resp.text[:300]}), 500
+            flux_data = flux_resp.json()
+            imgs = flux_data.get('images', [])
+            model_url = imgs[0].get('url') if imgs and isinstance(imgs[0], dict) else (imgs[0] if imgs else '')
             if not model_url:
-                return jsonify({'error': 'Flux returned no image', 'step': 'flux'}), 500
-
+                return jsonify({'error': 'Flux returned no image', 'step': 'flux', 'raw': flux_data}), 500
         except Exception as e:
             return jsonify({'error': f'Flux failed: {str(e)}', 'step': 'flux', 'trace': traceback.format_exc()}), 500
 
