@@ -1,29 +1,46 @@
 from flask import Flask, send_file, request, jsonify
 import os
 import requests
+import base64
 
 app = Flask(__name__)
 
-WEARTH_PROMPT = """You are writing Instagram captions for WEARTH — Indian activewear made from plant-based eucalyptus. Founded by Shai in India.
+IMGBB_KEY = 'e1b80ca6ca87d1afe6a114b80e21cbe3'
+COMPOSITOR_URL = 'https://web-production-48b5f.up.railway.app/compose'
+
+WEARTH_PROMPT = """You are writing Instagram content for WEARTH — Indian activewear made from plant-based eucalyptus. Founded by Shai in India.
 
 The WEARTH tribe: wakes up early because they want to. reads ingredient labels without being asked. switched to natural products quietly, no announcement. moves because it feels good, not for content. done with synthetic, done with fast, done with things that look good but feel wrong.
 
 Mood today: {mood}
 
-Write 3 different captions. Each 100-150 words. Rules:
-- Real person thinking out loud — not a brand, not a copywriter, not an AI
-- Short sentences. Uneven rhythm. Like someone texting a friend who gets it.
-- Specific and grounded. Real sensations. Real moments.
-- No em dashes used for dramatic effect
-- No rhetorical questions
-- No words: sacred, ritual, intentional, conscious, frequency, shift, journey, game-changer
-- No tricolon rhythm patterns (word. word. word.) — dead giveaway
-- No exclamation marks ever
-- No sentences starting with There's a or It's not
-- Weave in eucalyptus fabric truth naturally — not as a lecture
-- End with one blank line then exactly: #WearthActive #PlantBasedActivewear #IndianActivewear #NoPolyester #EucalyptusActivewear #MoveWithIntention #ActivewearIndia #WorthTheSwitch
+Generate ONE Instagram post.
 
-Return ONLY a valid JSON array of 3 strings. No markdown. No explanation. Start with ["""
+HEADLINE (goes on the image):
+- Maximum 6 words
+- All lowercase
+- Ends with a period
+- Pure feeling or truth — no product mentions
+- Examples: 'your skin breathes differently here.' / 'soft. breathable. from trees.' / 'made to move with you.'
+
+TAGLINE (sits below headline on image):
+- 2-4 words only
+- Format exactly: [words] · wearth
+- Examples: 'move greener · wearth' / 'plant-based · wearth' / 'eucalyptus · wearth'
+- Never use TENCEL or lyocell
+
+CAPTION (Instagram post text):
+- 100-150 words
+- Real person thinking out loud — not a brand, not a copywriter, not an AI
+- Short sentences. Uneven rhythm.
+- No em dashes, no rhetorical questions
+- No words: sacred, ritual, intentional, conscious, shift, journey
+- No tricolon patterns, no exclamation marks
+- Weave in eucalyptus fabric truth naturally
+- End with: #WearthActive #PlantBasedActivewear #IndianActivewear #NoPolyester #EucalyptusActivewear #MoveWithIntention #ActivewearIndia #WorthTheSwitch
+
+CRITICAL: Return ONLY valid JSON. Start with { and end with }.
+{"headline": "your headline here", "tagline": "your tagline here", "caption": "your full caption here"}"""
 
 
 @app.route('/')
@@ -41,37 +58,14 @@ def sw():
     return send_file('sw.js')
 
 
-IMGBB_KEY = 'e1b80ca6ca87d1afe6a114b80e21cbe3'
-
-@app.route('/api/upload-image', methods=['POST'])
-def upload_image():
-    try:
-        data = request.json
-        image_url = data.get('image_url')
-        r = requests.get(image_url, timeout=30)
-        import base64
-        b64 = base64.b64encode(r.content).decode('utf-8')
-        resp = requests.post(
-            'https://api.imgbb.com/1/upload',
-            data={'key': IMGBB_KEY, 'image': b64}
-        )
-        result = resp.json()
-        all_urls = {
-            'url': result['data'].get('url'),
-            'display_url': result['data'].get('display_url'),
-            'image_url': result['data'].get('image', {}).get('url'),
-            'thumb_url': result['data'].get('thumb', {}).get('url'),
-        }
-        return jsonify({'url': result['data'].get('image', {}).get('url'), 'debug': all_urls})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/captions', methods=['POST'])
-def captions():
+@app.route('/api/generate', methods=['POST'])
+def generate():
     try:
         data = request.json
         mood = data.get('mood', '')
+        image_url = data.get('image_url', '')
 
+        # Step 1: Generate headline, tagline, caption from Claude
         resp = requests.post(
             'https://api.anthropic.com/v1/messages',
             headers={
@@ -82,14 +76,36 @@ def captions():
             json={
                 'model': 'claude-sonnet-4-20250514',
                 'max_tokens': 1500,
-                'messages': [{
-                    'role': 'user',
-                    'content': WEARTH_PROMPT.format(mood=mood)
-                }]
+                'messages': [{'role': 'user', 'content': WEARTH_PROMPT.format(mood=mood)}]
             },
             timeout=30
         )
-        return jsonify(resp.json())
+        raw = resp.json()['content'][0]['text']
+        cleaned = raw.replace('```json', '').replace('```', '').strip()
+        import json
+        parsed = json.loads(cleaned)
+
+        # Step 2: Send to Railway compositor
+        comp_resp = requests.post(
+            COMPOSITOR_URL,
+            json={
+                'photo_url': image_url,
+                'main_text': parsed['headline'],
+                'sub_text': parsed['tagline'],
+                'logo_base64': ''
+            },
+            timeout=60
+        )
+        comp_data = comp_resp.json()
+        stable_url = comp_data.get('url', image_url)
+
+        return jsonify({
+            'image_url': stable_url,
+            'headline': parsed['headline'],
+            'tagline': parsed['tagline'],
+            'caption': parsed['caption']
+        })
+
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
