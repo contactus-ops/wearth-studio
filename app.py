@@ -102,6 +102,7 @@ def generate():
 
 @app.route('/api/tryon', methods=['POST'])
 def tryon():
+    fal_headers = {'Authorization': f'Key {FAL_API_KEY}', 'Content-Type': 'application/json'}
     try:
         data = request.json
         garment_b64 = data.get('garment_b64', '')
@@ -110,43 +111,79 @@ def tryon():
         if not garment_b64:
             return jsonify({'error': 'garment_b64 required'}), 400
 
-        # Upload garment to imgbb
-        upload_resp = requests.post(
-            'https://api.imgbb.com/1/upload',
-            data={'key': IMGBB_API_KEY, 'image': garment_b64},
-            timeout=30
-        )
-        upload_resp.raise_for_status()
-        garment_url = upload_resp.json()['data']['url']
+        # Step 1: Upload garment to imgbb
+        try:
+            upload_resp = requests.post(
+                'https://api.imgbb.com/1/upload',
+                data={'key': IMGBB_API_KEY, 'image': garment_b64},
+                timeout=30
+            )
+            upload_resp.raise_for_status()
+            garment_url = upload_resp.json()['data']['url']
+        except Exception as e:
+            return jsonify({'error': f'imgbb upload failed: {str(e)}', 'step': 'upload'}), 500
 
-        # Generate model image with Flux
+        # Step 2: Generate model image via FAL queue (flux/dev)
         model_prompt = (
             f"professional fashion model, full body, standing pose, {mood}, "
             "neutral expression, studio lighting, clean minimal background, "
             "wearing plain fitted athletic wear, no logos, high quality photo"
         )
-        flux_resp = requests.post(
-            'https://fal.run/fal-ai/flux/dev',
-            headers={'Authorization': f'Key {FAL_API_KEY}', 'Content-Type': 'application/json'},
-            json={'prompt': model_prompt, 'image_size': 'portrait_4_3', 'num_inference_steps': 28, 'guidance_scale': 3.5, 'num_images': 1},
-            timeout=60
-        )
-        model_url = flux_resp.json().get('images', [{}])[0].get('url', '')
-        if not model_url:
-            return jsonify({'error': 'Failed to generate model image'}), 500
+        try:
+            # Submit to queue
+            flux_submit = requests.post(
+                'https://queue.fal.run/fal-ai/flux/dev',
+                headers=fal_headers,
+                json={'input': {'prompt': model_prompt, 'image_size': 'portrait_4_3', 'num_inference_steps': 28, 'guidance_scale': 3.5, 'num_images': 1}},
+                timeout=30
+            )
+            flux_submit.raise_for_status()
+            flux_request_id = flux_submit.json()['request_id']
 
-        # Submit FASHN try-on
-        fal_headers = {'Authorization': f'Key {FAL_API_KEY}', 'Content-Type': 'application/json'}
-        submit_resp = requests.post(
-            'https://queue.fal.run/fal-ai/fashn/tryon/v1.6',
-            headers=fal_headers,
-            json={'input': {'model_image': model_url, 'garment_image': garment_url, 'category': category, 'flat_lay': False}},
-            timeout=30
-        )
-        submit_resp.raise_for_status()
-        request_id = submit_resp.json()['request_id']
+            # Poll flux
+            model_url = ''
+            for _ in range(30):
+                time.sleep(3)
+                fs = requests.get(
+                    f'https://queue.fal.run/fal-ai/flux/dev/requests/{flux_request_id}/status',
+                    headers=fal_headers, timeout=15
+                )
+                fs_status = fs.json().get('status', '')
+                if fs_status == 'COMPLETED':
+                    fr = requests.get(
+                        f'https://queue.fal.run/fal-ai/flux/dev/requests/{flux_request_id}',
+                        headers=fal_headers, timeout=15
+                    )
+                    fr_data = fr.json()
+                    imgs = fr_data.get('images', []) or fr_data.get('output', {}).get('images', [])
+                    if imgs:
+                        model_url = imgs[0].get('url') if isinstance(imgs[0], dict) else imgs[0]
+                    break
+                elif fs_status in ('FAILED', 'ERROR'):
+                    return jsonify({'error': 'Flux model generation failed', 'step': 'flux', 'raw': fs.json()}), 500
 
-        # Poll for result
+            if not model_url:
+                return jsonify({'error': 'Flux returned no image', 'step': 'flux'}), 500
+
+        except Exception as e:
+            return jsonify({'error': f'Flux failed: {str(e)}', 'step': 'flux', 'trace': traceback.format_exc()}), 500
+
+        # Step 3: Submit FASHN try-on
+        try:
+            submit_resp = requests.post(
+                'https://queue.fal.run/fal-ai/fashn/tryon/v1.6',
+                headers=fal_headers,
+                json={'input': {'model_image': model_url, 'garment_image': garment_url, 'category': category, 'flat_lay': False}},
+                timeout=30
+            )
+            submit_resp.raise_for_status()
+            request_id = submit_resp.json()['request_id']
+        except Exception as e:
+            return jsonify({'error': f'FASHN submit failed: {str(e)}', 'step': 'fashn_submit',
+                            'status_code': submit_resp.status_code if 'submit_resp' in dir() else None,
+                            'body': submit_resp.text[:500] if 'submit_resp' in dir() else None}), 500
+
+        # Step 4: Poll FASHN result
         for _ in range(30):
             time.sleep(3)
             status_resp = requests.get(
@@ -164,11 +201,12 @@ def tryon():
                 if images:
                     img_url = images[0].get('url') if isinstance(images[0], dict) else images[0]
                     return jsonify({'image_url': img_url, 'model_url': model_url})
-                return jsonify({'error': 'No images in result'}), 500
+                return jsonify({'error': 'FASHN completed but no images', 'raw': result, 'step': 'fashn_result'}), 500
             elif status in ('FAILED', 'ERROR'):
-                return jsonify({'error': f'Try-on failed: {status}'}), 500
+                return jsonify({'error': f'FASHN job failed', 'step': 'fashn_poll', 'raw': status_resp.json()}), 500
 
-        return jsonify({'error': 'Timed out'}), 500
+        return jsonify({'error': 'FASHN timed out after 90s', 'step': 'fashn_timeout'}), 500
+
     except Exception as e:
         return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
 
