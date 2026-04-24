@@ -100,6 +100,18 @@ def generate():
         return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
 
 
+@app.route('/api/imgbb-test', methods=['GET'])
+def imgbb_test():
+    """Test imgbb with a tiny 1x1 pixel image"""
+    import base64
+    tiny = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
+    try:
+        r = requests.post('https://api.imgbb.com/1/upload', data={'key': IMGBB_API_KEY, 'image': tiny}, timeout=15)
+        return jsonify({'status': r.status_code, 'body': r.text[:300]})
+    except Exception as e:
+        return jsonify({'error': str(e)})
+
+
 @app.route('/api/tryon-test', methods=['GET'])
 def tryon_test():
     """Quick test to verify FAL key works"""
@@ -202,7 +214,7 @@ def tryon():
         return jsonify({'error': 'FASHN timed out after 90s', 'step': 'fashn_timeout'}), 500
 
     except Exception as e:
-        return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
+        return jsonify({'error': str(e), 'step': 'outer', 'trace': traceback.format_exc()}), 500
 
 
 @app.route('/<path:path>')
