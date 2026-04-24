@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0e0c0a">
+<title>WEARTH Studio</title>
+<link rel="manifest" href="/manifest.json">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300;1,400&family=Jost:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0e0c0a;--bg2:#161210;--sf:rgba(255,255,255,0.04);--sf2:rgba(255,255,255,0.08);--bd:rgba(255,255,255,0.1);--bd2:rgba(255,255,255,0.22);--tx:#f5f0ea;--tx2:rgba(245,240,234,0.6);--tx3:rgba(245,240,234,0.32);--ac:#c9a96e;--ac2:rgba(201,169,110,0.12);--err:#e07070;--r:12px}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;overflow:hidden;background:var(--bg)}
+body{font-family:'Jost',sans-serif;color:var(--tx);font-weight:300;font-size:15px}
+.screen{position:fixed;inset:0;display:flex;flex-direction:column;opacity:0;pointer-events:none;transition:opacity .35s}
+.screen.active{opacity:1;pointer-events:all}
+
+/* LOGIN */
+#s-login{align-items:center;justify-content:center;padding:2rem}
+#s-login::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse 80% 50% at 50% 20%,rgba(201,169,110,0.07),transparent);pointer-events:none}
+.li{width:100%;max-width:340px;display:flex;flex-direction:column;align-items:center;gap:2rem;position:relative;z-index:1}
+.bn{font-family:'Cormorant Garamond',serif;font-size:13px;font-weight:400;letter-spacing:8px;color:var(--tx2);text-align:center}
+.bn strong{color:var(--tx);font-weight:500}
+.bs{font-size:10px;letter-spacing:3px;color:var(--tx3);margin-top:6px;text-transform:uppercase;text-align:center}
+.lh{font-family:'Cormorant Garamond',serif;font-size:36px;font-weight:300;text-align:center;line-height:1.15}
+.lf{width:100%;display:flex;flex-direction:column;gap:14px}
+input{width:100%;padding:15px 18px;background:var(--sf);border:.5px solid var(--bd);border-radius:var(--r);color:var(--tx);font-size:15px;font-family:'Jost',sans-serif;font-weight:300;transition:border-color .2s}
+input:focus{outline:none;border-color:var(--bd2)}
+input::placeholder{color:var(--tx3)}
+.er{font-size:12px;color:var(--err);text-align:center;min-height:16px}
+.btn{width:100%;padding:15px;background:var(--ac);color:#0e0c0a;border:none;border-radius:var(--r);font-family:'Jost',sans-serif;font-size:11px;font-weight:500;letter-spacing:3px;text-transform:uppercase;cursor:pointer;transition:opacity .2s,transform .1s}
+.btn:hover{opacity:.88}
+.btn:active{transform:scale(.98)}
+.btn:disabled{opacity:.3;cursor:not-allowed;transform:none}
+.btn-g{width:100%;padding:13px;background:transparent;border:.5px solid var(--bd);border-radius:var(--r);color:var(--tx3);font-size:11px;letter-spacing:2px;text-transform:uppercase;cursor:pointer;font-family:'Jost',sans-serif;margin-top:10px;transition:all .2s}
+.btn-g:hover{border-color:var(--bd2);color:var(--tx2)}
+
+/* APP */
+#s-app{flex-direction:column;background:var(--bg)}
+.hdr{display:flex;align-items:center;justify-content:space-between;padding:1rem 1.5rem;border-bottom:.5px solid var(--bd);flex-shrink:0}
+.hl{font-family:'Cormorant Garamond',serif;font-size:13px;letter-spacing:5px;color:var(--tx2)}
+.hl strong{color:var(--tx);font-weight:500}
+.ho{font-size:11px;letter-spacing:1px;color:var(--tx3);background:none;border:none;cursor:pointer;font-family:'Jost',sans-serif}
+.ho:hover{color:var(--tx2)}
+.body{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:1.5rem}
+.prog{display:flex;gap:5px;justify-content:center;margin-bottom:2rem}
+.pd{width:24px;height:2px;border-radius:2px;background:var(--bd);transition:background .3s}
+.pd.on{background:var(--ac)}
+.pd.was{background:rgba(201,169,110,.35)}
+.lbl{font-size:10px;letter-spacing:3px;color:var(--tx3);text-transform:uppercase;margin-bottom:12px}
+.step{display:none}
+.step.on{display:block}
+
+/* MOOD */
+.mta{width:100%;padding:16px 18px;background:var(--sf);border:.5px solid var(--bd);border-radius:var(--r);color:var(--tx);font-size:17px;font-family:'Cormorant Garamond',serif;font-style:italic;font-weight:300;resize:none;line-height:1.6;transition:border-color .2s}
+.mta:focus{outline:none;border-color:var(--bd2)}
+.mta::placeholder{color:var(--tx3)}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.chip{padding:7px 15px;border-radius:20px;border:.5px solid var(--bd);font-size:12px;color:var(--tx3);cursor:pointer;background:transparent;font-family:'Jost',sans-serif;transition:all .2s}
+.chip:hover{border-color:var(--ac);color:var(--ac)}
+.src-row{display:flex;gap:8px;margin-top:1.5rem}
+.stab{flex:1;padding:10px 6px;border:.5px solid var(--bd);border-radius:var(--r);font-size:11px;letter-spacing:1px;color:var(--tx3);cursor:pointer;background:transparent;text-align:center;font-family:'Jost',sans-serif;transition:all .2s}
+.stab.on{background:var(--ac2);border-color:var(--ac);color:var(--ac)}
+
+/* IMAGES */
+.bk{font-size:11px;letter-spacing:2px;color:var(--tx3);background:none;border:none;cursor:pointer;font-family:'Jost',sans-serif;text-transform:uppercase;margin-bottom:1.5rem;display:block}
+.bk:hover{color:var(--tx2)}
+.igrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.ic{aspect-ratio:4/5;border-radius:var(--r);overflow:hidden;cursor:pointer;border:2px solid transparent;position:relative;background:var(--sf);transition:border-color .2s}
+.ic img{width:100%;height:100%;object-fit:cover;display:block}
+.ic.sel{border-color:var(--ac)}
+.tk{position:absolute;top:8px;right:8px;width:24px;height:24px;background:var(--ac);border-radius:50%;display:none;align-items:center;justify-content:center}
+.ic.sel .tk{display:flex}
+.tk svg{width:11px;height:11px;stroke:#0e0c0a;fill:none;stroke-width:2.5}
+.ibadge{position:absolute;bottom:8px;left:8px;font-size:9px;letter-spacing:1px;padding:3px 8px;border-radius:10px;background:rgba(14,12,10,.75);color:var(--tx3);text-transform:uppercase}
+
+/* CAPTIONS */
+.prev{display:flex;gap:12px;align-items:center;padding:12px 14px;background:var(--sf);border-radius:var(--r);border:.5px solid var(--bd);margin-bottom:1.5rem}
+.prev img{width:42px;height:52px;object-fit:cover;border-radius:6px;flex-shrink:0}
+.prev-lbl{font-size:11px;color:var(--tx3);letter-spacing:1px}
+.cc{padding:16px 18px;margin-bottom:10px;border:.5px solid var(--bd);border-radius:var(--r);cursor:pointer;font-size:14px;line-height:1.75;color:var(--tx2);background:var(--sf);transition:all .2s}
+.cc:hover{border-color:var(--bd2)}
+.cc.sel{border-color:var(--ac);color:var(--tx);background:var(--ac2)}
+.cn{font-size:9px;letter-spacing:2px;color:var(--tx3);margin-bottom:8px;text-transform:uppercase}
+
+/* LOADER */
+.ldr{display:flex;gap:7px;justify-content:center;padding:3rem}
+.ld{width:7px;height:7px;border-radius:50%;background:var(--ac);animation:lp 1.2s ease-in-out infinite}
+.ld:nth-child(2){animation-delay:.2s}
+.ld:nth-child(3){animation-delay:.4s}
+@keyframes lp{0%,80%,100%{opacity:.25;transform:scale(.7)}40%{opacity:1;transform:scale(1.2)}}
+.emsg{font-size:12px;color:var(--err);text-align:center;padding:1rem}
+
+/* FOOT */
+.foot{padding:1rem 1.5rem 1.75rem;flex-shrink:0;border-top:.5px solid var(--bd);background:var(--bg)}
+
+/* SUCCESS */
+.suc{text-align:center;padding:4rem 1rem 2rem}
+.sm{font-family:'Cormorant Garamond',serif;font-size:72px;color:var(--ac);line-height:1;margin-bottom:1.5rem}
+.st{font-family:'Cormorant Garamond',serif;font-size:30px;font-weight:300;margin-bottom:8px}
+.ss{font-size:11px;color:var(--tx3);letter-spacing:3px;margin-bottom:3rem;text-transform:uppercase}
+</style>
+</head>
+<body>
+
+<div class="screen active" id="s-login">
+  <div class="li">
+    <div><div class="bn">WEA<strong>RTH</strong></div><div class="bs">instagram studio</div></div>
+    <div class="lh">Create.<br>Choose.<br>Post.</div>
+    <div class="lf">
+      <input type="password" id="pwd" placeholder="password" onkeydown="if(event.key==='Enter')login()"/>
+      <div class="er" id="lerr"></div>
+      <button class="btn" onclick="login()">enter studio</button>
+    </div>
+  </div>
+</div>
+
+<div class="screen" id="s-app">
+  <div class="hdr">
+    <div class="hl">WEA<strong>RTH</strong> <span style="font-size:10px;letter-spacing:3px;color:var(--tx3)">STUDIO</span></div>
+    <button class="ho" onclick="logout()">sign out</button>
+  </div>
+  <div class="body" id="abody">
+
+    <div class="step on" id="st-mood">
+      <div class="prog"><div class="pd on"></div><div class="pd"></div><div class="pd"></div></div>
+      <div class="lbl">set the mood</div>
+      <textarea class="mta" id="mood" rows="3" placeholder="sunday morning softness, earthy, still..." oninput="checkMood()"></textarea>
+      <div class="chips">
+        <div class="chip" onclick="setM('sunday softness, warm golden light, minimal')">sunday softness</div>
+        <div class="chip" onclick="setM('early morning run, dewy forest, fresh green')">morning run</div>
+        <div class="chip" onclick="setM('strong woman, power, movement, nature')">power</div>
+        <div class="chip" onclick="setM('yoga flow, indoor calm, soft light')">yoga flow</div>
+        <div class="chip" onclick="setM('autumn leaves, barefoot, breathe deep')">autumn</div>
+        <div class="chip" onclick="setM('minimal studio, eucalyptus, clean lines')">studio</div>
+      </div>
+      <div class="src-row">
+        <div class="stab on" id="sf" onclick="setSrc('fal')">AI images</div>
+        <div class="stab" id="su" onclick="setSrc('unsplash')">real photos</div>
+        <div class="stab" id="sb" onclick="setSrc('both')">mix both</div>
+      </div>
+    </div>
+
+    <div class="step" id="st-images">
+      <div class="prog"><div class="pd was"></div><div class="pd on"></div><div class="pd"></div></div>
+      <button class="bk" onclick="goTo('st-mood')">← back</button>
+      <div class="lbl">pick your image</div>
+      <div id="iload" class="ldr"><div class="ld"></div><div class="ld"></div><div class="ld"></div></div>
+      <div id="igrid" class="igrid" style="display:none"></div>
+      <div id="ierr" class="emsg" style="display:none"></div>
+    </div>
+
+    <div class="step" id="st-captions">
+      <div class="prog"><div class="pd was"></div><div class="pd was"></div><div class="pd on"></div></div>
+      <button class="bk" onclick="goTo('st-images')">← back</button>
+      <div class="prev"><img id="pimg" src="" alt=""/><div class="prev-lbl">image selected — now pick a caption</div></div>
+      <div class="lbl">pick your caption</div>
+      <div id="cload" class="ldr" style="display:none"><div class="ld"></div><div class="ld"></div><div class="ld"></div></div>
+      <div id="clist"></div>
+      <div id="cerr" class="emsg" style="display:none"></div>
+    </div>
+
+    <div class="step" id="st-success">
+      <div class="suc">
+        <div class="sm">✦</div>
+        <div class="st">live on instagram</div>
+        <div class="ss">@wearth_active</div>
+        <button class="btn" onclick="startOver()">create another post</button>
+      </div>
+    </div>
+
+  </div>
+  <div class="foot" id="foot">
+    <button class="btn" id="mbtn" onclick="mainAct()" disabled>generate images</button>
+    <button class="btn-g" id="rbtn" style="display:none" onclick="genImages()">regenerate</button>
+  </div>
+</div>
+
+<script>
+const PW='wearth_insta123';
+const FAL='c9d35e47-26a0-4a74-b24b-4075ecc4b1c0:cf04ed86e9925a8d27fc7f93b7cb7c19';
+const UNS='-Nb1r9vFe5Tz2IIRse00Nyfx9m4aVt-aTqm36ITrkEk';
+const HOOK='https://hook.eu1.make.com/h3ebzbkj633q6qrokwxeosywe5qu8bw4';
+const CLURL='https://api.anthropic.com/v1/messages';
+let src='fal',selImg=null,selCap=null,cur='st-mood';
+
+function login(){
+  const v=document.getElementById('pwd').value;
+  if(v===PW){localStorage.setItem('wa','1');activate()}
+  else{const e=document.getElementById('lerr');e.textContent='incorrect password';setTimeout(()=>e.textContent='',2000)}
+}
+function logout(){localStorage.removeItem('wa');document.getElementById('s-app').classList.remove('active');document.getElementById('s-login').classList.add('active');document.getElementById('pwd').value=''}
+function activate(){document.getElementById('s-login').classList.remove('active');document.getElementById('s-app').classList.add('active')}
+window.addEventListener('load',()=>{if(localStorage.getItem('wa'))activate()});
+
+function checkMood(){document.getElementById('mbtn').disabled=!document.getElementById('mood').value.trim()}
+function setM(m){document.getElementById('mood').value=m;document.getElementById('mbtn').disabled=false}
+function setSrc(s){src=s;['fal','unsplash','both'].forEach((x,i)=>document.getElementById(['sf','su','sb'][i]).classList.toggle('on',x===s))}
+
+function goTo(id){
+  document.querySelectorAll('.step').forEach(s=>s.classList.remove('on'));
+  document.getElementById(id).classList.add('on');
+  cur=id;document.getElementById('abody').scrollTop=0;updateFoot();
+}
+
+function updateFoot(){
+  const mb=document.getElementById('mbtn'),rb=document.getElementById('rbtn'),ft=document.getElementById('foot');
+  if(cur==='st-mood'){ft.style.display='block';mb.style.display='block';rb.style.display='none';mb.textContent='generate images';mb.disabled=!document.getElementById('mood').value.trim()}
+  else if(cur==='st-images'){ft.style.display='block';mb.style.display='none';rb.style.display='block'}
+  else if(cur==='st-captions'){ft.style.display='block';mb.style.display='block';rb.style.display='none';mb.textContent='post to instagram';mb.disabled=!selCap}
+  else{ft.style.display='none'}
+}
+
+function mainAct(){if(cur==='st-mood')genImages();else if(cur==='st-captions')postNow()}
+
+async function genImages(){
+  const mood=document.getElementById('mood').value.trim();if(!mood)return;
+  selImg=null;selCap=null;goTo('st-images');
+  document.getElementById('iload').style.display='flex';
+  document.getElementById('igrid').style.display='none';
+  document.getElementById('ierr').style.display='none';
+  try{
+    let urls=[];
+    if(src==='fal')urls=await getFal(mood,4);
+    else if(src==='unsplash')urls=await getUns(mood,4);
+    else{const[f,u]=await Promise.all([getFal(mood,2),getUns(mood,2)]);urls=[...f,...u]}
+    if(!urls.length)throw new Error('empty');
+    document.getElementById('iload').style.display='none';
+    const g=document.getElementById('igrid');g.innerHTML='';
+    urls.forEach((u,i)=>{
+      const d=document.createElement('div');d.className='ic';
+      const badge=src==='both'?(i<2?'ai':'photo'):src==='unsplash'?'photo':'ai';
+      d.innerHTML=`<img src="${u}" loading="lazy"/><div class="tk"><svg viewBox="0 0 11 11"><polyline points="1.5,5.5 4.5,8.5 9.5,2.5"/></svg></div><div class="ibadge">${badge}</div>`;
+      d.onclick=()=>pickImg(u,d);g.appendChild(d);
+    });
+    g.style.display='grid';updateFoot();
+  }catch(e){
+    document.getElementById('iload').style.display='none';
+    document.getElementById('ierr').style.display='block';
+    document.getElementById('ierr').textContent='generation failed — check FAL credits or try real photos';
+    updateFoot();
+  }
+}
+
+async function getFal(mood,n){
+  const prompt=`editorial luxury activewear photography, ${mood}, plant-based eucalyptus fabric, natural movement, soft natural light, minimalist aesthetic, no text no logos, high quality fashion photography`;
+  const res=await Promise.all(Array(n).fill(0).map(()=>fetch('https://fal.run/fal-ai/flux/dev',{method:'POST',headers:{'Authorization':`Key ${FAL}`,'Content-Type':'application/json'},body:JSON.stringify({prompt,image_size:'portrait_4_3',num_inference_steps:28,guidance_scale:3.5,num_images:1})}).then(r=>r.json())));
+  return res.map(r=>r.images?.[0]?.url).filter(Boolean);
+}
+
+async function getUns(mood,n){
+  const q=encodeURIComponent(mood.split(',')[0]+' activewear woman nature');
+  const r=await fetch(`https://api.unsplash.com/search/photos?query=${q}&per_page=${n}&orientation=portrait&client_id=${UNS}`);
+  const d=await r.json();return(d.results||[]).map(p=>p.urls.regular);
+}
+
+async function pickImg(url,el){
+  selImg=url;document.querySelectorAll('.ic').forEach(c=>c.classList.remove('sel'));el.classList.add('sel');
+  document.getElementById('pimg').src=url;goTo('st-captions');
+  document.getElementById('cload').style.display='flex';
+  document.getElementById('clist').innerHTML='';
+  document.getElementById('cerr').style.display='none';
+  selCap=null;updateFoot();
+  const mood=document.getElementById('mood').value.trim();
+  try{
+    const resp=await fetch(CLURL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1200,messages:[{role:'user',content:`Write 3 Instagram captions for WEARTH — Indian activewear made from plant-based eucalyptus. Founded by Shai in India. Real human voice, never AI-sounding. No TENCEL or lyocell. No polyester positive framing. Lowercase tone, short punchy lines, no exclamation marks. Mood: ${mood}.\n\nEnd each with: #WearthActive #PlantBasedActivewear #IndianActivewear #NoPolyester #EucalyptusActivewear #MoveWithIntention\n\nReturn ONLY a JSON array of 3 strings. No markdown. Start with [`}]})});
+    const data=await resp.json();
+    const raw=data.content?.[0]?.text||'[]';
+    const caps=JSON.parse(raw.replace(/```json|```/g,'').trim());
+    document.getElementById('cload').style.display='none';
+    caps.forEach((cap,i)=>{
+      const d=document.createElement('div');d.className='cc';
+      d.innerHTML=`<div class="cn">option ${i+1}</div>${cap}`;
+      d.onclick=()=>{selCap=cap;document.querySelectorAll('.cc').forEach((c,j)=>c.classList.toggle('sel',j===i));updateFoot()};
+      document.getElementById('clist').appendChild(d);
+    });
+  }catch(e){document.getElementById('cload').style.display='none';document.getElementById('cerr').style.display='block';document.getElementById('cerr').textContent='caption generation failed'}
+}
+
+async function postNow(){
+  if(!selImg||!selCap)return;
+  const mb=document.getElementById('mbtn');mb.disabled=true;mb.textContent='posting...';
+  try{
+    await fetch(HOOK,{method:'POST',mode:'no-cors',headers:{'Content-Type':'application/json'},body:JSON.stringify({image_url:selImg,caption:selCap})});
+    goTo('st-success');
+  }catch(e){mb.textContent='failed — try again';mb.disabled=false}
+}
+
+function startOver(){selImg=null;selCap=null;document.getElementById('mood').value='';goTo('st-mood');updateFoot()}
+</script>
+</body>
+</html>
