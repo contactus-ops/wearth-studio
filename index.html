@@ -281,9 +281,13 @@ async function pickImg(url,el){
 
 async function postNow(){
   if(!selImg||!selCap)return;
-  const mb=document.getElementById('mbtn');mb.disabled=true;mb.textContent='posting...';
+  const mb=document.getElementById('mbtn');mb.disabled=true;mb.textContent='uploading image...';
   try{
-    await fetch(HOOK,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({image_url:selImg,caption:selCap})});
+    const up=await fetch('/api/upload-image',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({image_url:selImg})});
+    const upData=await up.json();
+    const stableUrl=upData.url||selImg;
+    mb.textContent='posting...';
+    await fetch(HOOK,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({image_url:stableUrl,caption:selCap})});
     goTo('st-success');
   }catch(e){mb.textContent='failed — try again';mb.disabled=false}
 }
