@@ -100,6 +100,23 @@ def generate():
         return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
 
 
+@app.route('/api/fal-upload-test', methods=['GET'])
+def fal_upload_test():
+    """Test FAL storage upload"""
+    import base64 as b64mod
+    fal_headers = {'Authorization': f'Key {FAL_API_KEY}', 'Content-Type': 'application/json'}
+    try:
+        r = requests.post(
+            'https://rest.alpha.fal.ai/storage/upload/initiate',
+            headers=fal_headers,
+            json={'file_name': 'test.webp', 'content_type': 'image/webp'},
+            timeout=15
+        )
+        return jsonify({'status': r.status_code, 'body': r.text[:500]})
+    except Exception as e:
+        return jsonify({'error': str(e)})
+
+
 @app.route('/api/imgbb-test', methods=['GET'])
 def imgbb_test():
     """Test imgbb with a tiny 1x1 pixel image"""
@@ -138,17 +155,25 @@ def tryon():
         if not garment_b64:
             return jsonify({'error': 'garment_b64 required'}), 400
 
-        # Step 1: Upload garment to imgbb
+        # Step 1: Upload garment to FAL storage (works from any IP)
         try:
+            import base64 as b64mod
+            img_bytes = b64mod.b64decode(garment_b64)
             upload_resp = requests.post(
-                'https://api.imgbb.com/1/upload',
-                data={'key': IMGBB_API_KEY, 'image': garment_b64},
-                timeout=30
+                'https://rest.alpha.fal.ai/storage/upload/initiate',
+                headers=fal_headers,
+                json={'file_name': 'garment.webp', 'content_type': 'image/webp'},
+                timeout=15
             )
-            upload_resp.raise_for_status()
-            garment_url = upload_resp.json()['data']['url']
+            upload_data = upload_resp.json()
+            upload_url = upload_data.get('upload_url', '')
+            garment_url = upload_data.get('file_url', '')
+            if upload_url:
+                requests.put(upload_url, data=img_bytes, headers={'Content-Type': 'image/webp'}, timeout=30)
+            if not garment_url:
+                raise Exception(f'No file_url returned: {upload_data}')
         except Exception as e:
-            return jsonify({'error': f'imgbb upload failed: {str(e)}', 'step': 'upload'}), 500
+            return jsonify({'error': f'FAL upload failed: {str(e)}', 'step': 'upload'}), 500
 
         # Step 2: Generate model image via FAL queue (flux/dev)
         model_prompt = (
