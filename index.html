@@ -184,7 +184,6 @@ const PW='wearth_insta123';
 const FAL='c9d35e47-26a0-4a74-b24b-4075ecc4b1c0:cf04ed86e9925a8d27fc7f93b7cb7c19';
 const UNS='-Nb1r9vFe5Tz2IIRse00Nyfx9m4aVt-aTqm36ITrkEk';
 const HOOK='https://hook.eu1.make.com/h3ebzbkj633q6qrokwxeosywe5qu8bw4';
-const CLURL='https://api.anthropic.com/v1/messages';
 let src='fal',selImg=null,selCap=null,cur='st-mood';
 
 function login(){
@@ -266,7 +265,7 @@ async function pickImg(url,el){
   selCap=null;updateFoot();
   const mood=document.getElementById('mood').value.trim();
   try{
-    const resp=await fetch(CLURL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1200,messages:[{role:'user',content:`Write 3 Instagram captions for WEARTH — Indian activewear made from plant-based eucalyptus. Founded by Shai in India. Real human voice, never AI-sounding. No TENCEL or lyocell. No polyester positive framing. Lowercase tone, short punchy lines, no exclamation marks. Mood: ${mood}.\n\nEnd each with: #WearthActive #PlantBasedActivewear #IndianActivewear #NoPolyester #EucalyptusActivewear #MoveWithIntention\n\nReturn ONLY a JSON array of 3 strings. No markdown. Start with [`}]})});
+    const resp=await fetch('/api/captions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mood:mood})});
     const data=await resp.json();
     const raw=data.content?.[0]?.text||'[]';
     const caps=JSON.parse(raw.replace(/```json|```/g,'').trim());
