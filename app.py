@@ -2,6 +2,7 @@ from flask import Flask, send_file, request, jsonify
 import os
 import requests
 import base64
+import json
 
 app = Flask(__name__)
 
@@ -82,7 +83,6 @@ def generate():
         )
         raw = resp.json()['content'][0]['text']
         cleaned = raw.replace('```json', '').replace('```', '').strip()
-        import json
         parsed = json.loads(cleaned)
 
         # Step 2: Send to Railway compositor
