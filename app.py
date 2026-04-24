@@ -100,6 +100,21 @@ def generate():
         return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
 
 
+@app.route('/api/tryon-test', methods=['GET'])
+def tryon_test():
+    """Quick test to verify FAL key works"""
+    try:
+        r = requests.post(
+            'https://fal.run/fal-ai/flux/dev',
+            headers={'Authorization': f'Key {FAL_API_KEY}', 'Content-Type': 'application/json'},
+            json={'prompt': 'fashion model standing', 'image_size': 'portrait_4_3', 'num_inference_steps': 4, 'num_images': 1},
+            timeout=60
+        )
+        return jsonify({'status': r.status_code, 'body_preview': r.text[:500], 'ok': r.status_code == 200})
+    except Exception as e:
+        return jsonify({'error': str(e)})
+
+
 @app.route('/api/tryon', methods=['POST'])
 def tryon():
     fal_headers = {'Authorization': f'Key {FAL_API_KEY}', 'Content-Type': 'application/json'}
