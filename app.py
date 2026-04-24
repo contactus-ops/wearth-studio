@@ -41,6 +41,25 @@ def sw():
     return send_file('sw.js')
 
 
+IMGBB_KEY = 'e1b80ca6ca87d1afe6a114b80e21cbe3'
+
+@app.route('/api/upload-image', methods=['POST'])
+def upload_image():
+    try:
+        data = request.json
+        image_url = data.get('image_url')
+        r = requests.get(image_url, timeout=30)
+        import base64
+        b64 = base64.b64encode(r.content).decode('utf-8')
+        resp = requests.post(
+            'https://api.imgbb.com/1/upload',
+            data={'key': IMGBB_KEY, 'image': b64}
+        )
+        url = resp.json()['data']['url']
+        return jsonify({'url': url})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/captions', methods=['POST'])
 def captions():
     try:
