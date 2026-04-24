@@ -236,7 +236,7 @@ async function genImages(){
 
 async function getFal(mood,n){
   const prompt=`editorial luxury activewear photography, ${mood}, plant-based eucalyptus fabric, natural movement, soft natural light, minimalist aesthetic, no text no logos, high quality fashion photography, 4:5 portrait ratio`;
-  const res=await Promise.all(Array(n).fill(0).map(()=>fetch('https://fal.run/fal-ai/flux/dev',{method:'POST',headers:{'Authorization':`Key ${FAL}`,'Content-Type':'application/json'},body:JSON.stringify({prompt,image_size:'portrait_4_5',num_inference_steps:28,guidance_scale:3.5,num_images:1})}).then(r=>r.json())));
+  const res=await Promise.all(Array(n).fill(0).map(()=>fetch('https://fal.run/fal-ai/flux/dev',{method:'POST',headers:{'Authorization':`Key ${FAL}`,'Content-Type':'application/json'},body:JSON.stringify({prompt,image_size:'portrait_4_3',num_inference_steps:28,guidance_scale:3.5,num_images:1})}).then(r=>r.json())));
   return res.map(r=>r.images?.[0]?.url).filter(Boolean);
 }
 
