@@ -2,12 +2,16 @@ from flask import Flask, send_file, request, jsonify
 import os
 import requests
 import json
+import time
+import base64
 import traceback
 
 app = Flask(__name__)
 
 COMPOSITOR_URL = 'https://web-production-48b5f.up.railway.app/compose'
 ANTHROPIC_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
+FAL_API_KEY = os.environ.get('FAL_API_KEY', 'c9d35e47-26a0-4a74-b24b-4075ecc4b1c0:cf04ed86e9925a8d27fc7f93b7cb7c19')
+IMGBB_API_KEY = os.environ.get('IMGBB_API_KEY', 'e1b80ca6ca87d1afe6a114b80e21cbe3')
 
 WEARTH_PROMPT = (
     "You are writing Instagram content for WEARTH — Indian activewear made from plant-based eucalyptus. Founded by Shai in India.\n\n"
@@ -115,6 +119,117 @@ def generate():
             'tagline': tagline,
             'captions': captions
         })
+
+    except Exception as e:
+        return jsonify({
+            'error': str(e),
+            'trace': traceback.format_exc()
+        }), 500
+
+
+@app.route('/api/tryon', methods=['POST'])
+def tryon():
+    """
+    Virtual try-on using FASHN v1.6 on FAL.
+    Expects JSON: { garment_b64, garment_category, mood }
+    Returns: { image_url, model_url }
+    """
+    try:
+        data = request.json
+        garment_b64 = data.get('garment_b64', '')
+        category = data.get('garment_category', 'tops')
+        mood = data.get('mood', 'editorial activewear, natural light')
+
+        if not garment_b64:
+            return jsonify({'error': 'garment_b64 required'}), 400
+
+        # Step 1: Upload garment to imgbb
+        upload_resp = requests.post(
+            'https://api.imgbb.com/1/upload',
+            data={'key': IMGBB_API_KEY, 'image': garment_b64},
+            timeout=30
+        )
+        upload_resp.raise_for_status()
+        garment_url = upload_resp.json()['data']['url']
+
+        # Step 2: Generate model image with FAL Flux
+        model_prompt = (
+            f"professional fashion model, full body, standing pose, {mood}, "
+            "neutral expression, studio lighting, clean minimal background, "
+            "wearing plain fitted athletic wear, no logos, high quality photo"
+        )
+        flux_resp = requests.post(
+            'https://fal.run/fal-ai/flux/dev',
+            headers={
+                'Authorization': f'Key {FAL_API_KEY}',
+                'Content-Type': 'application/json'
+            },
+            json={
+                'prompt': model_prompt,
+                'image_size': 'portrait_4_3',
+                'num_inference_steps': 28,
+                'guidance_scale': 3.5,
+                'num_images': 1
+            },
+            timeout=60
+        )
+        flux_data = flux_resp.json()
+        model_url = flux_data.get('images', [{}])[0].get('url', '')
+
+        if not model_url:
+            return jsonify({'error': 'Failed to generate model image', 'raw': flux_data}), 500
+
+        # Step 3: Submit FASHN try-on job
+        fal_headers = {
+            'Authorization': f'Key {FAL_API_KEY}',
+            'Content-Type': 'application/json'
+        }
+
+        submit_resp = requests.post(
+            'https://queue.fal.run/fal-ai/fashn/tryon/v1.6',
+            headers=fal_headers,
+            json={
+                'input': {
+                    'model_image': model_url,
+                    'garment_image': garment_url,
+                    'category': category,
+                    'flat_lay': False
+                }
+            },
+            timeout=30
+        )
+        submit_resp.raise_for_status()
+        request_id = submit_resp.json()['request_id']
+
+        # Step 4: Poll for result (max 90s)
+        for _ in range(30):
+            time.sleep(3)
+            status_resp = requests.get(
+                f'https://queue.fal.run/fal-ai/fashn/tryon/v1.6/requests/{request_id}/status',
+                headers=fal_headers,
+                timeout=15
+            )
+            status = status_resp.json().get('status', '')
+
+            if status == 'COMPLETED':
+                result_resp = requests.get(
+                    f'https://queue.fal.run/fal-ai/fashn/tryon/v1.6/requests/{request_id}',
+                    headers=fal_headers,
+                    timeout=15
+                )
+                result = result_resp.json()
+                images = result.get('images', [])
+                if not images:
+                    images = result.get('output', {}).get('images', [])
+                if images:
+                    img_url = images[0].get('url') if isinstance(images[0], dict) else images[0]
+                    return jsonify({'image_url': img_url, 'model_url': model_url})
+                return jsonify({'error': 'No images in result', 'raw': result}), 500
+
+            elif status in ('FAILED', 'ERROR'):
+                return jsonify({'error': f'Try-on failed: {status}', 'raw': status_resp.json()}), 500
+
+        return jsonify({'error': 'Try-on timed out after 90 seconds'}), 500
 
     except Exception as e:
         return jsonify({
