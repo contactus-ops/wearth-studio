@@ -55,7 +55,7 @@ def upload_image():
             'https://api.imgbb.com/1/upload',
             data={'key': IMGBB_KEY, 'image': b64}
         )
-        url = resp.json()['data']['url']
+        url = resp.json()['data']['image']['url']
         return jsonify({'url': url})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
