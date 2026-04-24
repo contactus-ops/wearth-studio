@@ -283,7 +283,7 @@ async function postNow(){
   if(!selImg||!selCap)return;
   const mb=document.getElementById('mbtn');mb.disabled=true;mb.textContent='posting...';
   try{
-    await fetch(HOOK,{method:'POST',mode:'no-cors',headers:{'Content-Type':'application/json'},body:JSON.stringify({image_url:selImg,caption:selCap})});
+    await fetch(HOOK,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({image_url:selImg,caption:selCap})});
     goTo('st-success');
   }catch(e){mb.textContent='failed — try again';mb.disabled=false}
 }
