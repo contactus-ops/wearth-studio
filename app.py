@@ -20,7 +20,6 @@ def sw():
 def captions():
     data = request.json
     mood = data.get('mood', '')
-    
     resp = requests.post(
         'https://api.anthropic.com/v1/messages',
         headers={
