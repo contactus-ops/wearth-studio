@@ -311,7 +311,7 @@ function login(){
   else{const e=document.getElementById('lerr');e.textContent='incorrect password';setTimeout(()=>e.textContent='',2000)}
 }
 function logout(){localStorage.removeItem('wa');document.getElementById('s-app').classList.remove('active');document.getElementById('s-login').classList.add('active');document.getElementById('pwd').value=''}
-function activate(){document.getElementById('s-login').classList.remove('active');document.getElementById('s-app').classList.add('active')}
+function activate(){document.getElementById('s-login').classList.remove('active');document.getElementById('s-app').classList.add('active');loadLibrary().then(()=>{if(src==='library')renderLibrarySuggest();});}
 window.addEventListener('load',()=>{if(localStorage.getItem('wa'))activate()});
 
 // ── MOOD ──
@@ -740,13 +740,6 @@ function renderLibrarySuggest(){
     <div class="lib-suggest-label">suggested from your library — tap to change</div>
     <img class="lib-suggest-img" src="${selectedLibraryUrl}" onclick="goTo('st-library')" />`;
   checkMood();
-}
-
-// Load library on app activate
-const _origActivate=activate;
-function activate(){
-  _origActivate();
-  loadLibrary().then(()=>{if(src==='library')renderLibrarySuggest();});
 }
 
 function startOver(){
