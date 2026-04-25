@@ -102,7 +102,10 @@ input[type=password]::placeholder{color:var(--tx3)}
 .draft-ta::placeholder{color:var(--tx3)}
 .draft-hint{font-size:10px;color:var(--tx3);padding:6px 16px 10px;letter-spacing:.5px}
 .rephrasing{font-size:11px;color:var(--ac);padding:8px 16px;letter-spacing:1px}
-/* caption edit button */
+.ov-card{padding:20px;border:.5px solid var(--bd);border-radius:var(--r);cursor:pointer;background:var(--sf);transition:all .2s}
+.ov-card:hover{border-color:var(--ac);background:var(--ac2)}
+.ov-title{font-size:15px;color:var(--tx);margin-bottom:6px}
+.ov-sub{font-size:12px;color:var(--tx3);line-height:1.5}
 .cc-edit{font-size:10px;color:var(--tx3);letter-spacing:1px;background:none;border:.5px solid var(--bd);border-radius:6px;padding:3px 8px;cursor:pointer;font-family:'Jost',sans-serif;float:right;margin-left:8px;transition:all .2s}
 .cc-edit:hover{color:var(--ac);border-color:var(--ac)}
 </style>
@@ -187,10 +190,27 @@ input[type=password]::placeholder{color:var(--tx3)}
       <div id="ierr" class="emsg" style="display:none"></div>
     </div>
 
+    <!-- STEP 2.5: OVERLAY CHOICE -->
+    <div class="step" id="st-overlay">
+      <div class="prog"><div class="pd was"></div><div class="pd on"></div><div class="pd"></div></div>
+      <button class="bk" onclick="goTo('st-images')">← back</button>
+      <div class="lbl">add text overlay?</div>
+      <div style="display:flex;flex-direction:column;gap:12px;margin-top:4px">
+        <div class="ov-card" onclick="proceedWithOverlay(true)">
+          <div class="ov-title">yes, add headline + tagline</div>
+          <div class="ov-sub">AI writes a headline and tagline composited onto the image</div>
+        </div>
+        <div class="ov-card" onclick="proceedWithOverlay(false)">
+          <div class="ov-title">no, clean photo only</div>
+          <div class="ov-sub">post the image as-is, just pick a caption</div>
+        </div>
+      </div>
+    </div>
+
     <!-- STEP 3: CAPTIONS -->
     <div class="step" id="st-captions">
       <div class="prog"><div class="pd was"></div><div class="pd was"></div><div class="pd on"></div></div>
-      <button class="bk" onclick="goTo('st-images')">← back</button>
+      <button class="bk" onclick="goTo(pendingImageUrl?'st-overlay':'st-images')">← back</button>
       <div id="cload">
         <div class="processing-msg">compositing image + writing captions...</div>
         <div class="ldr"><div class="ld"></div><div class="ld"></div><div class="ld"></div></div>
@@ -229,6 +249,7 @@ const HOOK='https://hook.eu1.make.com/h3ebzbkj633q6qrokwxeosywe5qu8bw4';
 let src='fal', selCap=null, composedUrl=null, cur='st-mood';
 let uploadedImageUrl=null, uploadedImageB64=null, uploadedContentType=null;
 let draftTimer=null, draftOpen=false;
+let pendingImageUrl=null; // holds selected image while user decides on overlay
 
 // ── AUTH ──
 function login(){
@@ -405,6 +426,8 @@ function updateFoot(){
     mb.textContent=src==='mine'?'use my photo':'generate images';
     if(src==='mine') mb.disabled=!(document.getElementById('mood').value.trim()&&uploadedImageUrl!==undefined&&uploadedImageB64);
     else mb.disabled=!document.getElementById('mood').value.trim();
+  } else if(cur==='st-overlay'){
+    mb.style.display='none';rb.style.display='none';
   } else if(cur==='st-images'){
     mb.style.display='none';rb.style.display='block';
   } else if(cur==='st-captions'){
@@ -497,12 +520,54 @@ async function getUns(mood,n){
 async function pickImg(url,el){
   document.querySelectorAll('.ic').forEach(c=>c.classList.remove('sel'));
   el.classList.add('sel');
+  pendingImageUrl=url;
+  goTo('st-overlay');
+}
+
+async function proceedWithOverlay(withOverlay){
+  const mood=document.getElementById('mood').value.trim();
+  selCap=null;composedUrl=null;
   goTo('st-captions');
   document.getElementById('cload').style.display='block';
   document.getElementById('caption-content').style.display='none';
   document.getElementById('cerr').style.display='none';
   updateFoot();
-  await loadCaptions(url,document.getElementById('mood').value.trim());
+  if(withOverlay){
+    await loadCaptions(pendingImageUrl, mood);
+  } else {
+    // Skip compositor — use raw image, still generate captions
+    await loadCaptionsNoOverlay(pendingImageUrl, mood);
+  }
+}
+
+async function loadCaptionsNoOverlay(imageUrl, mood){
+  // Use raw image URL, still call /api/generate but skip compositor
+  try{
+    const resp=await fetch('/api/generate',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({mood, image_url:imageUrl, skip_composite:true})
+    });
+    const data=await resp.json();
+    if(data.error)throw new Error(data.error);
+    composedUrl=imageUrl; // use raw image for posting
+    document.getElementById('composed-img').src=imageUrl;
+    document.getElementById('cload').style.display='none';
+    document.getElementById('caption-content').style.display='block';
+    const captions=data.captions||[data.caption||''];
+    document.getElementById('clist').innerHTML='';
+    captions.forEach((cap,i)=>{
+      const d=document.createElement('div');
+      d.className='cc';
+      d.innerHTML=`<div class="cn">option ${i+1}</div>${cap}`;
+      d.onclick=()=>{selCap=cap;document.querySelectorAll('.cc').forEach((c,j)=>c.classList.toggle('sel',j===i));updateFoot()};
+      document.getElementById('clist').appendChild(d);
+    });
+  }catch(e){
+    document.getElementById('cload').style.display='none';
+    document.getElementById('cerr').style.display='block';
+    document.getElementById('cerr').textContent='generation failed — go back and try again';
+  }
 }
 
 async function loadCaptions(imageUrl,mood){
