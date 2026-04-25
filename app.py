@@ -103,6 +103,7 @@ def generate():
         data = request.json
         mood = data.get('mood', '')
         image_url = data.get('image_url', '')
+        skip_composite = data.get('skip_composite', False)
 
         # Pick 3 different fabric phrases randomly
         phrases = random.sample(FABRIC_PHRASES, 3)
@@ -135,13 +136,16 @@ def generate():
         if not isinstance(captions, list):
             captions = [captions]
 
-        comp_resp = requests.post(
-            COMPOSITOR_URL,
-            json={'photo_url': image_url, 'main_text': headline, 'sub_text': tagline, 'logo_base64': ''},
-            timeout=60
-        )
-        comp_data = comp_resp.json()
-        stable_url = comp_data.get('url', image_url)
+        if skip_composite:
+            stable_url = image_url
+        else:
+            comp_resp = requests.post(
+                COMPOSITOR_URL,
+                json={'photo_url': image_url, 'main_text': headline, 'sub_text': tagline, 'logo_base64': ''},
+                timeout=60
+            )
+            comp_data = comp_resp.json()
+            stable_url = comp_data.get('url', image_url)
 
         return jsonify({'image_url': stable_url, 'headline': headline, 'tagline': tagline, 'captions': captions})
 
