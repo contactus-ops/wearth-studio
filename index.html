@@ -454,7 +454,7 @@ async function useRephrased(){
     try{
       const r=await fetch('https://fal.run/fal-ai/flux/dev',{
         method:'POST',headers:{'Authorization':`Key ${FAL}`,'Content-Type':'application/json'},
-        body:JSON.stringify({prompt:`editorial activewear photography, ${mood}, natural light, minimalist`,image_size:'portrait_4_3',num_inference_steps:20,num_images:1})
+        body:JSON.stringify({prompt:`WEARTH_ACTIVE activewear, ${mood}, natural light, minimalist`,loras:[{path:WEARTH_LORA,scale:0.85}],image_size:'portrait_4_3',num_inference_steps:20,num_images:1})
       });
       const d=await r.json();imageUrl=d.images?.[0]?.url||'';
     }catch(e){}
@@ -588,12 +588,21 @@ async function genImages(){
   }
 }
 
+const WEARTH_LORA='https://v3b.fal.media/files/b/0a97a8f4/Bj7ElCsDBoVp847JyB265_pytorch_lora_weights.safetensors';
+
 async function getFal(mood,n){
-  const prompt=`editorial luxury activewear photography, ${mood}, plant-based fabric, natural movement, soft natural light, minimalist aesthetic, no text no logos, high quality fashion photography`;
+  const prompt=`WEARTH_ACTIVE activewear, ${mood}, plant-based eucalyptus fabric, natural movement, soft natural light, high quality fashion photography, no text`;
   const res=await Promise.all(Array(n).fill(0).map(()=>
-    fetch('https://fal.run/fal-ai/flux/dev',{
+    fetch('https://fal.run/fal-ai/flux-lora',{
       method:'POST',headers:{'Authorization':`Key ${FAL}`,'Content-Type':'application/json'},
-      body:JSON.stringify({prompt,image_size:'portrait_4_3',num_inference_steps:28,guidance_scale:3.5,num_images:1})
+      body:JSON.stringify({
+        prompt,
+        loras:[{path:WEARTH_LORA,scale:0.85}],
+        image_size:'portrait_4_3',
+        num_inference_steps:28,
+        guidance_scale:3.5,
+        num_images:1
+      })
     }).then(r=>r.json())
   ));
   return res.map(r=>r.images?.[0]?.url).filter(Boolean);
