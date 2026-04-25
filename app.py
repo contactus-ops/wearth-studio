@@ -415,7 +415,7 @@ def kling_status():
         fal_headers = {'Authorization': f'Key {FAL_API_KEY}', 'Content-Type': 'application/json'}
 
         status_resp = requests.get(
-            f'https://queue.fal.run/fal-ai/kling-video/v1.6/standard/image-to-video/requests/{request_id}/status',
+            f'https://queue.fal.run/fal-ai/kling-video/requests/{request_id}/status',
             headers=fal_headers,
             timeout=15
         )
@@ -424,7 +424,7 @@ def kling_status():
 
         if status == 'COMPLETED':
             result_resp = requests.get(
-                f'https://queue.fal.run/fal-ai/kling-video/v1.6/standard/image-to-video/requests/{request_id}',
+                f'https://queue.fal.run/fal-ai/kling-video/requests/{request_id}',
                 headers=fal_headers,
                 timeout=15
             )
