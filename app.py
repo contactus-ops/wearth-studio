@@ -254,6 +254,163 @@ def fal_upload_test():
         return jsonify({'error': str(e)})
 
 
+
+@app.route('/api/kling', methods=['POST'])
+def kling():
+    """
+    Generate a short video from a still image using FAL Kling v1.6.
+    Expects: { image_url, mood }
+    Returns: { video_url }
+    """
+    try:
+        data = request.json
+        image_url = data.get('image_url', '')
+        mood = data.get('mood', 'natural movement, cinematic, soft light')
+
+        if not image_url:
+            return jsonify({'error': 'image_url required'}), 400
+
+        fal_headers = {'Authorization': f'Key {FAL_API_KEY}', 'Content-Type': 'application/json'}
+
+        # Build a natural motion prompt from the mood
+        motion_prompt = (
+            f"subtle natural movement, {mood}, "
+            "gentle fabric sway, soft breeze, cinematic slow motion, "
+            "high quality, smooth loop, no camera shake"
+        )
+
+        # Submit to Kling image-to-video queue
+        submit_resp = requests.post(
+            'https://queue.fal.run/fal-ai/kling-video/v1.6/standard/image-to-video',
+            headers=fal_headers,
+            json={
+                'input': {
+                    'image_url': image_url,
+                    'prompt': motion_prompt,
+                    'duration': '5',
+                    'aspect_ratio': '9:16',
+                    'negative_prompt': 'blur, distortion, ugly, bad quality, watermark, text'
+                }
+            },
+            timeout=30
+        )
+        if submit_resp.status_code != 200:
+            return jsonify({'error': f'Kling submit failed: HTTP {submit_resp.status_code}', 'body': submit_resp.text[:300]}), 500
+
+        request_id = submit_resp.json().get('request_id', '')
+        if not request_id:
+            return jsonify({'error': 'No request_id from Kling', 'raw': submit_resp.json()}), 500
+
+        # Poll for result — Kling takes 60-120 seconds
+        for attempt in range(50):
+            time.sleep(5)
+            status_resp = requests.get(
+                f'https://queue.fal.run/fal-ai/kling-video/v1.6/standard/image-to-video/requests/{request_id}/status',
+                headers=fal_headers,
+                timeout=15
+            )
+            status_data = status_resp.json()
+            status = status_data.get('status', '')
+
+            if status == 'COMPLETED':
+                result_resp = requests.get(
+                    f'https://queue.fal.run/fal-ai/kling-video/v1.6/standard/image-to-video/requests/{request_id}',
+                    headers=fal_headers,
+                    timeout=15
+                )
+                result = result_resp.json()
+                # Kling returns video under different keys
+                video_url = (
+                    result.get('video', {}).get('url') or
+                    result.get('output', {}).get('video', {}).get('url') or
+                    result.get('videos', [{}])[0].get('url') if result.get('videos') else None
+                )
+                if video_url:
+                    return jsonify({'video_url': video_url})
+                return jsonify({'error': 'Kling completed but no video URL', 'raw': result}), 500
+
+            elif status in ('FAILED', 'ERROR'):
+                return jsonify({'error': f'Kling job failed', 'raw': status_data}), 500
+
+        return jsonify({'error': 'Kling timed out after 250 seconds'}), 500
+
+    except Exception as e:
+        return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
+
+
+# ── LIBRARY ──
+# Library stored as a simple JSON file on disk (persists on Railway volume)
+import json as _json
+
+LIBRARY_FILE = 'library.json'
+
+def load_library_data():
+    try:
+        with open(LIBRARY_FILE,'r') as f:
+            return _json.load(f)
+    except:
+        return []
+
+def save_library_data(photos):
+    with open(LIBRARY_FILE,'w') as f:
+        _json.dump(photos, f)
+
+
+@app.route('/api/library', methods=['GET'])
+def get_library():
+    return jsonify({'photos': load_library_data()})
+
+
+@app.route('/api/library/add', methods=['POST'])
+def add_to_library():
+    try:
+        data = request.json
+        image_b64 = data.get('image_b64','')
+        content_type = data.get('content_type','image/jpeg')
+        name = data.get('name','photo')
+        ext = content_type.split('/')[-1]
+
+        import base64 as b64mod, time as _time
+        img_bytes = b64mod.b64decode(image_b64)
+
+        fal_headers = {'Authorization': f'Key {FAL_API_KEY}', 'Content-Type': 'application/json'}
+        key = f'library_{int(_time.time()*1000)}.{ext}'
+
+        # Upload to FAL storage
+        init_resp = requests.post(
+            'https://rest.alpha.fal.ai/storage/upload/initiate',
+            headers=fal_headers,
+            json={'file_name': key, 'content_type': content_type},
+            timeout=15
+        )
+        init_resp.raise_for_status()
+        init_data = init_resp.json()
+        upload_url = init_data.get('upload_url','')
+        file_url = init_data.get('file_url','')
+
+        requests.put(upload_url, data=img_bytes, headers={'Content-Type': content_type}, timeout=30)
+
+        # Save to library
+        photos = load_library_data()
+        photos.insert(0, {'url': file_url, 'key': key, 'name': name})
+        save_library_data(photos)
+
+        return jsonify({'url': file_url, 'key': key})
+    except Exception as e:
+        return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
+
+
+@app.route('/api/library/delete', methods=['POST'])
+def delete_from_library():
+    try:
+        key = request.json.get('key','')
+        photos = load_library_data()
+        photos = [p for p in photos if p.get('key') != key]
+        save_library_data(photos)
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/<path:path>')
 def static_files(path):
     try:
