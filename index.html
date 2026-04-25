@@ -108,6 +108,10 @@ input[type=password]::placeholder{color:var(--tx3)}
 .ov-card:hover{border-color:var(--ac);background:var(--ac2);transform:translateY(-1px);box-shadow:0 3px 10px rgba(45,90,61,0.1)}
 .ov-title{font-size:15px;color:var(--tx);margin-bottom:5px;font-weight:500}
 .ov-sub{font-size:12px;color:var(--tx3);line-height:1.5}
+.lib-del{position:absolute;top:4px;left:4px;width:20px;height:20px;background:rgba(192,57,43,0.85);border-radius:50%;border:none;color:#fff;font-size:13px;cursor:pointer;display:none;align-items:center;justify-content:center;line-height:1}
+.ic:hover .lib-del{display:flex}
+.lib-suggest-img{width:100%;border-radius:var(--r);display:block;border:1.5px solid var(--ac);box-shadow:0 2px 8px rgba(0,0,0,0.08);cursor:pointer;margin-bottom:8px}
+.lib-suggest-label{font-size:11px;color:var(--tx3);text-align:center;margin-bottom:10px}
 </style>
 </head>
 <body>
@@ -149,7 +153,15 @@ input[type=password]::placeholder{color:var(--tx3)}
         <div class="stab" id="su" onclick="setSrc('unsplash')">real photos</div>
         <div class="stab" id="sb" onclick="setSrc('both')">mix both</div>
         <div class="stab" id="sm" onclick="setSrc('mine')">my photo</div>
+        <div class="stab" id="sl" onclick="setSrc('library')">library</div>
       </div>
+
+      <!-- Library suggest box — shown when src=library -->
+      <div id="library-suggest" style="display:none;margin-top:1rem">
+        <div id="lib-suggest-wrap"></div>
+        <button class="btn-g" style="margin-top:0" onclick="goTo('st-library')">manage library ↗</button>
+      </div>
+
       <div id="upload-area" style="display:none;margin-top:1rem">
         <div class="upload-zone" id="upload-zone" onclick="document.getElementById('file-input').click()">
           <div class="uz-icon">↑</div>
@@ -246,6 +258,22 @@ input[type=password]::placeholder{color:var(--tx3)}
       <div id="cerr" class="emsg" style="display:none"></div>
     </div>
 
+    <!-- LIBRARY SCREEN -->
+    <div class="step" id="st-library">
+      <div class="prog"><div class="pd on"></div><div class="pd"></div><div class="pd"></div></div>
+      <button class="bk" onclick="goTo('st-mood')">← back</button>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem">
+        <div class="lbl" style="margin-bottom:0">photo library</div>
+        <button class="btn" style="width:auto;padding:8px 16px;font-size:10px" onclick="document.getElementById('lib-file-input').click()">+ add photo</button>
+      </div>
+      <input type="file" id="lib-file-input" accept="image/*" multiple style="display:none" onchange="addToLibrary(event)"/>
+      <div id="lib-uploading" style="display:none;font-size:11px;color:var(--tx3);text-align:center;padding:1rem">uploading...</div>
+      <div id="lib-grid" class="igrid" style="margin-top:.5rem"></div>
+      <div id="lib-empty" style="text-align:center;padding:3rem 1rem;color:var(--tx3);font-size:13px;display:none">
+        no photos yet — tap + add photo to build your library
+      </div>
+    </div>
+
     <!-- SUCCESS -->
     <div class="step" id="st-success">
       <div class="suc">
@@ -273,6 +301,8 @@ let src='fal', selCap=null, composedUrl=null, cur='st-mood';
 let uploadedImageUrl=null, uploadedImageB64=null, uploadedContentType=null;
 let draftTimer=null, draftOpen=false, lastDraft='';
 let pendingImageUrl=null, isVideoPost=false;
+let libraryPhotos=[]; // {url, key} — loaded from /api/library
+let selectedLibraryUrl=null;
 
 // ── AUTH ──
 function login(){
@@ -288,8 +318,8 @@ window.addEventListener('load',()=>{if(localStorage.getItem('wa'))activate()});
 function checkMood(){
   const has=!!document.getElementById('mood').value.trim();
   const mb=document.getElementById('mbtn');
-  // FIX: check uploadedImageB64, not uploadedImageUrl
   if(src==='mine') mb.disabled=!(has&&uploadedImageB64);
+  else if(src==='library') mb.disabled=!(has&&selectedLibraryUrl);
   else mb.disabled=!has;
 }
 function setM(m){document.getElementById('mood').value=m;checkMood()}
@@ -297,9 +327,11 @@ function setM(m){document.getElementById('mood').value=m;checkMood()}
 // ── SOURCE TABS ──
 function setSrc(s){
   src=s;
-  ['fal','unsplash','both','mine'].forEach((x,i)=>document.getElementById(['sf','su','sb','sm'][i]).classList.toggle('on',x===s));
+  ['fal','unsplash','both','mine','library'].forEach((x,i)=>document.getElementById(['sf','su','sb','sm','sl'][i]).classList.toggle('on',x===s));
   document.getElementById('upload-area').style.display=s==='mine'?'block':'none';
-  document.getElementById('mbtn').textContent=s==='mine'?'use my photo':'generate images';
+  document.getElementById('library-suggest').style.display=s==='library'?'block':'none';
+  document.getElementById('mbtn').textContent=s==='mine'?'use my photo':s==='library'?'use library photo':'generate images';
+  if(s==='library') renderLibrarySuggest();
   checkMood();
 }
 
@@ -331,6 +363,8 @@ async function uploadMyImage(){
   const data=await resp.json();
   if(data.error) throw new Error(data.error);
   uploadedImageUrl=data.url;
+  // Update pendingImageUrl to the real URL now that we have it
+  pendingImageUrl=uploadedImageUrl;
   return uploadedImageUrl;
 }
 
@@ -462,12 +496,17 @@ async function genImages(){
 
   if(src==='mine'){
     if(!uploadedImageB64){alert('Please upload a photo first');return}
-    try{
-      const imgUrl=await uploadMyImage();
-      pendingImageUrl=imgUrl;
-      document.getElementById('overlay-choice').style.display='none';
-      goTo('st-overlay');
-    }catch(e){alert('Upload failed: '+e.message)}
+    pendingImageUrl='data:'+uploadedContentType+';base64,'+uploadedImageB64;
+    document.getElementById('overlay-choice').style.display='none';
+    goTo('st-overlay');
+    return;
+  }
+
+  if(src==='library'){
+    if(!selectedLibraryUrl){alert('Please select a photo from your library');return}
+    pendingImageUrl=selectedLibraryUrl;
+    document.getElementById('overlay-choice').style.display='none';
+    goTo('st-overlay');
     return;
   }
 
@@ -574,13 +613,18 @@ async function proceedWithOverlay(withOverlay){
 // ── CENTRAL CAPTION GENERATOR ──
 async function generateCaptions(mediaUrl, mood, isVideo, withOverlay=false){
   try{
+    // If it's a data URL (my photo), upload to FAL first so compositor can access it
+    let finalUrl=mediaUrl;
+    if(mediaUrl.startsWith('data:')&&uploadedImageB64){
+      try{finalUrl=await uploadMyImage();}catch(e){finalUrl=mediaUrl;}
+    }
     const resp=await fetch('/api/generate',{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({mood, image_url:mediaUrl, skip_composite: !withOverlay})
+      body:JSON.stringify({mood, image_url:finalUrl, skip_composite: !withOverlay})
     });
     const data=await resp.json();
     if(data.error)throw new Error(data.error);
-    composedUrl = withOverlay ? data.image_url : mediaUrl;
+    composedUrl = withOverlay ? data.image_url : finalUrl;
     showMediaPreview(composedUrl, isVideo);
     document.getElementById('cload').style.display='none';
     document.getElementById('caption-content').style.display='block';
@@ -608,9 +652,106 @@ async function postNow(){
   }
 }
 
+// ── LIBRARY ──
+async function loadLibrary(){
+  try{
+    const r=await fetch('/api/library');
+    const data=await r.json();
+    libraryPhotos=data.photos||[];
+  }catch(e){libraryPhotos=[];}
+}
+
+async function addToLibrary(e){
+  const files=Array.from(e.target.files);
+  if(!files.length)return;
+  document.getElementById('lib-uploading').style.display='block';
+  for(const file of files){
+    try{
+      const b64=await new Promise((res,rej)=>{
+        const r=new FileReader();
+        r.onload=ev=>res(ev.target.result.split(',')[1]);
+        r.onerror=rej;
+        r.readAsDataURL(file);
+      });
+      const resp=await fetch('/api/library/add',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({image_b64:b64,content_type:file.type||'image/jpeg',name:file.name})
+      });
+      const data=await resp.json();
+      if(data.url) libraryPhotos.unshift({url:data.url,key:data.key,name:file.name});
+    }catch(err){console.error(err);}
+  }
+  document.getElementById('lib-uploading').style.display='none';
+  e.target.value='';
+  renderLibraryGrid();
+}
+
+async function deleteFromLibrary(key,idx){
+  if(!confirm('Remove this photo from library?'))return;
+  try{
+    await fetch('/api/library/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key})});
+    libraryPhotos.splice(idx,1);
+    if(selectedLibraryUrl===libraryPhotos[idx]?.url) selectedLibraryUrl=null;
+    renderLibraryGrid();
+    renderLibrarySuggest();
+  }catch(e){}
+}
+
+function renderLibraryGrid(){
+  const grid=document.getElementById('lib-grid');
+  const empty=document.getElementById('lib-empty');
+  grid.innerHTML='';
+  if(!libraryPhotos.length){empty.style.display='block';return;}
+  empty.style.display='none';
+  libraryPhotos.forEach((p,i)=>{
+    const d=document.createElement('div');d.className='ic';
+    d.innerHTML=`<img src="${p.url}" loading="lazy"/>
+      <div class="tk"><svg viewBox="0 0 11 11"><polyline points="1.5,5.5 4.5,8.5 9.5,2.5"/></svg></div>
+      <button class="lib-del" onclick="event.stopPropagation();deleteFromLibrary('${p.key}',${i})">×</button>`;
+    d.onclick=()=>{
+      selectedLibraryUrl=p.url;
+      document.querySelectorAll('#lib-grid .ic').forEach((c,j)=>c.classList.toggle('sel',j===i));
+      // go back to mood with this selected
+      goTo('st-mood');
+      setSrc('library');
+      checkMood();
+    };
+    grid.appendChild(d);
+  });
+}
+
+function renderLibrarySuggest(){
+  const wrap=document.getElementById('lib-suggest-wrap');
+  if(!libraryPhotos.length){
+    wrap.innerHTML=`<div style="font-size:12px;color:var(--tx3);padding:.5rem 0 .75rem">library is empty — <span style="color:var(--ac);cursor:pointer" onclick="goTo('st-library')">add photos</span></div>`;
+    selectedLibraryUrl=null;checkMood();return;
+  }
+  // Auto-suggest: pick based on mood keywords, fallback to most recent
+  const mood=document.getElementById('mood').value.toLowerCase();
+  let suggested=libraryPhotos[0];
+  // Simple keyword matching on file names if available
+  if(mood){
+    const match=libraryPhotos.find(p=>(p.name||'').toLowerCase().split(/[\s_-]/).some(w=>mood.includes(w)));
+    if(match) suggested=match;
+  }
+  if(!selectedLibraryUrl) selectedLibraryUrl=suggested.url;
+  wrap.innerHTML=`
+    <div class="lib-suggest-label">suggested from your library — tap to change</div>
+    <img class="lib-suggest-img" src="${selectedLibraryUrl}" onclick="goTo('st-library')" />`;
+  checkMood();
+}
+
+// Load library on app activate
+const _origActivate=activate;
+function activate(){
+  _origActivate();
+  loadLibrary().then(()=>{if(src==='library')renderLibrarySuggest();});
+}
+
 function startOver(){
   selCap=null;composedUrl=null;uploadedImageUrl=null;uploadedImageB64=null;
-  isVideoPost=false;pendingImageUrl=null;lastDraft='';
+  isVideoPost=false;pendingImageUrl=null;lastDraft='';selectedLibraryUrl=null;
   document.getElementById('mood').value='';
   document.getElementById('upload-preview').src='';
   document.getElementById('upload-preview').style.display='none';
