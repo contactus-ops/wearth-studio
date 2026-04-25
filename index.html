@@ -26,9 +26,9 @@ body{font-family:'Jost',sans-serif;color:var(--tx);font-weight:300;font-size:15p
 .bs{font-size:10px;letter-spacing:3px;color:var(--tx3);margin-top:6px;text-transform:uppercase;text-align:center}
 .lh{font-family:'Cormorant Garamond',serif;font-size:36px;font-weight:300;text-align:center;line-height:1.15}
 .lf{width:100%;display:flex;flex-direction:column;gap:14px}
-input{width:100%;padding:15px 18px;background:var(--sf);border:.5px solid var(--bd);border-radius:var(--r);color:var(--tx);font-size:15px;font-family:'Jost',sans-serif;font-weight:300;transition:border-color .2s}
-input:focus{outline:none;border-color:var(--bd2)}
-input::placeholder{color:var(--tx3)}
+input[type=password]{width:100%;padding:15px 18px;background:var(--sf);border:.5px solid var(--bd);border-radius:var(--r);color:var(--tx);font-size:15px;font-family:'Jost',sans-serif;font-weight:300;transition:border-color .2s}
+input[type=password]:focus{outline:none;border-color:var(--bd2)}
+input[type=password]::placeholder{color:var(--tx3)}
 .er{font-size:12px;color:var(--err);text-align:center;min-height:16px}
 .btn{width:100%;padding:15px;background:var(--ac);color:#0e0c0a;border:none;border-radius:var(--r);font-family:'Jost',sans-serif;font-size:11px;font-weight:500;letter-spacing:3px;text-transform:uppercase;cursor:pointer;transition:opacity .2s,transform .1s}
 .btn:hover{opacity:.88}
@@ -57,25 +57,20 @@ input::placeholder{color:var(--tx3)}
 .chip{padding:7px 15px;border-radius:20px;border:.5px solid var(--bd);font-size:12px;color:var(--tx3);cursor:pointer;background:transparent;font-family:'Jost',sans-serif;transition:all .2s}
 .chip:hover{border-color:var(--ac);color:var(--ac)}
 .src-row{display:flex;gap:6px;margin-top:1.5rem;flex-wrap:wrap}
-.stab{flex:1;min-width:60px;padding:10px 6px;border:.5px solid var(--bd);border-radius:var(--r);font-size:10px;letter-spacing:1px;color:var(--tx3);cursor:pointer;background:transparent;text-align:center;font-family:'Jost',sans-serif;transition:all .2s}
+.stab{flex:1;min-width:55px;padding:10px 4px;border:.5px solid var(--bd);border-radius:var(--r);font-size:10px;letter-spacing:.5px;color:var(--tx3);cursor:pointer;background:transparent;text-align:center;font-family:'Jost',sans-serif;transition:all .2s}
 .stab.on{background:var(--ac2);border-color:var(--ac);color:var(--ac)}
-.stab.tryon-tab.on{background:rgba(180,120,200,0.12);border-color:#b478c8;color:#b478c8}
-.tryon-note{font-size:11px;color:var(--tx3);margin-top:12px;line-height:1.6;padding:10px 14px;border:.5px solid var(--bd);border-radius:var(--r);background:var(--sf)}
-.tryon-note strong{color:#b478c8;font-weight:400}
 .bk{font-size:11px;letter-spacing:2px;color:var(--tx3);background:none;border:none;cursor:pointer;font-family:'Jost',sans-serif;text-transform:uppercase;margin-bottom:1.5rem;display:block}
 .bk:hover{color:var(--tx2)}
 .igrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .ic{aspect-ratio:4/5;border-radius:var(--r);overflow:hidden;cursor:pointer;border:2px solid transparent;position:relative;background:var(--sf);transition:border-color .2s}
 .ic img{width:100%;height:100%;object-fit:cover;display:block}
 .ic.sel{border-color:var(--ac)}
-.ic.tryon-card.sel{border-color:#b478c8}
 .tk{position:absolute;top:8px;right:8px;width:24px;height:24px;background:var(--ac);border-radius:50%;display:none;align-items:center;justify-content:center}
 .ic.sel .tk{display:flex}
-.ic.tryon-card.sel .tk{background:#b478c8}
 .tk svg{width:11px;height:11px;stroke:#0e0c0a;fill:none;stroke-width:2.5}
 .ibadge{position:absolute;bottom:8px;left:8px;font-size:9px;letter-spacing:1px;padding:3px 8px;border-radius:10px;background:rgba(14,12,10,.75);color:var(--tx3);text-transform:uppercase}
 .composed-img{width:100%;border-radius:var(--r);display:block;margin-bottom:1.5rem;border:.5px solid var(--bd)}
-.cc{padding:16px 18px;margin-bottom:10px;border:.5px solid var(--bd);border-radius:var(--r);cursor:pointer;font-size:14px;line-height:1.75;color:var(--tx2);background:var(--sf);transition:all .2s}
+.cc{padding:16px 18px;margin-bottom:10px;border:.5px solid var(--bd);border-radius:var(--r);cursor:pointer;font-size:14px;line-height:1.75;color:var(--tx2);background:var(--sf);transition:all .2s;position:relative}
 .cc:hover{border-color:var(--bd2)}
 .cc.sel{border-color:var(--ac);color:var(--tx);background:var(--ac2)}
 .cn{font-size:9px;letter-spacing:2px;color:var(--tx3);margin-bottom:8px;text-transform:uppercase}
@@ -91,10 +86,25 @@ input::placeholder{color:var(--tx3)}
 .st{font-family:'Cormorant Garamond',serif;font-size:30px;font-weight:300;margin-bottom:8px}
 .ss{font-size:11px;color:var(--tx3);letter-spacing:3px;margin-bottom:3rem;text-transform:uppercase}
 .processing-msg{font-size:12px;color:var(--tx3);text-align:center;letter-spacing:2px;text-transform:uppercase;margin-bottom:1rem}
-.tryon-status{font-size:11px;color:#b478c8;text-align:center;letter-spacing:2px;text-transform:uppercase;margin-bottom:.5rem}
-.gender-row{display:flex;gap:8px;margin-bottom:14px}
-.gtab{flex:1;padding:8px;border:.5px solid var(--bd);border-radius:var(--r);font-size:11px;letter-spacing:1px;color:var(--tx3);cursor:pointer;background:transparent;text-align:center;font-family:'Jost',sans-serif;transition:all .2s}
-.gtab.on{background:rgba(180,120,200,0.12);border-color:#b478c8;color:#b478c8}
+/* upload zone */
+.upload-zone{width:100%;aspect-ratio:4/5;border:.5px dashed var(--bd2);border-radius:var(--r);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;cursor:pointer;transition:border-color .2s;background:var(--sf);position:relative;overflow:hidden}
+.upload-zone:hover{border-color:var(--ac)}
+.upload-zone img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.upload-zone .uz-label{font-size:11px;letter-spacing:2px;color:var(--tx3);text-transform:uppercase;position:relative;z-index:1}
+.upload-zone .uz-icon{font-size:28px;position:relative;z-index:1}
+.upload-zone.has-img .uz-label,.upload-zone.has-img .uz-icon{display:none}
+/* write-own draft section */
+.draft-wrap{margin-top:1.5rem;border:.5px solid var(--bd);border-radius:var(--r);overflow:hidden}
+.draft-hdr{padding:10px 14px;font-size:10px;letter-spacing:3px;color:var(--tx3);text-transform:uppercase;background:var(--sf);display:flex;align-items:center;justify-content:space-between}
+.draft-hdr span{font-size:10px;color:var(--ac);cursor:pointer;letter-spacing:1px}
+.draft-ta{width:100%;padding:14px 16px;background:transparent;border:none;border-top:.5px solid var(--bd);color:var(--tx);font-size:14px;font-family:'Jost',sans-serif;font-weight:300;resize:none;line-height:1.7;min-height:80px}
+.draft-ta:focus{outline:none}
+.draft-ta::placeholder{color:var(--tx3)}
+.draft-hint{font-size:10px;color:var(--tx3);padding:6px 16px 10px;letter-spacing:.5px}
+.rephrasing{font-size:11px;color:var(--ac);padding:8px 16px;letter-spacing:1px}
+/* caption edit button */
+.cc-edit{font-size:10px;color:var(--tx3);letter-spacing:1px;background:none;border:.5px solid var(--bd);border-radius:6px;padding:3px 8px;cursor:pointer;font-family:'Jost',sans-serif;float:right;margin-left:8px;transition:all .2s}
+.cc-edit:hover{color:var(--ac);border-color:var(--ac)}
 </style>
 </head>
 <body>
@@ -135,10 +145,35 @@ input::placeholder{color:var(--tx3)}
         <div class="stab on" id="sf" onclick="setSrc('fal')">AI images</div>
         <div class="stab" id="su" onclick="setSrc('unsplash')">real photos</div>
         <div class="stab" id="sb" onclick="setSrc('both')">mix both</div>
-        <div class="stab tryon-tab" id="st" onclick="setSrc('tryon')">try-on ✦</div>
+        <div class="stab" id="sm" onclick="setSrc('mine')">my photo</div>
       </div>
-      <div id="tryon-note" class="tryon-note" style="display:none">
-        <strong>Virtual Try-On</strong> — pick a real WEARTH piece, we generate an AI model wearing it. ~30 seconds.
+
+      <!-- Upload zone — shown only when src=mine -->
+      <div id="upload-area" style="display:none;margin-top:1rem">
+        <div class="upload-zone" id="upload-zone" onclick="document.getElementById('file-input').click()">
+          <div class="uz-icon">↑</div>
+          <div class="uz-label">tap to upload photo</div>
+          <img id="upload-preview" src="" style="display:none"/>
+        </div>
+        <input type="file" id="file-input" accept="image/*" style="display:none" onchange="handleFileSelect(event)"/>
+      </div>
+
+      <!-- Write your own draft -->
+      <div class="draft-wrap" style="margin-top:1.5rem">
+        <div class="draft-hdr">
+          <span style="color:var(--tx3);cursor:default">write your own caption (optional)</span>
+          <span onclick="toggleDraft()">+ expand</span>
+        </div>
+        <div id="draft-body" style="display:none">
+          <textarea class="draft-ta" id="draft-input" rows="4" placeholder="just write what you feel. AI will shape it into WEARTH voice..." oninput="onDraftInput()"></textarea>
+          <div class="draft-hint" id="draft-hint">start typing — AI refines as you pause</div>
+          <div class="rephrasing" id="rephrasing-indicator" style="display:none">✦ rephrasing...</div>
+          <div id="rephrased-result" style="display:none;padding:12px 16px;border-top:.5px solid var(--bd)">
+            <div style="font-size:9px;letter-spacing:2px;color:var(--ac);margin-bottom:8px;text-transform:uppercase">rephrased</div>
+            <div id="rephrased-text" style="font-size:13px;line-height:1.75;color:var(--tx2)"></div>
+            <button class="btn" style="margin-top:12px;font-size:10px;padding:10px" onclick="useRephrased()">use this caption → post</button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -152,35 +187,10 @@ input::placeholder{color:var(--tx3)}
       <div id="ierr" class="emsg" style="display:none"></div>
     </div>
 
-    <!-- STEP 2b: GARMENT PICKER -->
-    <div class="step" id="st-garments">
-      <div class="prog"><div class="pd was"></div><div class="pd on"></div><div class="pd"></div></div>
-      <button class="bk" onclick="goTo('st-mood')">← back</button>
-      <div class="lbl">pick a wearth piece</div>
-      <div class="gender-row">
-        <div class="gtab on" id="gw" onclick="setGender('woman')">woman</div>
-        <div class="gtab" id="gm" onclick="setGender('man')">man</div>
-        <div class="gtab" id="ga" onclick="setGender('all')">all</div>
-      </div>
-      <div id="garment-grid" class="igrid">
-        <div class="ldr" style="grid-column:1/-1;padding:2rem"><div class="ld" style="background:#b478c8"></div><div class="ld" style="background:#b478c8;animation-delay:.2s"></div><div class="ld" style="background:#b478c8;animation-delay:.4s"></div></div>
-      </div>
-    </div>
-
-    <!-- STEP 2c: TRY-ON LOADING -->
-    <div class="step" id="st-tryon-loading">
-      <div class="prog"><div class="pd was"></div><div class="pd on"></div><div class="pd"></div></div>
-      <div style="padding:4rem 1rem;text-align:center">
-        <div class="tryon-status" id="tryon-status-msg">generating model...</div>
-        <div class="ldr" style="padding:1.5rem"><div class="ld" style="background:#b478c8"></div><div class="ld" style="background:#b478c8;animation-delay:.2s"></div><div class="ld" style="background:#b478c8;animation-delay:.4s"></div></div>
-        <div style="font-size:11px;color:var(--tx3);letter-spacing:1px">putting WEARTH on them...</div>
-      </div>
-    </div>
-
     <!-- STEP 3: CAPTIONS -->
     <div class="step" id="st-captions">
       <div class="prog"><div class="pd was"></div><div class="pd was"></div><div class="pd on"></div></div>
-      <button class="bk" onclick="goBackFromCaptions()">← back</button>
+      <button class="bk" onclick="goTo('st-images')">← back</button>
       <div id="cload">
         <div class="processing-msg">compositing image + writing captions...</div>
         <div class="ldr"><div class="ld"></div><div class="ld"></div><div class="ld"></div></div>
@@ -215,9 +225,12 @@ const PW='wearth_insta123';
 const FAL='c9d35e47-26a0-4a74-b24b-4075ecc4b1c0:cf04ed86e9925a8d27fc7f93b7cb7c19';
 const UNS='-Nb1r9vFe5Tz2IIRse00Nyfx9m4aVt-aTqm36ITrkEk';
 const HOOK='https://hook.eu1.make.com/h3ebzbkj633q6qrokwxeosywe5qu8bw4';
-let src='fal',selCap=null,composedUrl=null,cur='st-mood',genderFilter='woman';
-let GARMENTS=null; // loaded lazily from /api/garments
 
+let src='fal', selCap=null, composedUrl=null, cur='st-mood';
+let uploadedImageUrl=null, uploadedImageB64=null, uploadedContentType=null;
+let draftTimer=null, draftOpen=false;
+
+// ── AUTH ──
 function login(){
   const v=document.getElementById('pwd').value;
   if(v===PW){localStorage.setItem('wa','1');activate()}
@@ -227,42 +240,156 @@ function logout(){localStorage.removeItem('wa');document.getElementById('s-app')
 function activate(){document.getElementById('s-login').classList.remove('active');document.getElementById('s-app').classList.add('active')}
 window.addEventListener('load',()=>{if(localStorage.getItem('wa'))activate()});
 
-function checkMood(){document.getElementById('mbtn').disabled=!document.getElementById('mood').value.trim()}
-function setM(m){document.getElementById('mood').value=m;document.getElementById('mbtn').disabled=false}
+// ── MOOD ──
+function checkMood(){
+  const has=!!document.getElementById('mood').value.trim();
+  const mb=document.getElementById('mbtn');
+  if(src==='mine') mb.disabled=!(has&&uploadedImageUrl);
+  else mb.disabled=!has;
+}
+function setM(m){document.getElementById('mood').value=m;checkMood()}
+
+// ── SOURCE TABS ──
 function setSrc(s){
   src=s;
-  ['fal','unsplash','both','tryon'].forEach((x,i)=>document.getElementById(['sf','su','sb','st'][i]).classList.toggle('on',x===s));
-  document.getElementById('tryon-note').style.display=s==='tryon'?'block':'none';
-  document.getElementById('mbtn').textContent=s==='tryon'?'pick a garment':'generate images';
+  ['fal','unsplash','both','mine'].forEach((x,i)=>document.getElementById(['sf','su','sb','sm'][i]).classList.toggle('on',x===s));
+  document.getElementById('upload-area').style.display=s==='mine'?'block':'none';
+  document.getElementById('mbtn').textContent=s==='mine'?'use my photo':'generate images';
+  checkMood();
 }
 
-function setGender(g){
-  genderFilter=g;
-  ['woman','man','all'].forEach(x=>document.getElementById('g'+x[0]).classList.toggle('on',x===g));
-  renderGarmentGrid();
+// ── FILE UPLOAD ──
+function handleFileSelect(e){
+  const file=e.target.files[0];
+  if(!file)return;
+  uploadedContentType=file.type||'image/jpeg';
+  const reader=new FileReader();
+  reader.onload=ev=>{
+    const dataUrl=ev.target.result;
+    // Show preview
+    const prev=document.getElementById('upload-preview');
+    prev.src=dataUrl;prev.style.display='block';
+    document.getElementById('upload-zone').classList.add('has-img');
+    // Store b64 (strip data: prefix)
+    uploadedImageB64=dataUrl.split(',')[1];
+    uploadedImageUrl=null; // will upload on generate
+    checkMood();
+  };
+  reader.readAsDataURL(file);
 }
 
-async function loadGarments(){
-  if(GARMENTS) return GARMENTS;
-  const r=await fetch('/api/garments');
-  GARMENTS=await r.json();
-  return GARMENTS;
-}
-
-async function renderGarmentGrid(){
-  const grid=document.getElementById('garment-grid');
-  const garments=await loadGarments();
-  grid.innerHTML='';
-  const filtered=garments.filter(g=>genderFilter==='all'||g.gender===genderFilter);
-  filtered.forEach(g=>{
-    const d=document.createElement('div');
-    d.className='ic tryon-card';
-    d.innerHTML=`<img src="data:image/webp;base64,${g.b64}" loading="lazy"/><div class="tk"><svg viewBox="0 0 11 11"><polyline points="1.5,5.5 4.5,8.5 9.5,2.5"/></svg></div><div class="ibadge">${g.label}</div>`;
-    d.onclick=()=>startTryon(g);
-    grid.appendChild(d);
+async function uploadMyImage(){
+  if(uploadedImageUrl) return uploadedImageUrl; // already uploaded
+  const resp=await fetch('/api/upload-image',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({image_b64:uploadedImageB64, content_type:uploadedContentType})
   });
+  const data=await resp.json();
+  if(data.error) throw new Error('Upload failed: '+data.error);
+  uploadedImageUrl=data.url;
+  return uploadedImageUrl;
 }
 
+// ── DRAFT / REPHRASE ──
+function toggleDraft(){
+  draftOpen=!draftOpen;
+  document.getElementById('draft-body').style.display=draftOpen?'block':'none';
+  document.querySelector('.draft-hdr span:last-child').textContent=draftOpen?'− collapse':'+ expand';
+}
+
+let lastDraft='';
+function onDraftInput(){
+  clearTimeout(draftTimer);
+  const val=document.getElementById('draft-input').value.trim();
+  if(val.length<20){
+    document.getElementById('rephrased-result').style.display='none';
+    return;
+  }
+  document.getElementById('draft-hint').style.display='none';
+  draftTimer=setTimeout(()=>rephraseDraft(val),1200); // 1.2s pause
+}
+
+async function rephraseDraft(draft){
+  if(draft===lastDraft) return;
+  lastDraft=draft;
+  document.getElementById('rephrasing-indicator').style.display='block';
+  document.getElementById('rephrased-result').style.display='none';
+  try{
+    const resp=await fetch('/api/rephrase',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({draft})
+    });
+    const data=await resp.json();
+    if(data.rephrased){
+      document.getElementById('rephrased-text').textContent=data.rephrased;
+      document.getElementById('rephrased-result').style.display='block';
+    }
+  }catch(e){}
+  document.getElementById('rephrasing-indicator').style.display='none';
+}
+
+async function useRephrased(){
+  const text=document.getElementById('rephrased-text').textContent;
+  if(!text) return;
+  // Need an image — if src=mine use uploaded, else generate one
+  const mood=document.getElementById('mood').value.trim()||'clean minimal activewear';
+  let imageUrl='';
+  if(src==='mine'&&uploadedImageB64){
+    try{ imageUrl=await uploadMyImage(); }catch(e){ alert('Upload failed: '+e.message); return; }
+  } else {
+    // Quick single FAL image
+    try{
+      const r=await fetch('https://fal.run/fal-ai/flux/dev',{
+        method:'POST',
+        headers:{'Authorization':`Key ${FAL}`,'Content-Type':'application/json'},
+        body:JSON.stringify({prompt:`editorial activewear photography, ${mood}, natural light, minimalist`,image_size:'portrait_4_3',num_inference_steps:20,num_images:1})
+      });
+      const d=await r.json();
+      imageUrl=d.images?.[0]?.url||'';
+    }catch(e){}
+  }
+  // Go straight to captions with the rephrased text as the only option
+  selCap=null;composedUrl=null;
+  goTo('st-captions');
+  document.getElementById('cload').style.display='block';
+  document.getElementById('caption-content').style.display='none';
+  document.getElementById('cerr').style.display='none';
+  updateFoot();
+
+  try{
+    const resp=await fetch('/api/generate',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({mood,image_url:imageUrl})
+    });
+    const data=await resp.json();
+    if(data.error) throw new Error(data.error);
+    composedUrl=data.image_url;
+    document.getElementById('composed-img').src=composedUrl;
+    document.getElementById('cload').style.display='none';
+    document.getElementById('caption-content').style.display='block';
+
+    // Show rephrased as option 1, AI captions as 2 & 3
+    const allCaps=[text,...(data.captions||[]).slice(0,2)];
+    document.getElementById('clist').innerHTML='';
+    allCaps.forEach((cap,i)=>{
+      const d=document.createElement('div');
+      d.className='cc';
+      const label=i===0?'your words, wearth voice':`option ${i+1}`;
+      d.innerHTML=`<div class="cn">${label}</div>${cap}`;
+      d.onclick=()=>{selCap=cap;document.querySelectorAll('.cc').forEach((c,j)=>c.classList.toggle('sel',j===i));updateFoot()};
+      document.getElementById('clist').appendChild(d);
+    });
+  }catch(e){
+    document.getElementById('cload').style.display='none';
+    document.getElementById('cerr').style.display='block';
+    document.getElementById('cerr').textContent='failed — go back and try again';
+  }
+}
+
+// ── NAVIGATION ──
 function goTo(id){
   document.querySelectorAll('.step').forEach(s=>s.classList.remove('on'));
   document.getElementById(id).classList.add('on');
@@ -271,21 +398,15 @@ function goTo(id){
   updateFoot();
 }
 
-function goBackFromCaptions(){
-  if(src==='tryon') goTo('st-garments');
-  else goTo('st-images');
-}
-
 function updateFoot(){
   const mb=document.getElementById('mbtn'),rb=document.getElementById('rbtn');
   if(cur==='st-mood'){
     mb.style.display='block';rb.style.display='none';
-    mb.textContent=src==='tryon'?'pick a garment':'generate images';
-    mb.disabled=!document.getElementById('mood').value.trim();
+    mb.textContent=src==='mine'?'use my photo':'generate images';
+    if(src==='mine') mb.disabled=!(document.getElementById('mood').value.trim()&&uploadedImageUrl!==undefined&&uploadedImageB64);
+    else mb.disabled=!document.getElementById('mood').value.trim();
   } else if(cur==='st-images'){
     mb.style.display='none';rb.style.display='block';
-  } else if(cur==='st-garments'||cur==='st-tryon-loading'){
-    mb.style.display='none';rb.style.display='none';
   } else if(cur==='st-captions'){
     mb.style.display='block';rb.style.display='none';
     mb.textContent='post to instagram';
@@ -296,52 +417,43 @@ function updateFoot(){
 }
 
 function mainAct(){
-  if(cur==='st-mood'){
-    if(src==='tryon') showGarmentPicker();
-    else genImages();
-  } else if(cur==='st-captions') postNow();
+  if(cur==='st-mood') genImages();
+  else if(cur==='st-captions') postNow();
 }
 
-function showGarmentPicker(){
-  const mood=document.getElementById('mood').value.trim();
-  if(!mood)return;
-  selCap=null;composedUrl=null;
-  goTo('st-garments');
-  renderGarmentGrid();
-}
-
-async function startTryon(garment){
-  const mood=document.getElementById('mood').value.trim();
-  goTo('st-tryon-loading');
-  document.getElementById('tryon-status-msg').textContent='generating model...';
-  try{
-    const resp=await fetch('/api/tryon',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({garment_b64:garment.b64,garment_category:garment.cat,mood})
-    });
-    const data=await resp.json();
-    if(data.error)throw new Error(data.error);
-    document.getElementById('tryon-status-msg').textContent='writing captions...';
-    await loadCaptions(data.image_url,mood);
-  }catch(e){
-    goTo('st-garments');
-    alert('Try-on failed: '+e.message);
-  }
-}
-
+// ── IMAGE GENERATION ──
 async function genImages(){
   const mood=document.getElementById('mood').value.trim();
   if(!mood)return;
   selCap=null;composedUrl=null;
+
+  // If "my photo" mode — skip image grid, go straight to captions
+  if(src==='mine'){
+    if(!uploadedImageB64){alert('Please upload a photo first');return}
+    goTo('st-captions');
+    document.getElementById('cload').style.display='block';
+    document.getElementById('caption-content').style.display='none';
+    document.getElementById('cerr').style.display='none';
+    updateFoot();
+    try{
+      const imgUrl=await uploadMyImage();
+      await loadCaptions(imgUrl,mood);
+    }catch(e){
+      document.getElementById('cload').style.display='none';
+      document.getElementById('cerr').style.display='block';
+      document.getElementById('cerr').textContent='upload failed: '+e.message;
+    }
+    return;
+  }
+
   goTo('st-images');
   document.getElementById('iload').style.display='flex';
   document.getElementById('igrid').style.display='none';
   document.getElementById('ierr').style.display='none';
   try{
     let urls=[];
-    if(src==='fal')urls=await getFal(mood,4);
-    else if(src==='unsplash')urls=await getUns(mood,4);
+    if(src==='fal') urls=await getFal(mood,4);
+    else if(src==='unsplash') urls=await getUns(mood,4);
     else{const[f,u]=await Promise.all([getFal(mood,2),getUns(mood,2)]);urls=[...f,...u]}
     if(!urls.length)throw new Error('no images returned');
     document.getElementById('iload').style.display='none';
@@ -364,7 +476,7 @@ async function genImages(){
 }
 
 async function getFal(mood,n){
-  const prompt=`editorial luxury activewear photography, ${mood}, plant-based eucalyptus fabric, natural movement, soft natural light, minimalist aesthetic, no text no logos, high quality fashion photography`;
+  const prompt=`editorial luxury activewear photography, ${mood}, plant-based fabric, natural movement, soft natural light, minimalist aesthetic, no text no logos, high quality fashion photography`;
   const res=await Promise.all(Array(n).fill(0).map(()=>
     fetch('https://fal.run/fal-ai/flux/dev',{
       method:'POST',
@@ -385,17 +497,15 @@ async function getUns(mood,n){
 async function pickImg(url,el){
   document.querySelectorAll('.ic').forEach(c=>c.classList.remove('sel'));
   el.classList.add('sel');
-  await loadCaptions(url,document.getElementById('mood').value.trim());
-}
-
-async function loadCaptions(imageUrl,mood){
-  selCap=null;composedUrl=null;
   goTo('st-captions');
   document.getElementById('cload').style.display='block';
   document.getElementById('caption-content').style.display='none';
   document.getElementById('cerr').style.display='none';
-  document.getElementById('clist').innerHTML='';
   updateFoot();
+  await loadCaptions(url,document.getElementById('mood').value.trim());
+}
+
+async function loadCaptions(imageUrl,mood){
   try{
     const resp=await fetch('/api/generate',{
       method:'POST',
@@ -409,6 +519,7 @@ async function loadCaptions(imageUrl,mood){
     document.getElementById('cload').style.display='none';
     document.getElementById('caption-content').style.display='block';
     const captions=data.captions||[data.caption||''];
+    document.getElementById('clist').innerHTML='';
     captions.forEach((cap,i)=>{
       const d=document.createElement('div');
       d.className='cc';
@@ -437,8 +548,14 @@ async function postNow(){
 }
 
 function startOver(){
-  selCap=null;composedUrl=null;
+  selCap=null;composedUrl=null;uploadedImageUrl=null;uploadedImageB64=null;
   document.getElementById('mood').value='';
+  document.getElementById('upload-preview').src='';
+  document.getElementById('upload-preview').style.display='none';
+  document.getElementById('upload-zone').classList.remove('has-img');
+  document.getElementById('draft-input').value='';
+  document.getElementById('rephrased-result').style.display='none';
+  lastDraft='';
   goTo('st-mood');
   updateFoot();
 }
