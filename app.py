@@ -5,6 +5,8 @@ import json
 import time
 import traceback
 import random
+from io import BytesIO
+import base64 as b64mod
 
 app = Flask(__name__)
 
@@ -97,6 +99,80 @@ def get_garments():
     return jsonify(GARMENTS)
 
 
+def composite_logo(image_url, logo_url, fal_key):
+    """Download image + logo, paste logo at left-chest position, upload result to FAL."""
+    try:
+        from PIL import Image
+        import base64 as b64mod
+        from io import BytesIO
+
+        # Download base image
+        img_resp = requests.get(image_url, timeout=20)
+        img = Image.open(BytesIO(img_resp.content)).convert('RGBA')
+        iw, ih = img.size
+
+        # Download logo (should be transparent PNG from birefnet)
+        logo_resp = requests.get(logo_url, timeout=20)
+        logo = Image.open(BytesIO(logo_resp.content)).convert('RGBA')
+
+        # Resize logo to ~12% of image width, keeping aspect ratio
+        logo_w = int(iw * 0.12)
+        ratio = logo_w / logo.width
+        logo_h = int(logo.height * ratio)
+        logo = logo.resize((logo_w, logo_h), Image.LANCZOS)
+
+        # Tint logo white if image is dark at chest area
+        # Sample brightness at left-chest area (20% from left, 35% from top)
+        cx, cy = int(iw * 0.20), int(ih * 0.35)
+        sample = img.crop((cx-20, cy-20, cx+20, cy+20)).convert('RGB')
+        pixels = list(sample.getdata())
+        avg_brightness = sum(r+g+b for r,g,b in pixels) / (len(pixels) * 3)
+
+        if avg_brightness < 128:
+            # Dark background — make logo white
+            r_ch, g_ch, b_ch, a_ch = logo.split()
+            white_logo = Image.merge('RGBA', [
+                Image.new('L', logo.size, 255),
+                Image.new('L', logo.size, 255),
+                Image.new('L', logo.size, 255),
+                a_ch
+            ])
+            logo = white_logo
+
+        # Position: left chest — 8% from left, 30% from top
+        paste_x = int(iw * 0.08)
+        paste_y = int(ih * 0.30)
+
+        # Paste with transparency mask
+        img.paste(logo, (paste_x, paste_y), logo)
+
+        # Convert back to RGB and save as JPEG
+        final = img.convert('RGB')
+        buf = BytesIO()
+        final.save(buf, format='JPEG', quality=92)
+        buf.seek(0)
+        img_bytes = buf.read()
+
+        # Upload to FAL storage
+        fal_headers = {'Authorization': f'Key {fal_key}', 'Content-Type': 'application/json'}
+        import time as _time
+        key = f'logo_comp_{int(_time.time()*1000)}.jpg'
+        init_resp = requests.post(
+            'https://rest.alpha.fal.ai/storage/upload/initiate',
+            headers=fal_headers,
+            json={'file_name': key, 'content_type': 'image/jpeg'},
+            timeout=15
+        )
+        init_resp.raise_for_status()
+        init_data = init_resp.json()
+        requests.put(init_data['upload_url'], data=img_bytes, headers={'Content-Type': 'image/jpeg'}, timeout=30)
+        return init_data['file_url']
+
+    except Exception as e:
+        print(f'Logo composite error: {e}')
+        return image_url  # fallback to original
+
+
 @app.route('/api/generate', methods=['POST'])
 def generate():
     try:
@@ -136,6 +212,8 @@ def generate():
         if not isinstance(captions, list):
             captions = [captions]
 
+        logo_url = data.get('logo_url', '')
+
         if skip_composite:
             stable_url = image_url
         else:
@@ -146,6 +224,10 @@ def generate():
             )
             comp_data = comp_resp.json()
             stable_url = comp_data.get('url', image_url)
+
+        # Apply logo overlay if selected (works for both composite and skip_composite)
+        if logo_url:
+            stable_url = composite_logo(stable_url, logo_url, FAL_API_KEY)
 
         return jsonify({'image_url': stable_url, 'headline': headline, 'tagline': tagline, 'captions': captions})
 
@@ -255,87 +337,86 @@ def fal_upload_test():
 
 
 
-@app.route('/api/kling', methods=['POST'])
-def kling():
-    """
-    Generate a short video from a still image using FAL Kling v1.6.
-    Expects: { image_url, mood }
-    Returns: { video_url }
-    """
+@app.route('/api/kling/submit', methods=['POST'])
+def kling_submit():
+    """Submit Kling job and return request_id immediately — no waiting."""
     try:
         data = request.json
         image_url = data.get('image_url', '')
         mood = data.get('mood', 'natural movement, cinematic, soft light')
-
         if not image_url:
             return jsonify({'error': 'image_url required'}), 400
 
         fal_headers = {'Authorization': f'Key {FAL_API_KEY}', 'Content-Type': 'application/json'}
-
-        # Build a natural motion prompt from the mood
         motion_prompt = (
             f"subtle natural movement, {mood}, "
             "gentle fabric sway, soft breeze, cinematic slow motion, "
-            "high quality, smooth loop, no camera shake"
+            "high quality, smooth, no camera shake"
         )
 
-        # Submit to Kling image-to-video queue
+        # FIX: flat input, not nested under 'input'
         submit_resp = requests.post(
             'https://queue.fal.run/fal-ai/kling-video/v1.6/standard/image-to-video',
             headers=fal_headers,
             json={
-                'input': {
-                    'image_url': image_url,
-                    'prompt': motion_prompt,
-                    'duration': '5',
-                    'aspect_ratio': '9:16',
-                    'negative_prompt': 'blur, distortion, ugly, bad quality, watermark, text'
-                }
+                'image_url': image_url,
+                'prompt': motion_prompt,
+                'duration': '5',
+                'aspect_ratio': '9:16',
+                'negative_prompt': 'blur, distortion, bad quality, watermark'
             },
             timeout=30
         )
+
         if submit_resp.status_code != 200:
-            return jsonify({'error': f'Kling submit failed: HTTP {submit_resp.status_code}', 'body': submit_resp.text[:300]}), 500
+            return jsonify({'error': f'Kling submit failed: HTTP {submit_resp.status_code}', 'body': submit_resp.text[:400]}), 500
 
         request_id = submit_resp.json().get('request_id', '')
         if not request_id:
-            return jsonify({'error': 'No request_id from Kling', 'raw': submit_resp.json()}), 500
+            return jsonify({'error': 'No request_id', 'raw': submit_resp.json()}), 500
 
-        # Poll for result — Kling takes 60-120 seconds
-        for attempt in range(50):
-            time.sleep(5)
-            status_resp = requests.get(
-                f'https://queue.fal.run/fal-ai/kling-video/v1.6/standard/image-to-video/requests/{request_id}/status',
-                headers=fal_headers,
-                timeout=15
-            )
-            status_data = status_resp.json()
-            status = status_data.get('status', '')
-
-            if status == 'COMPLETED':
-                result_resp = requests.get(
-                    f'https://queue.fal.run/fal-ai/kling-video/v1.6/standard/image-to-video/requests/{request_id}',
-                    headers=fal_headers,
-                    timeout=15
-                )
-                result = result_resp.json()
-                # Kling returns video under different keys
-                video_url = (
-                    result.get('video', {}).get('url') or
-                    result.get('output', {}).get('video', {}).get('url') or
-                    result.get('videos', [{}])[0].get('url') if result.get('videos') else None
-                )
-                if video_url:
-                    return jsonify({'video_url': video_url})
-                return jsonify({'error': 'Kling completed but no video URL', 'raw': result}), 500
-
-            elif status in ('FAILED', 'ERROR'):
-                return jsonify({'error': f'Kling job failed', 'raw': status_data}), 500
-
-        return jsonify({'error': 'Kling timed out after 250 seconds'}), 500
+        return jsonify({'request_id': request_id})
 
     except Exception as e:
         return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
+
+
+@app.route('/api/kling/status', methods=['POST'])
+def kling_status():
+    """Poll Kling job status — called repeatedly from frontend."""
+    try:
+        request_id = request.json.get('request_id', '')
+        if not request_id:
+            return jsonify({'error': 'request_id required'}), 400
+
+        fal_headers = {'Authorization': f'Key {FAL_API_KEY}', 'Content-Type': 'application/json'}
+
+        status_resp = requests.get(
+            f'https://queue.fal.run/fal-ai/kling-video/v1.6/standard/image-to-video/requests/{request_id}/status',
+            headers=fal_headers,
+            timeout=15
+        )
+        status_data = status_resp.json()
+        status = status_data.get('status', '')
+
+        if status == 'COMPLETED':
+            result_resp = requests.get(
+                f'https://queue.fal.run/fal-ai/kling-video/v1.6/standard/image-to-video/requests/{request_id}',
+                headers=fal_headers,
+                timeout=15
+            )
+            result = result_resp.json()
+            video_url = (
+                result.get('video', {}).get('url') or
+                result.get('output', {}).get('video', {}).get('url') or
+                (result.get('videos') or [{}])[0].get('url') or ''
+            )
+            return jsonify({'status': 'COMPLETED', 'video_url': video_url})
+
+        return jsonify({'status': status})
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 # ── LIBRARY ──
