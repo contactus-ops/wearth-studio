@@ -411,6 +411,91 @@ def delete_from_library():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+
+# ── LOGO REPOSITORY ──
+LOGO_FILE = 'logos.json'
+
+def load_logo_data():
+    try:
+        with open(LOGO_FILE,'r') as f:
+            return _json.load(f)
+    except:
+        return []
+
+def save_logo_data(logos):
+    with open(LOGO_FILE,'w') as f:
+        _json.dump(logos, f)
+
+
+@app.route('/api/logos', methods=['GET'])
+def get_logos():
+    return jsonify({'logos': load_logo_data()})
+
+
+@app.route('/api/logos/add', methods=['POST'])
+def add_logo():
+    try:
+        data = request.json
+        image_b64 = data.get('image_b64','')
+        content_type = data.get('content_type','image/png')
+        name = data.get('name','logo')
+        ext = content_type.split('/')[-1]
+
+        import base64 as b64mod, time as _time
+        img_bytes = b64mod.b64decode(image_b64)
+        key = f'logo_{int(_time.time()*1000)}.{ext}'
+
+        fal_headers = {'Authorization': f'Key {FAL_API_KEY}', 'Content-Type': 'application/json'}
+
+        # 1. Upload original to FAL storage
+        init_resp = requests.post(
+            'https://rest.alpha.fal.ai/storage/upload/initiate',
+            headers=fal_headers,
+            json={'file_name': key, 'content_type': content_type},
+            timeout=15
+        )
+        init_resp.raise_for_status()
+        init_data = init_resp.json()
+        upload_url = init_data.get('upload_url','')
+        file_url = init_data.get('file_url','')
+        requests.put(upload_url, data=img_bytes, headers={'Content-Type': content_type}, timeout=30)
+
+        # 2. Remove background via FAL birefnet
+        clean_url = file_url  # fallback to original
+        try:
+            bg_resp = requests.post(
+                'https://fal.run/fal-ai/birefnet',
+                headers=fal_headers,
+                json={'image_url': file_url, 'model': 'General Use (Light)', 'output_format': 'png'},
+                timeout=60
+            )
+            if bg_resp.status_code == 200:
+                bg_data = bg_resp.json()
+                clean_url = bg_data.get('image', {}).get('url', file_url) or file_url
+        except:
+            pass  # use original if bg removal fails
+
+        # 3. Save to logo repo
+        logos = load_logo_data()
+        logos.insert(0, {'url': file_url, 'clean_url': clean_url, 'key': key, 'name': name})
+        save_logo_data(logos)
+
+        return jsonify({'url': file_url, 'clean_url': clean_url, 'key': key})
+    except Exception as e:
+        return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
+
+
+@app.route('/api/logos/delete', methods=['POST'])
+def delete_logo():
+    try:
+        key = request.json.get('key','')
+        logos = load_logo_data()
+        logos = [l for l in logos if l.get('key') != key]
+        save_logo_data(logos)
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/<path:path>')
 def static_files(path):
     try:
