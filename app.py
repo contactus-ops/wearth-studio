@@ -337,6 +337,26 @@ def fal_upload_test():
 
 
 
+
+@app.route('/api/kling-test', methods=['GET'])
+def kling_test():
+    fal_headers = {'Authorization': f'Key {FAL_API_KEY}', 'Content-Type': 'application/json'}
+    try:
+        r = requests.post(
+            'https://queue.fal.run/fal-ai/kling-video/v1.6/standard/image-to-video',
+            headers=fal_headers,
+            json={
+                'image_url': 'https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=800',
+                'prompt': 'subtle movement, soft breeze',
+                'duration': '5',
+                'aspect_ratio': '9:16'
+            },
+            timeout=30
+        )
+        return jsonify({'status': r.status_code, 'body': r.text[:500]})
+    except Exception as e:
+        return jsonify({'error': str(e)})
+
 @app.route('/api/kling/submit', methods=['POST'])
 def kling_submit():
     """Submit Kling job and return request_id immediately — no waiting."""
@@ -354,7 +374,6 @@ def kling_submit():
             "high quality, smooth, no camera shake"
         )
 
-        # FIX: flat input, not nested under 'input'
         submit_resp = requests.post(
             'https://queue.fal.run/fal-ai/kling-video/v1.6/standard/image-to-video',
             headers=fal_headers,
@@ -368,12 +387,16 @@ def kling_submit():
             timeout=30
         )
 
-        if submit_resp.status_code != 200:
-            return jsonify({'error': f'Kling submit failed: HTTP {submit_resp.status_code}', 'body': submit_resp.text[:400]}), 500
+        if not submit_resp.text.strip():
+            return jsonify({'error': 'Empty response from Kling', 'status_code': submit_resp.status_code}), 500
 
-        request_id = submit_resp.json().get('request_id', '')
+        if submit_resp.status_code != 200:
+            return jsonify({'error': f'Kling HTTP {submit_resp.status_code}', 'body': submit_resp.text[:400]}), 500
+
+        resp_data = submit_resp.json()
+        request_id = resp_data.get('request_id', '')
         if not request_id:
-            return jsonify({'error': 'No request_id', 'raw': submit_resp.json()}), 500
+            return jsonify({'error': 'No request_id', 'raw': resp_data}), 500
 
         return jsonify({'request_id': request_id})
 
