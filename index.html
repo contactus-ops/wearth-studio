@@ -454,7 +454,7 @@ async function useRephrased(){
     try{
       const r=await fetch('https://fal.run/fal-ai/flux/dev',{
         method:'POST',headers:{'Authorization':`Key ${FAL}`,'Content-Type':'application/json'},
-        body:JSON.stringify({prompt:`WEARTH_ACTIVE activewear, ${mood}, natural light, minimalist`,loras:[{path:WEARTH_LORA,scale:0.85}],image_size:'portrait_4_3',num_inference_steps:20,num_images:1})
+        body:JSON.stringify({prompt:`WEARTH_ACTIVE activewear, ${mood}, natural light, minimalist`,loras:[{path:WEARTH_LORA,scale:1.0}],image_size:'portrait_4_3',num_inference_steps:20,num_images:1})
       });
       const d=await r.json();imageUrl=d.images?.[0]?.url||'';
     }catch(e){}
@@ -591,13 +591,13 @@ async function genImages(){
 const WEARTH_LORA='https://v3b.fal.media/files/b/0a97a9da/_4RkdHyXYmu5xRb2nMj8e_pytorch_lora_weights.safetensors';
 
 async function getFal(mood,n){
-  const prompt=`WEARTH_ACTIVE activewear, ${mood}, plant-based eucalyptus fabric, natural movement, soft natural light, high quality fashion photography, no text`;
+  const prompt=`WEARTH_ACTIVE activewear clothing, ${mood}, WEARTH logo visible on chest, plant-based eucalyptus fabric, natural movement, soft natural light, high quality fashion photography`;
   const res=await Promise.all(Array(n).fill(0).map(()=>
     fetch('https://fal.run/fal-ai/flux-lora',{
       method:'POST',headers:{'Authorization':`Key ${FAL}`,'Content-Type':'application/json'},
       body:JSON.stringify({
         prompt,
-        loras:[{path:WEARTH_LORA,scale:0.85}],
+        loras:[{path:WEARTH_LORA,scale:1.0}],
         image_size:'portrait_4_3',
         num_inference_steps:28,
         guidance_scale:3.5,
@@ -636,25 +636,45 @@ async function startKling(){
   goTo('st-kling');
   const mood=document.getElementById('mood').value.trim();
   try{
+    // Step 1: Submit — returns request_id instantly, no timeout risk
     document.getElementById('kling-status').textContent='submitting to Kling AI...';
-    const resp=await fetch('/api/kling',{
+    const submitResp=await fetch('/api/kling/submit',{
       method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({image_url:pendingImageUrl,mood})
     });
-    const data=await resp.json();
-    if(data.error)throw new Error(data.error);
-    isVideoPost=true;
-    composedUrl=data.video_url;
+    const submitData=await submitResp.json();
+    if(submitData.error)throw new Error(submitData.error);
+    const requestId=submitData.request_id;
+
+    // Step 2: Poll every 5s from frontend (bypasses Railway 30s timeout)
+    let videoUrl='';
+    for(let i=0;i<60;i++){
+      await new Promise(r=>setTimeout(r,5000));
+      const mins=Math.ceil((i+1)*5/60);
+      document.getElementById('kling-status').textContent=`generating... ~${mins} min`;
+      const pollResp=await fetch('/api/kling/status',{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({request_id:requestId})
+      });
+      const pollData=await pollResp.json();
+      if(pollData.error)throw new Error(pollData.error);
+      if(pollData.status==='COMPLETED'){videoUrl=pollData.video_url;break;}
+      if(pollData.status==='FAILED'||pollData.status==='ERROR')throw new Error('Kling job failed');
+    }
+    if(!videoUrl)throw new Error('Timed out after 5 minutes');
+
+    // Step 3: Show captions with video preview
+    isVideoPost=true;composedUrl=videoUrl;
     goTo('st-captions');
     document.getElementById('cload').style.display='block';
     document.getElementById('caption-content').style.display='none';
     document.getElementById('cerr').style.display='none';
     updateFoot();
-    await generateCaptions(data.video_url, mood, true);
+    await generateCaptions(videoUrl,mood,true);
   }catch(e){
     goTo('st-overlay');
     document.getElementById('overlay-choice').style.display='none';
-    alert('Video failed: '+e.message+'. Try still image.');
+    alert('Video failed: '+e.message+'. Try still image instead.');
   }
 }
 
