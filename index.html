@@ -73,7 +73,7 @@ input[type=password]::placeholder{color:var(--tx3)}
 .ic.sel .tk{display:flex}
 .tk svg{width:9px;height:9px;stroke:#fff;fill:none;stroke-width:2.5}
 .ibadge{position:absolute;bottom:5px;left:5px;font-size:8px;padding:2px 6px;border-radius:8px;background:rgba(26,23,20,0.65);color:#fff;text-transform:uppercase}
-.composed-img{width:100%;border-radius:var(--r);display:block;margin-bottom:1rem;border:1px solid var(--bd);box-shadow:0 2px 8px rgba(0,0,0,0.08)}
+.media-preview-wrap img,.media-preview-wrap video{width:100%;border-radius:var(--r);display:block;margin-bottom:1rem;border:1px solid var(--bd);box-shadow:0 2px 8px rgba(0,0,0,0.08)}
 .cc{padding:14px 16px;margin-bottom:8px;border:1.5px solid var(--bd);border-radius:var(--r);cursor:pointer;font-size:13px;line-height:1.7;color:var(--tx2);background:var(--sf);transition:all .2s}
 .cc:hover{border-color:var(--acl);background:var(--ac2)}
 .cc.sel{border-color:var(--ac);color:var(--tx);background:var(--ac2)}
@@ -108,8 +108,6 @@ input[type=password]::placeholder{color:var(--tx3)}
 .ov-card:hover{border-color:var(--ac);background:var(--ac2);transform:translateY(-1px);box-shadow:0 3px 10px rgba(45,90,61,0.1)}
 .ov-title{font-size:15px;color:var(--tx);margin-bottom:5px;font-weight:500}
 .ov-sub{font-size:12px;color:var(--tx3);line-height:1.5}
-.media-video{width:100%;border-radius:var(--r);display:block;margin-bottom:1rem;border:1px solid var(--bd);box-shadow:0 2px 8px rgba(0,0,0,0.08)}
-.media-img{width:100%;border-radius:var(--r);display:block;margin-bottom:1rem;border:1px solid var(--bd);box-shadow:0 2px 8px rgba(0,0,0,0.08)}
 </style>
 </head>
 <body>
@@ -152,8 +150,6 @@ input[type=password]::placeholder{color:var(--tx3)}
         <div class="stab" id="sb" onclick="setSrc('both')">mix both</div>
         <div class="stab" id="sm" onclick="setSrc('mine')">my photo</div>
       </div>
-
-      <!-- Upload zone — shown only when src=mine -->
       <div id="upload-area" style="display:none;margin-top:1rem">
         <div class="upload-zone" id="upload-zone" onclick="document.getElementById('file-input').click()">
           <div class="uz-icon">↑</div>
@@ -162,8 +158,6 @@ input[type=password]::placeholder{color:var(--tx3)}
         </div>
         <input type="file" id="file-input" accept="image/*" style="display:none" onchange="handleFileSelect(event)"/>
       </div>
-
-      <!-- Write your own draft -->
       <div class="draft-wrap" style="margin-top:1.5rem">
         <div class="draft-hdr">
           <span>write your own caption (optional)</span>
@@ -192,31 +186,33 @@ input[type=password]::placeholder{color:var(--tx3)}
       <div id="ierr" class="emsg" style="display:none"></div>
     </div>
 
-    <!-- STEP 2.5: STILL OR MOVING -->
+    <!-- STEP 2.5: STILL OR MOVING + COMPOSITE -->
     <div class="step" id="st-overlay">
       <div class="prog"><div class="pd was"></div><div class="pd on"></div><div class="pd"></div></div>
       <button class="bk" onclick="goTo(src==='mine'?'st-mood':'st-images')">← back</button>
-      <div class="lbl">still or moving?</div>
-      <div style="display:flex;flex-direction:column;gap:10px;margin-top:4px">
-        <div class="ov-card" onclick="chooseMotion(false)">
-          <div class="ov-title">📷 still image</div>
-          <div class="ov-sub">clean photo post — fast, reliable</div>
-        </div>
-        <div class="ov-card" onclick="chooseMotion(true)">
-          <div class="ov-title">🎬 moving image <span style="font-size:10px;background:var(--ac);color:#fff;padding:2px 7px;border-radius:10px;margin-left:6px;vertical-align:middle">AI · ~60s</span></div>
-          <div class="ov-sub">Kling AI brings the photo to life — subtle motion, posts as a Reel</div>
+      <div style="margin-bottom:1rem">
+        <div class="lbl">still or moving?</div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <div class="ov-card" onclick="chooseMotion(false)">
+            <div class="ov-title">📷 still image</div>
+            <div class="ov-sub">clean photo post — fast, reliable</div>
+          </div>
+          <div class="ov-card" onclick="chooseMotion(true)">
+            <div class="ov-title">🎬 moving image <span style="font-size:10px;background:var(--ac);color:#fff;padding:2px 7px;border-radius:10px;margin-left:6px;vertical-align:middle">AI · ~60s</span></div>
+            <div class="ov-sub">Kling AI brings the photo to life — posts as a Reel</div>
+          </div>
         </div>
       </div>
-      <div id="overlay-choice" style="display:none;margin-top:14px">
-        <div class="lbl" style="margin-bottom:8px">add text overlay?</div>
+      <div id="overlay-choice" style="display:none">
+        <div class="lbl">add text overlay?</div>
         <div style="display:flex;gap:8px">
           <div class="ov-card" style="flex:1;text-align:center" onclick="proceedWithOverlay(true)">
             <div class="ov-title" style="font-size:13px">yes</div>
-            <div class="ov-sub">headline + tagline</div>
+            <div class="ov-sub">headline + tagline on image</div>
           </div>
           <div class="ov-card" style="flex:1;text-align:center" onclick="proceedWithOverlay(false)">
             <div class="ov-title" style="font-size:13px">no</div>
-            <div class="ov-sub">clean photo</div>
+            <div class="ov-sub">clean photo, no text</div>
           </div>
         </div>
       </div>
@@ -237,13 +233,13 @@ input[type=password]::placeholder{color:var(--tx3)}
     <!-- STEP 3: CAPTIONS -->
     <div class="step" id="st-captions">
       <div class="prog"><div class="pd was"></div><div class="pd was"></div><div class="pd on"></div></div>
-      <button class="bk" onclick="goTo(pendingImageUrl?'st-overlay':'st-images')">← back</button>
+      <button class="bk" onclick="goTo('st-overlay')">← back</button>
       <div id="cload">
-        <div class="processing-msg">compositing image + writing captions...</div>
+        <div class="processing-msg">writing captions...</div>
         <div class="ldr"><div class="ld"></div><div class="ld"></div><div class="ld"></div></div>
       </div>
       <div id="caption-content" style="display:none">
-        <div id="media-preview"></div>
+        <div id="media-preview" class="media-preview-wrap"></div>
         <div class="lbl">pick your caption</div>
         <div id="clist"></div>
       </div>
@@ -275,11 +271,8 @@ const HOOK='https://hook.eu1.make.com/h3ebzbkj633q6qrokwxeosywe5qu8bw4';
 
 let src='fal', selCap=null, composedUrl=null, cur='st-mood';
 let uploadedImageUrl=null, uploadedImageB64=null, uploadedContentType=null;
-let draftTimer=null, draftOpen=false;
-let pendingImageUrl=null; // holds selected image while user decides on overlay
-let isMoving=false;       // whether Kling video was requested
-let pendingVideoUrl=null; // result video URL from Kling
-let isVideoPost=false;    // final post is video
+let draftTimer=null, draftOpen=false, lastDraft='';
+let pendingImageUrl=null, isVideoPost=false;
 
 // ── AUTH ──
 function login(){
@@ -295,7 +288,8 @@ window.addEventListener('load',()=>{if(localStorage.getItem('wa'))activate()});
 function checkMood(){
   const has=!!document.getElementById('mood').value.trim();
   const mb=document.getElementById('mbtn');
-  if(src==='mine') mb.disabled=!(has&&uploadedImageUrl);
+  // FIX: check uploadedImageB64, not uploadedImageUrl
+  if(src==='mine') mb.disabled=!(has&&uploadedImageB64);
   else mb.disabled=!has;
 }
 function setM(m){document.getElementById('mood').value=m;checkMood()}
@@ -317,27 +311,25 @@ function handleFileSelect(e){
   const reader=new FileReader();
   reader.onload=ev=>{
     const dataUrl=ev.target.result;
-    // Show preview
     const prev=document.getElementById('upload-preview');
     prev.src=dataUrl;prev.style.display='block';
     document.getElementById('upload-zone').classList.add('has-img');
-    // Store b64 (strip data: prefix)
     uploadedImageB64=dataUrl.split(',')[1];
-    uploadedImageUrl=null; // will upload on generate
+    uploadedImageUrl=null;
     checkMood();
   };
   reader.readAsDataURL(file);
 }
 
 async function uploadMyImage(){
-  if(uploadedImageUrl) return uploadedImageUrl; // already uploaded
+  if(uploadedImageUrl) return uploadedImageUrl;
   const resp=await fetch('/api/upload-image',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({image_b64:uploadedImageB64, content_type:uploadedContentType})
+    body:JSON.stringify({image_b64:uploadedImageB64,content_type:uploadedContentType})
   });
   const data=await resp.json();
-  if(data.error) throw new Error('Upload failed: '+data.error);
+  if(data.error) throw new Error(data.error);
   uploadedImageUrl=data.url;
   return uploadedImageUrl;
 }
@@ -349,29 +341,21 @@ function toggleDraft(){
   document.querySelector('.draft-hdr .tog').textContent=draftOpen?'− collapse':'+ expand';
 }
 
-let lastDraft='';
 function onDraftInput(){
   clearTimeout(draftTimer);
   const val=document.getElementById('draft-input').value.trim();
-  if(val.length<20){
-    document.getElementById('rephrased-result').style.display='none';
-    return;
-  }
+  if(val.length<20){document.getElementById('rephrased-result').style.display='none';return}
   document.getElementById('draft-hint').style.display='none';
-  draftTimer=setTimeout(()=>rephraseDraft(val),1200); // 1.2s pause
+  draftTimer=setTimeout(()=>rephraseDraft(val),1200);
 }
 
 async function rephraseDraft(draft){
-  if(draft===lastDraft) return;
+  if(draft===lastDraft)return;
   lastDraft=draft;
   document.getElementById('rephrasing-indicator').style.display='block';
   document.getElementById('rephrased-result').style.display='none';
   try{
-    const resp=await fetch('/api/rephrase',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({draft})
-    });
+    const resp=await fetch('/api/rephrase',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({draft})});
     const data=await resp.json();
     if(data.rephrased){
       document.getElementById('rephrased-text').textContent=data.rephrased;
@@ -383,60 +367,41 @@ async function rephraseDraft(draft){
 
 async function useRephrased(){
   const text=document.getElementById('rephrased-text').textContent;
-  if(!text) return;
-  // Need an image — if src=mine use uploaded, else generate one
+  if(!text)return;
   const mood=document.getElementById('mood').value.trim()||'clean minimal activewear';
   let imageUrl='';
   if(src==='mine'&&uploadedImageB64){
-    try{ imageUrl=await uploadMyImage(); }catch(e){ alert('Upload failed: '+e.message); return; }
+    try{imageUrl=await uploadMyImage();}catch(e){alert('Upload failed: '+e.message);return}
   } else {
-    // Quick single FAL image
     try{
       const r=await fetch('https://fal.run/fal-ai/flux/dev',{
-        method:'POST',
-        headers:{'Authorization':`Key ${FAL}`,'Content-Type':'application/json'},
+        method:'POST',headers:{'Authorization':`Key ${FAL}`,'Content-Type':'application/json'},
         body:JSON.stringify({prompt:`editorial activewear photography, ${mood}, natural light, minimalist`,image_size:'portrait_4_3',num_inference_steps:20,num_images:1})
       });
-      const d=await r.json();
-      imageUrl=d.images?.[0]?.url||'';
+      const d=await r.json();imageUrl=d.images?.[0]?.url||'';
     }catch(e){}
   }
-  // Go straight to captions with the rephrased text as the only option
-  selCap=null;composedUrl=null;
+  selCap=null;composedUrl=null;isVideoPost=false;
+  pendingImageUrl=imageUrl;
   goTo('st-captions');
   document.getElementById('cload').style.display='block';
   document.getElementById('caption-content').style.display='none';
   document.getElementById('cerr').style.display='none';
   updateFoot();
-
   try{
-    const resp=await fetch('/api/generate',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({mood,image_url:imageUrl})
-    });
+    const resp=await fetch('/api/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mood,image_url:imageUrl,skip_composite:true})});
     const data=await resp.json();
-    if(data.error) throw new Error(data.error);
-    composedUrl=data.image_url;
-    document.getElementById('composed-img').src=composedUrl;
+    if(data.error)throw new Error(data.error);
+    composedUrl=imageUrl;
+    showMediaPreview(imageUrl,false);
     document.getElementById('cload').style.display='none';
     document.getElementById('caption-content').style.display='block';
-
-    // Show rephrased as option 1, AI captions as 2 & 3
     const allCaps=[text,...(data.captions||[]).slice(0,2)];
-    document.getElementById('clist').innerHTML='';
-    allCaps.forEach((cap,i)=>{
-      const d=document.createElement('div');
-      d.className='cc';
-      const label=i===0?'your words, wearth voice':`option ${i+1}`;
-      d.innerHTML=`<div class="cn">${label}</div>${cap}`;
-      d.onclick=()=>{selCap=cap;document.querySelectorAll('.cc').forEach((c,j)=>c.classList.toggle('sel',j===i));updateFoot()};
-      document.getElementById('clist').appendChild(d);
-    });
+    renderCaptions(allCaps,['your words, wearth voice','option 2','option 3']);
   }catch(e){
     document.getElementById('cload').style.display='none';
     document.getElementById('cerr').style.display='block';
-    document.getElementById('cerr').textContent='failed — go back and try again';
+    document.getElementById('cerr').textContent='error: '+e.message;
   }
 }
 
@@ -444,9 +409,7 @@ async function useRephrased(){
 function goTo(id){
   document.querySelectorAll('.step').forEach(s=>s.classList.remove('on'));
   document.getElementById(id).classList.add('on');
-  cur=id;
-  document.getElementById('abody').scrollTop=0;
-  updateFoot();
+  cur=id;document.getElementById('abody').scrollTop=0;updateFoot();
 }
 
 function updateFoot(){
@@ -454,7 +417,7 @@ function updateFoot(){
   if(cur==='st-mood'){
     mb.style.display='block';rb.style.display='none';
     mb.textContent=src==='mine'?'use my photo':'generate images';
-    if(src==='mine') mb.disabled=!(document.getElementById('mood').value.trim()&&uploadedImageUrl!==undefined&&uploadedImageB64);
+    if(src==='mine') mb.disabled=!uploadedImageB64||!document.getElementById('mood').value.trim();
     else mb.disabled=!document.getElementById('mood').value.trim();
   } else if(cur==='st-overlay'||cur==='st-kling'){
     mb.style.display='none';rb.style.display='none';
@@ -462,8 +425,7 @@ function updateFoot(){
     mb.style.display='none';rb.style.display='block';
   } else if(cur==='st-captions'){
     mb.style.display='block';rb.style.display='none';
-    mb.textContent='post to instagram';
-    mb.disabled=!selCap;
+    mb.textContent='post to instagram';mb.disabled=!selCap;
   } else {
     mb.style.display='none';rb.style.display='none';
   }
@@ -474,13 +436,30 @@ function mainAct(){
   else if(cur==='st-captions') postNow();
 }
 
+// ── HELPERS ──
+function showMediaPreview(url, isVideo){
+  const el=document.getElementById('media-preview');
+  el.innerHTML=isVideo
+    ? `<video src="${url}" autoplay loop muted playsinline controls></video>`
+    : `<img src="${url}"/>`;
+}
+
+function renderCaptions(captions, labels){
+  const list=document.getElementById('clist');list.innerHTML='';
+  captions.forEach((cap,i)=>{
+    const d=document.createElement('div');d.className='cc';
+    d.innerHTML=`<div class="cn">${labels?labels[i]||'option '+(i+1):'option '+(i+1)}</div>${cap}`;
+    d.onclick=()=>{selCap=cap;document.querySelectorAll('.cc').forEach((c,j)=>c.classList.toggle('sel',j===i));updateFoot()};
+    list.appendChild(d);
+  });
+}
+
 // ── IMAGE GENERATION ──
 async function genImages(){
   const mood=document.getElementById('mood').value.trim();
   if(!mood)return;
-  selCap=null;composedUrl=null;
+  selCap=null;composedUrl=null;isVideoPost=false;
 
-  // If "my photo" mode — upload then go through overlay choice like all other paths
   if(src==='mine'){
     if(!uploadedImageB64){alert('Please upload a photo first');return}
     try{
@@ -488,9 +467,7 @@ async function genImages(){
       pendingImageUrl=imgUrl;
       document.getElementById('overlay-choice').style.display='none';
       goTo('st-overlay');
-    }catch(e){
-      alert('Upload failed: '+e.message);
-    }
+    }catch(e){alert('Upload failed: '+e.message)}
     return;
   }
 
@@ -513,8 +490,7 @@ async function genImages(){
       d.onclick=()=>pickImg(u,d);
       g.appendChild(d);
     });
-    g.style.display='grid';
-    updateFoot();
+    g.style.display='grid';updateFoot();
   }catch(e){
     document.getElementById('iload').style.display='none';
     document.getElementById('ierr').style.display='block';
@@ -527,8 +503,7 @@ async function getFal(mood,n){
   const prompt=`editorial luxury activewear photography, ${mood}, plant-based fabric, natural movement, soft natural light, minimalist aesthetic, no text no logos, high quality fashion photography`;
   const res=await Promise.all(Array(n).fill(0).map(()=>
     fetch('https://fal.run/fal-ai/flux/dev',{
-      method:'POST',
-      headers:{'Authorization':`Key ${FAL}`,'Content-Type':'application/json'},
+      method:'POST',headers:{'Authorization':`Key ${FAL}`,'Content-Type':'application/json'},
       body:JSON.stringify({prompt,image_size:'portrait_4_3',num_inference_steps:28,guidance_scale:3.5,num_images:1})
     }).then(r=>r.json())
   ));
@@ -546,16 +521,15 @@ async function pickImg(url,el){
   document.querySelectorAll('.ic').forEach(c=>c.classList.remove('sel'));
   el.classList.add('sel');
   pendingImageUrl=url;
+  document.getElementById('overlay-choice').style.display='none';
   goTo('st-overlay');
 }
 
+// ── STILL / MOVING ──
 function chooseMotion(moving){
-  isMoving=moving;
   if(moving){
-    // Go straight to Kling, no overlay for video
     startKling();
   } else {
-    // Show overlay choice
     document.getElementById('overlay-choice').style.display='block';
   }
 }
@@ -566,166 +540,86 @@ async function startKling(){
   try{
     document.getElementById('kling-status').textContent='submitting to Kling AI...';
     const resp=await fetch('/api/kling',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({image_url:pendingImageUrl, mood})
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({image_url:pendingImageUrl,mood})
     });
     const data=await resp.json();
-    if(data.error) throw new Error(data.error);
-    pendingVideoUrl=data.video_url;
+    if(data.error)throw new Error(data.error);
     isVideoPost=true;
-    // Go to captions with video preview
-    selCap=null;composedUrl=pendingVideoUrl;
+    composedUrl=data.video_url;
     goTo('st-captions');
     document.getElementById('cload').style.display='block';
     document.getElementById('caption-content').style.display='none';
     document.getElementById('cerr').style.display='none';
     updateFoot();
-    await loadCaptionsForMedia(pendingVideoUrl, mood, true);
+    await generateCaptions(data.video_url, mood, true);
   }catch(e){
     goTo('st-overlay');
     document.getElementById('overlay-choice').style.display='none';
-    alert('Video generation failed: '+e.message+'. Try still image instead.');
+    alert('Video failed: '+e.message+'. Try still image.');
   }
 }
 
 async function proceedWithOverlay(withOverlay){
   const mood=document.getElementById('mood').value.trim();
-  selCap=null;composedUrl=null;isVideoPost=false;
+  selCap=null;isVideoPost=false;
   goTo('st-captions');
   document.getElementById('cload').style.display='block';
   document.getElementById('caption-content').style.display='none';
   document.getElementById('cerr').style.display='none';
   updateFoot();
-  if(withOverlay){
-    await loadCaptions(pendingImageUrl, mood);
-  } else {
-    await loadCaptionsNoOverlay(pendingImageUrl, mood);
-  }
+  await generateCaptions(pendingImageUrl, mood, false, withOverlay);
 }
 
-async function loadCaptionsForMedia(mediaUrl, mood, isVideo){
+// ── CENTRAL CAPTION GENERATOR ──
+async function generateCaptions(mediaUrl, mood, isVideo, withOverlay=false){
   try{
     const resp=await fetch('/api/generate',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({mood, image_url:mediaUrl, skip_composite:true})
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({mood, image_url:mediaUrl, skip_composite: !withOverlay})
     });
     const data=await resp.json();
     if(data.error)throw new Error(data.error);
-    composedUrl=mediaUrl;
-    // Render preview
-    const prev=document.getElementById('media-preview');
-    if(isVideo){
-      prev.innerHTML=`<video class="media-video" src="${mediaUrl}" autoplay loop muted playsinline controls></video>`;
-    } else {
-      prev.innerHTML=`<img class="media-img" src="${mediaUrl}"/>`;
-    }
+    composedUrl = withOverlay ? data.image_url : mediaUrl;
+    showMediaPreview(composedUrl, isVideo);
     document.getElementById('cload').style.display='none';
     document.getElementById('caption-content').style.display='block';
-    const captions=data.captions||[data.caption||''];
-    document.getElementById('clist').innerHTML='';
-    captions.forEach((cap,i)=>{
-      const d=document.createElement('div');
-      d.className='cc';
-      d.innerHTML=`<div class="cn">option ${i+1}</div>${cap}`;
-      d.onclick=()=>{selCap=cap;document.querySelectorAll('.cc').forEach((c,j)=>c.classList.toggle('sel',j===i));updateFoot()};
-      document.getElementById('clist').appendChild(d);
-    });
+    renderCaptions(data.captions||[data.caption||'']);
   }catch(e){
     document.getElementById('cload').style.display='none';
     document.getElementById('cerr').style.display='block';
-    document.getElementById('cerr').textContent='caption generation failed — go back and try again';
+    document.getElementById('cerr').textContent='error: '+e.message;
   }
 }
 
-async function loadCaptionsNoOverlay(imageUrl, mood){
-  // Use raw image URL, still call /api/generate but skip compositor
-  try{
-    const resp=await fetch('/api/generate',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({mood, image_url:imageUrl, skip_composite:true})
-    });
-    const data=await resp.json();
-    if(data.error)throw new Error(data.error);
-    composedUrl=imageUrl; // use raw image for posting
-    document.getElementById('composed-img').src=imageUrl;
-    document.getElementById('cload').style.display='none';
-    document.getElementById('caption-content').style.display='block';
-    const captions=data.captions||[data.caption||''];
-    document.getElementById('clist').innerHTML='';
-    captions.forEach((cap,i)=>{
-      const d=document.createElement('div');
-      d.className='cc';
-      d.innerHTML=`<div class="cn">option ${i+1}</div>${cap}`;
-      d.onclick=()=>{selCap=cap;document.querySelectorAll('.cc').forEach((c,j)=>c.classList.toggle('sel',j===i));updateFoot()};
-      document.getElementById('clist').appendChild(d);
-    });
-  }catch(e){
-    document.getElementById('cload').style.display='none';
-    document.getElementById('cerr').style.display='block';
-    document.getElementById('cerr').textContent='generation failed — go back and try again';
-  }
-}
-
-async function loadCaptions(imageUrl,mood){
-  try{
-    const resp=await fetch('/api/generate',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({mood,image_url:imageUrl})
-    });
-    const data=await resp.json();
-    if(data.error)throw new Error(data.error);
-    composedUrl=data.image_url;
-    document.getElementById('composed-img').src=composedUrl;
-    document.getElementById('cload').style.display='none';
-    document.getElementById('caption-content').style.display='block';
-    const captions=data.captions||[data.caption||''];
-    document.getElementById('clist').innerHTML='';
-    captions.forEach((cap,i)=>{
-      const d=document.createElement('div');
-      d.className='cc';
-      d.innerHTML=`<div class="cn">option ${i+1}</div>${cap}`;
-      d.onclick=()=>{selCap=cap;document.querySelectorAll('.cc').forEach((c,j)=>c.classList.toggle('sel',j===i));updateFoot()};
-      document.getElementById('clist').appendChild(d);
-    });
-  }catch(e){
-    document.getElementById('cload').style.display='none';
-    document.getElementById('cerr').style.display='block';
-    document.getElementById('cerr').textContent='generation failed — go back and try again';
-  }
-}
-
+// ── POST ──
 async function postNow(){
   if(!composedUrl||!selCap)return;
   const mb=document.getElementById('mbtn');
   mb.disabled=true;mb.textContent='posting...';
   try{
     const payload=isVideoPost
-      ? {video_url:composedUrl, caption:selCap, media_type:'video'}
-      : {image_url:composedUrl, caption:selCap, media_type:'image'};
+      ?{video_url:composedUrl,caption:selCap,media_type:'video'}
+      :{image_url:composedUrl,caption:selCap,media_type:'image'};
     await fetch(HOOK,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     goTo('st-success');
   }catch(e){
-    mb.textContent='failed — try again';
-    mb.disabled=false;
+    mb.textContent='failed — try again';mb.disabled=false;
   }
 }
 
 function startOver(){
-  selCap=null;composedUrl=null;uploadedImageUrl=null;uploadedImageB64=null;isMoving=false;isVideoPost=false;pendingVideoUrl=null;pendingImageUrl=null;
+  selCap=null;composedUrl=null;uploadedImageUrl=null;uploadedImageB64=null;
+  isVideoPost=false;pendingImageUrl=null;lastDraft='';
   document.getElementById('mood').value='';
   document.getElementById('upload-preview').src='';
   document.getElementById('upload-preview').style.display='none';
   document.getElementById('upload-zone').classList.remove('has-img');
   document.getElementById('draft-input').value='';
   document.getElementById('rephrased-result').style.display='none';
-  lastDraft='';
-  const oc=document.getElementById('overlay-choice');if(oc)oc.style.display='none';
-  goTo('st-mood');
-  updateFoot();
+  document.getElementById('overlay-choice').style.display='none';
+  document.getElementById('media-preview').innerHTML='';
+  goTo('st-mood');updateFoot();
 }
 </script>
 </body>
