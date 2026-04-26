@@ -277,7 +277,7 @@ def run_seo_engine(dry_run: bool = False, article_index: int = None):
     print(f"{'='*60}\n")
 
     # Load published log
-    log_file = "/home/claude/wearth-seo/published_articles.json"
+    log_file = "/app/published_articles.json"
     try:
         with open(log_file) as f:
             published = json.load(f)
@@ -314,7 +314,7 @@ def run_seo_engine(dry_run: bool = False, article_index: int = None):
         print(article["body_html"][:500])
         print("\n[DRY RUN — not published]")
         # Save preview
-        preview_path = f"/home/claude/wearth-seo/preview_{brief['slug']}.html"
+        preview_path = f"/tmp/preview_{brief['slug']}.html"
         with open(preview_path, "w") as f:
             f.write(f"<h1>{article['title']}</h1>\n")
             f.write(f"<p><em>Meta: {article['meta_description']}</em></p>\n")
