@@ -158,7 +158,18 @@ FALLBACK_IMAGES = [
     "https://images.unsplash.com/photo-1536922246289-88c42f957773?w=1200",
     "https://images.unsplash.com/photo-1574680096145-d05b474e2155?w=1200",
     "https://images.unsplash.com/photo-1554284126-aa88f22d8b74?w=1200",
+    "https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=1200",
+    "https://images.unsplash.com/photo-1541534741688-6078c6bfb5c5?w=1200",
+    "https://images.unsplash.com/photo-1526506118085-60ce8714f8c5?w=1200",
+    "https://images.unsplash.com/photo-1507398941214-572c25f4b1dc?w=1200",
+    "https://images.unsplash.com/photo-1549060279-7e168fcee0c2?w=1200",
+    "https://images.unsplash.com/photo-1583454110551-21f2fa2afe61?w=1200",
+    "https://images.unsplash.com/photo-1544367567-0f2fcb009e0b?w=1200",
+    "https://images.unsplash.com/photo-1552196563-55cd4e45efb3?w=1200",
 ]
+
+# Track used images to avoid repeats within same session
+_used_images = set()
 
 def fetch_unsplash_image(keyword: str) -> str:
     """Fetch a relevant image from Unsplash with variety."""
@@ -183,15 +194,23 @@ def fetch_unsplash_image(keyword: str) -> str:
         )
         if r.status_code == 200:
             results = r.json().get("results", [])
-            if results:
-                photo = _random.choice(results)
-                print(f"Unsplash image: {photo['urls']['regular'][:60]}...")
-                return photo["urls"]["regular"]
+            # Filter out already used images
+            unused = [p for p in results if p["urls"]["regular"] not in _used_images]
+            if unused:
+                photo = _random.choice(unused)
+                url = photo["urls"]["regular"]
+                _used_images.add(url)
+                print(f"Unsplash image: {url[:60]}...")
+                return url
     except Exception as e:
         print(f"Unsplash fetch failed: {e}")
-    # Use varied fallback pool - pick based on time to avoid repeats
-    idx = int(_time.time()) % len(FALLBACK_IMAGES)
-    return FALLBACK_IMAGES[idx]
+    # Use fallback pool — pick unused one
+    unused_fallbacks = [img for img in FALLBACK_IMAGES if img not in _used_images]
+    if not unused_fallbacks:
+        unused_fallbacks = FALLBACK_IMAGES  # reset if all used
+    url = _random.choice(unused_fallbacks)
+    _used_images.add(url)
+    return url
 
 # ─── CLAUDE CALLER ────────────────────────────────────────────────────────────
 
