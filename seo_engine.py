@@ -1,7 +1,8 @@
 """
-WEARTH SEO ENGINE
-Generates SEO blog articles and publishes to Shopify blog automatically.
-Run manually or via cron/n8n on a schedule.
+WEARTH INFINITE SEO ENGINE
+Automatically researches, generates and publishes SEO articles forever.
+No fixed article list. Claude picks the best keyword opportunity each time.
+Runs via n8n every Monday & Thursday 8am IST.
 """
 
 import os
@@ -14,7 +15,7 @@ from datetime import datetime
 SHOPIFY_STORE = "wearthactive.myshopify.com"
 SHOPIFY_TOKEN = os.environ.get("SHOPIFY_TOKEN", "")
 ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-UNSPLASH_KEY = os.environ.get("UNSPLASH_ACCESS_KEY", "")  # set in env or Railway
+UNSPLASH_KEY = os.environ.get("UNSPLASH_ACCESS_KEY", "")
 
 SHOPIFY_BASE = f"https://{SHOPIFY_STORE}/admin/api/2024-01"
 HEADERS_SHOPIFY = {
@@ -27,199 +28,67 @@ HEADERS_CLAUDE = {
     "content-type": "application/json"
 }
 
-# ─── BRAND CONTEXT (baked in — never changes) ─────────────────────────────────
+# ─── BRAND CONTEXT ────────────────────────────────────────────────────────────
 
 BRAND_CONTEXT = """
 BRAND: WEARTH Active (wearthactive.com)
-FOUNDER: Shai (Shailaja Gupta), Mumbai, India
+FOUNDER: Shai (Shailaja Gupta), India
 TAGLINE: Activewear Without Polyester. Finally.
 
 FABRIC TRUTH:
 - Made from eucalyptus tree fibre — plant-based, closed-loop manufacturing
-- Breathable, temperature-regulating, moisture-wicking
+- Breathable, temperature-regulating, moisture-wicking naturally
 - No microplastics shed in wash
 - No chemical treatments on skin during exercise
-- NEVER say: TENCEL, lyocell (use: eucalyptus fibre, plant-based fabric, from trees)
+- NEVER say: TENCEL, lyocell. ALWAYS say: eucalyptus fibre, plant-based fabric, from trees.
 
-ANTI-POLYESTER POSITION:
-Polyester = petroleum turned into fabric. Traps heat. Holds bacteria and odour.
-Sheds microplastics every wash. Chemical treatments sit on skin when pores open during exercise.
-WEARTH never uses it.
+BRAND POSITIONING:
+- Anti-polyester. Anti-synthetic. Pro-plant.
+- Quiet luxury. Not LV or Lululemon. More Patagonia — values-driven, substance over logo.
+- The WEARTH person reads ingredient labels. Drinks almond milk coffee at home.
+  Buys expensive Vit C serum. Chooses quality over quantity, silently.
+  Their richness shows in their choices, not their logos.
+- Premium product that deserves premium pricing. Content must build that perception.
 
-TARGET READER (THE TRIBE):
-Indian woman, 25-40, metros (Mumbai, Bangalore, Delhi, Pune, Hyderabad).
-Reads ingredient labels. Switched to natural products quietly. Moves because it feels good.
-Done with synthetic, fast, things that look good but feel wrong.
-
-VOICE: Calm. Certain. Like a trusted friend who has done the research.
-No exclamation marks. No hype words. Declarative. Real.
+TARGET READER:
+Indian woman AND man, 25-40, metros (Mumbai, Bangalore, Delhi, Pune, Hyderabad).
+Reads ingredient labels. Switched to natural products quietly, no announcement.
+Moves because it feels good, not for content. Done with synthetic, fast, fake.
+When they find WEARTH: "oh. this is it."
 
 PRODUCTS: Flow Tank, Power Crop, Align Bra, Terra Bra, Everyday Joggers,
 Maria Skort, Biker Shorts, Leggings, Men's Motion Tee, Edge Tank, Essential Shorts.
-Price point: ₹2,000. Sold at wearthactive.com
+Price: ~₹2,000. Sold exclusively at wearthactive.com
+
+VOICE: Calm. Certain. Trusted friend who has done the research.
+Short sentences. Uneven rhythm. No exclamation marks. No hype words.
+No: sacred, ritual, intentional, conscious, shift, journey, game-changer, amazing.
+Declarative. Real. Like texting someone who gets it.
+
+CONTENT ANGLES TO ROTATE (alternate between these for variety):
+1. Problem/Education — why polyester/synthetic is harmful, science-backed
+2. Aspiration/Lifestyle — who the WEARTH person is, how they live and move
+3. Comparison — WEARTH vs alternatives, honest and factual  
+4. India-specific — climate, culture, metro life, Indian body types
+5. Ingredient/Material deep dive — what eucalyptus fabric actually is
+6. Seasonal/Timely — monsoon workouts, summer heat, festival fitness
+7. Male audience — strong, silent, substance over performance
 """
 
-# ─── SEO KEYWORD CLUSTERS ─────────────────────────────────────────────────────
-# 12 articles = 12 weeks of content. Each targets a different keyword cluster.
+# ─── KEYWORD SEED CLUSTERS ────────────────────────────────────────────────────
+# Used as inspiration only — Claude will expand and find fresh angles
 
-ARTICLE_BRIEFS = [
-    {
-        "slug": "why-polyester-is-bad-for-skin-during-exercise",
-        "title": "Why Polyester Is Bad for Your Skin During Exercise (And What to Wear Instead)",
-        "primary_keyword": "polyester bad for skin exercise",
-        "secondary_keywords": ["synthetic activewear problems", "activewear without polyester india", "breathable gym wear"],
-        "angle": "Scientific + personal. Explain what polyester actually does to skin during a workout — heat trap, bacteria, microplastics, chemical treatments on open pores. End with the natural alternative. Educational, not preachy.",
-        "word_count": 900
-    },
-    {
-        "slug": "eucalyptus-fabric-vs-polyester-activewear",
-        "title": "Eucalyptus Fabric vs Polyester: The Truth About What You're Wearing to the Gym",
-        "primary_keyword": "eucalyptus fabric vs polyester",
-        "secondary_keywords": ["plant based activewear india", "eucalyptus activewear", "natural fabric gym wear india"],
-        "angle": "Direct comparison. Properties side by side — breathability, moisture management, smell, microplastics, skin feel. Factual and confident.",
-        "word_count": 900
-    },
-    {
-        "slug": "plant-based-activewear-india",
-        "title": "Plant-Based Activewear in India: Why It's Time to Make the Switch",
-        "primary_keyword": "plant based activewear india",
-        "secondary_keywords": ["sustainable activewear india", "natural activewear india", "eco friendly gym wear india"],
-        "angle": "India-specific. Why Indian athletes specifically benefit — climate, skin types, washing habits. Position WEARTH as India's answer.",
-        "word_count": 900
-    },
-    {
-        "slug": "activewear-without-microplastics",
-        "title": "Your Gym Clothes Are Releasing Microplastics. Here's What That Means.",
-        "primary_keyword": "activewear without microplastics",
-        "secondary_keywords": ["microplastics in activewear", "non toxic gym wear", "sustainable workout clothes india"],
-        "angle": "Alarming but calm. What microplastics are, how they shed from synthetic activewear, what they do to the body and environment. The eucalyptus alternative.",
-        "word_count": 900
-    },
-    {
-        "slug": "best-breathable-activewear-india",
-        "title": "The Best Breathable Activewear for India's Climate (That Isn't Polyester)",
-        "primary_keyword": "breathable activewear india",
-        "secondary_keywords": ["best gym wear india", "activewear for hot weather india", "moisture wicking activewear india"],
-        "angle": "India climate-specific. Heat, humidity, long commutes to gym. Why breathability matters more here than anywhere. Natural fabrics win.",
-        "word_count": 900
-    },
-    {
-        "slug": "sustainable-activewear-india-guide",
-        "title": "Sustainable Activewear in India: A Complete Guide for 2026",
-        "primary_keyword": "sustainable activewear india",
-        "secondary_keywords": ["eco friendly activewear india", "slow fashion activewear", "ethical sportswear india"],
-        "angle": "Comprehensive guide. What makes activewear sustainable, what to look for, what to avoid, India-specific brands. WEARTH positioned naturally as the answer.",
-        "word_count": 1100
-    },
-    {
-        "slug": "how-eucalyptus-fabric-is-made",
-        "title": "From Tree to Fabric: How Eucalyptus Activewear Is Made",
-        "primary_keyword": "eucalyptus activewear india",
-        "secondary_keywords": ["how is eucalyptus fabric made", "lyocell production process", "plant based fabric manufacturing"],
-        "angle": "Origin story. Eucalyptus tree → wood pulp → closed-loop process → fabric. Visual, almost poetic. Makes the product feel premium and trustworthy.",
-        "word_count": 800
-    },
-    {
-        "slug": "non-polyester-workout-clothes-india",
-        "title": "Non-Polyester Workout Clothes in India: Your Options in 2026",
-        "primary_keyword": "non polyester workout clothes india",
-        "secondary_keywords": ["activewear without polyester india", "cotton vs polyester activewear", "natural fiber gym wear"],
-        "angle": "Practical guide. What alternatives to polyester exist for activewear (cotton, bamboo, eucalyptus). Honest pros/cons of each. Why eucalyptus wins for performance.",
-        "word_count": 900
-    },
-    {
-        "slug": "morning-workout-routine-activewear",
-        "title": "The Morning Workout Ritual: Why What You Wear Actually Matters",
-        "primary_keyword": "morning workout activewear india",
-        "secondary_keywords": ["best activewear for morning yoga", "activewear for morning run india", "comfortable gym clothes india"],
-        "angle": "Lifestyle angle. For the tribe — the 5:30am people. Sacred morning movement. How the wrong fabric breaks the spell. How the right one enhances it. Emotional.",
-        "word_count": 800
-    },
-    {
-        "slug": "womens-activewear-india-buying-guide",
-        "title": "Women's Activewear in India: What to Look For Before You Buy",
-        "primary_keyword": "womens activewear india",
-        "secondary_keywords": ["best womens gym wear india", "activewear for indian body types", "women sports wear india"],
-        "angle": "Practical buyer's guide for Indian women. Fit for Indian body types, climate considerations, fabric matters, what brands don't tell you. Empowering, not preachy.",
-        "word_count": 1000
-    },
-    {
-        "slug": "yoga-clothes-natural-fabric-india",
-        "title": "Why Natural Fabric Makes Better Yoga Clothes (And Where to Find Them in India)",
-        "primary_keyword": "natural fabric yoga clothes india",
-        "secondary_keywords": ["best yoga wear india", "breathable yoga pants india", "sustainable yoga clothes india"],
-        "angle": "Yoga-specific. The connection between natural fabric and the yoga practice. Breathability, temperature regulation, feel. Where synthetic breaks the flow.",
-        "word_count": 800
-    },
-    {
-        "slug": "wearth-brand-story",
-        "title": "Why I Built Wearth: The Story of Making Activewear From Trees",
-        "primary_keyword": "wearth activewear india",
-        "secondary_keywords": ["indian activewear brand story", "sustainable fashion india founder", "plant based clothing india"],
-        "angle": "Shai's voice. First person. Raw and real. The frustration with synthetic fabrics during her morning movement. The search. The discovery. The decision to build.",
-        "word_count": 800
-    }
+KEYWORD_SEEDS = [
+    "activewear india", "sustainable activewear", "eucalyptus fabric",
+    "polyester alternatives", "plant based clothing india", "gym wear india",
+    "yoga clothes india", "breathable activewear", "natural fabric workout",
+    "microplastics clothing", "non toxic activewear", "women activewear india",
+    "men activewear india", "morning workout india", "fitness lifestyle india",
+    "slow fashion india", "conscious clothing india", "fabric skin health",
+    "eucalyptus vs cotton", "workout clothes for indian climate"
 ]
 
-# ─── ARTICLE GENERATOR ────────────────────────────────────────────────────────
-
-def generate_article(brief: dict) -> dict:
-    """Call Claude to generate a full SEO article based on the brief."""
-    
-    prompt = f"""You are writing a blog article for WEARTH Active (wearthactive.com).
-
-{BRAND_CONTEXT}
-
-ARTICLE BRIEF:
-Title: {brief['title']}
-Primary keyword: {brief['primary_keyword']}
-Secondary keywords: {', '.join(brief['secondary_keywords'])}
-Angle: {brief['angle']}
-Target word count: {brief['word_count']} words
-
-SEO REQUIREMENTS:
-- Include primary keyword naturally in: title (already given), first paragraph, at least 2 subheadings, conclusion
-- Include secondary keywords naturally throughout
-- Use H2 and H3 subheadings (markdown format: ## and ###)
-- First paragraph must hook the reader immediately — no "In today's world" or generic openings
-- Include an internal link placeholder at the end: [Shop WEARTH plant-based activewear](https://wearthactive.com)
-- Meta description: write one at the end (150-160 chars, includes primary keyword)
-
-VOICE RULES:
-- WEARTH voice: calm, certain, trusted friend who has done the research
-- No exclamation marks ever
-- No hype: amazing, incredible, game-changer, revolutionary
-- No TENCEL or lyocell — use: eucalyptus fibre, plant-based fabric, from trees
-- Short punchy paragraphs mixed with longer ones — rhythm matters
-- Real, specific, factual
-
-OUTPUT FORMAT (raw JSON only, no markdown code blocks):
-{{
-  "title": "exact title",
-  "meta_description": "150-160 char SEO meta description",
-  "body_html": "full article in HTML format with proper h2/h3/p tags",
-  "tags": ["comma", "separated", "tags", "for", "shopify"],
-  "word_count": approximate_number
-}}"""
-
-    response = requests.post(
-        "https://api.anthropic.com/v1/messages",
-        headers=HEADERS_CLAUDE,
-        json={
-            "model": "claude-sonnet-4-20250514",
-            "max_tokens": 3000,
-            "messages": [{"role": "user", "content": prompt}]
-        }
-    )
-    
-    if response.status_code != 200:
-        raise Exception(f"Claude API error: {response.status_code} {response.text}")
-    
-    raw = response.json()["content"][0]["text"]
-    cleaned = raw.replace("```json", "").replace("```", "").strip()
-    return json.loads(cleaned)
-
-# ─── SHOPIFY PUBLISHER ────────────────────────────────────────────────────────
+# ─── SHOPIFY HELPERS ──────────────────────────────────────────────────────────
 
 def get_or_create_blog(blog_title: str = "News") -> str:
     """Get existing blog ID or create one."""
@@ -228,7 +97,6 @@ def get_or_create_blog(blog_title: str = "News") -> str:
     for blog in blogs:
         if blog["title"] == blog_title:
             return blog["id"]
-    # Create new blog
     r = requests.post(
         f"{SHOPIFY_BASE}/blogs.json",
         headers=HEADERS_SHOPIFY,
@@ -236,24 +104,19 @@ def get_or_create_blog(blog_title: str = "News") -> str:
     )
     return r.json()["blog"]["id"]
 
-
-def fetch_unsplash_image(keyword: str) -> str:
-    """Fetch a relevant image URL from Unsplash based on keyword."""
+def get_existing_articles() -> list:
+    """Fetch all published article titles and handles from Shopify."""
     try:
-        search_terms = keyword.replace(" ", "+") + "+activewear+fitness"
+        blog_id = get_or_create_blog("News")
         r = requests.get(
-            f"https://api.unsplash.com/photos/random?query={search_terms}&orientation=landscape",
-            headers={"Authorization": f"Client-ID {UNSPLASH_KEY}"},
-            timeout=10
+            f"{SHOPIFY_BASE}/blogs/{blog_id}/articles.json?limit=250&fields=handle,title",
+            headers=HEADERS_SHOPIFY
         )
-        if r.status_code == 200:
-            return r.json()["urls"]["regular"]
-    except Exception as e:
-        print(f"Unsplash fetch failed: {e}")
-    # Fallback image
-    return "https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=1200"
+        return r.json().get("articles", [])
+    except:
+        return []
 
-def publish_article(blog_id: str, brief: dict, article: dict) -> dict:
+def publish_article(blog_id: str, article: dict) -> dict:
     """Publish article to Shopify blog."""
     payload = {
         "article": {
@@ -263,7 +126,6 @@ def publish_article(blog_id: str, brief: dict, article: dict) -> dict:
             "tags": ", ".join(article.get("tags", [])),
             "published": True,
             "image": {"src": article.get("image_url", "")},
-
             "metafields": [
                 {
                     "key": "description_tag",
@@ -283,95 +145,202 @@ def publish_article(blog_id: str, brief: dict, article: dict) -> dict:
         raise Exception(f"Shopify publish error: {r.status_code} {r.text}")
     return r.json()["article"]
 
+# ─── IMAGE FETCHER ────────────────────────────────────────────────────────────
+
+def fetch_unsplash_image(keyword: str) -> str:
+    """Fetch a relevant image from Unsplash."""
+    try:
+        search_terms = keyword.replace(" ", "+") + "+activewear+fitness+india"
+        r = requests.get(
+            f"https://api.unsplash.com/photos/random?query={search_terms}&orientation=landscape",
+            headers={"Authorization": f"Client-ID {UNSPLASH_KEY}"},
+            timeout=10
+        )
+        if r.status_code == 200:
+            return r.json()["urls"]["regular"]
+    except Exception as e:
+        print(f"Unsplash fetch failed: {e}")
+    return "https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=1200"
+
+# ─── CLAUDE CALLER ────────────────────────────────────────────────────────────
+
+def call_claude(prompt: str, max_tokens: int = 4000) -> str:
+    """Call Claude API and return text response."""
+    response = requests.post(
+        "https://api.anthropic.com/v1/messages",
+        headers=HEADERS_CLAUDE,
+        json={
+            "model": "claude-sonnet-4-20250514",
+            "max_tokens": max_tokens,
+            "messages": [{"role": "user", "content": prompt}]
+        }
+    )
+    if response.status_code != 200:
+        raise Exception(f"Claude API error: {response.status_code} {response.text}")
+    return response.json()["content"][0]["text"]
+
+# ─── STEP 1: KEYWORD RESEARCHER ───────────────────────────────────────────────
+
+def research_best_keyword(existing_articles: list) -> dict:
+    """
+    Ask Claude to pick the best keyword opportunity not yet covered.
+    Returns a complete article brief.
+    """
+    existing_titles = [a["title"] for a in existing_articles]
+    existing_handles = [a["handle"] for a in existing_articles]
+
+    prompt = f"""You are an SEO strategist for WEARTH Active, an Indian eucalyptus activewear brand.
+
+{BRAND_CONTEXT}
+
+ALREADY PUBLISHED ARTICLES (do NOT repeat these topics):
+{json.dumps(existing_titles, indent=2)}
+
+KEYWORD SEED IDEAS (expand beyond these):
+{json.dumps(KEYWORD_SEEDS, indent=2)}
+
+YOUR TASK:
+Research and identify the BEST keyword opportunity for WEARTH's next blog article.
+
+Consider:
+1. Search volume potential in India (monthly searches)
+2. Commercial intent — will this reader buy activewear?
+3. Competition level — can a new brand rank for this?
+4. Brand fit — does this topic serve the WEARTH tribe?
+5. Content variety — pick a different angle from what's already published
+6. Seasonal relevance — is there a timely angle right now?
+
+Think about long-tail keywords, question-based searches, comparison searches,
+India-specific fitness/lifestyle trends, ingredient curiosity searches.
+
+Return ONLY a JSON object with this exact structure:
+{{
+  "primary_keyword": "the main keyword to target",
+  "secondary_keywords": ["keyword2", "keyword3", "keyword4"],
+  "title": "The article title (SEO optimized, compelling, under 70 chars)",
+  "slug": "url-friendly-slug-with-hyphens",
+  "angle": "2-3 sentences describing the content angle, tone, and what makes it unique",
+  "word_count": 900,
+  "content_angle_type": "one of: problem/education, aspiration/lifestyle, comparison, india-specific, material-deepdive, seasonal, male-audience",
+  "why_this_keyword": "one sentence explaining why this is the best opportunity right now"
+}}
+
+No markdown. No explanation. Start with {{ and end with }}."""
+
+    raw = call_claude(prompt, max_tokens=1000)
+    cleaned = raw.replace("```json", "").replace("```", "").strip()
+    return json.loads(cleaned)
+
+# ─── STEP 2: ARTICLE GENERATOR ────────────────────────────────────────────────
+
+def generate_article(brief: dict) -> dict:
+    """Generate full SEO article based on brief."""
+
+    prompt = f"""You are writing a blog article for WEARTH Active (wearthactive.com).
+
+{BRAND_CONTEXT}
+
+ARTICLE BRIEF:
+Title: {brief['title']}
+Primary Keyword: {brief['primary_keyword']}
+Secondary Keywords: {', '.join(brief['secondary_keywords'])}
+Content Angle: {brief['angle']}
+Target Word Count: {brief.get('word_count', 900)}
+
+WRITING RULES:
+- Use the primary keyword naturally in: title, first paragraph, 2-3 subheadings, conclusion
+- Use secondary keywords naturally throughout — never forced
+- Structure: intro hook → 3-5 H2 sections with H3 subsections → conclusion with CTA
+- CTA at end: link to https://wearthactive.com with anchor text relevant to article
+- Write for the WEARTH tribe — intelligent, ingredient-aware, done with synthetic
+- Calm authority. Not a lecture. Like a trusted friend sharing research.
+- No exclamation marks. No: amazing, incredible, game-changer, sacred, ritual, journey
+- Short paragraphs. Real sentences. Uneven rhythm.
+- Include specific facts, comparisons, and practical insights
+- India-specific references where relevant (climate, cities, culture)
+
+Return ONLY a JSON object:
+{{
+  "title": "exact article title",
+  "meta_description": "compelling meta description under 160 chars with primary keyword",
+  "body_html": "complete article HTML with proper h2, h3, p tags",
+  "tags": ["tag1", "tag2", "tag3", "tag4", "tag5"],
+  "word_count": approximate_number
+}}
+
+No markdown fences. Start with {{ and end with }}."""
+
+    raw = call_claude(prompt, max_tokens=4000)
+    cleaned = raw.replace("```json", "").replace("```", "").strip()
+    return json.loads(cleaned)
+
 # ─── MAIN RUNNER ──────────────────────────────────────────────────────────────
 
-def run_seo_engine(dry_run: bool = False, article_index: int = None):
+def run_seo_engine(dry_run: bool = False, article_index: int = None) -> dict:
     """
-    Main function.
-    dry_run=True: generate and print but don't publish
-    article_index: run specific article (0-11), or None to run next unpublished
+    Main entry point. Called by Flask API.
+    1. Fetch existing articles from Shopify
+    2. Ask Claude to research best keyword opportunity
+    3. Generate full article
+    4. Fetch image from Unsplash
+    5. Publish to Shopify
     """
     print(f"\n{'='*60}")
-    print(f"WEARTH SEO ENGINE — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    print(f"WEARTH INFINITE SEO ENGINE — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     print(f"Mode: {'DRY RUN' if dry_run else 'LIVE PUBLISH'}")
     print(f"{'='*60}\n")
 
-    # Load published log
-    log_file = "/app/published_articles.json"
-    try:
-        with open(log_file) as f:
-            published = json.load(f)
-    except FileNotFoundError:
-        published = []
+    # Step 1: Get existing articles from Shopify
+    print("Fetching existing articles from Shopify...")
+    existing_articles = get_existing_articles()
+    print(f"Found {len(existing_articles)} existing articles\n")
 
-    published_slugs = [p["slug"] for p in published]
+    # Step 2: Research best keyword
+    print("Researching best keyword opportunity...")
+    brief = research_best_keyword(existing_articles)
+    print(f"Selected keyword: {brief['primary_keyword']}")
+    print(f"Title: {brief['title']}")
+    print(f"Angle: {brief['content_angle_type']}")
+    print(f"Why: {brief['why_this_keyword']}\n")
 
-    # Pick article to generate
-    if article_index is not None:
-        brief = ARTICLE_BRIEFS[article_index]
-    else:
-        # Find next unpublished
-        brief = None
-        for b in ARTICLE_BRIEFS:
-            if b["slug"] not in published_slugs:
-                brief = b
-                break
-        if not brief:
-            print("All 12 articles published. Cycle complete.")
-            return
-
-    print(f"Generating: {brief['title']}")
-    print(f"Keyword: {brief['primary_keyword']}\n")
-
-    # Generate article
+    # Step 3: Generate article
+    print("Generating article...")
     article = generate_article(brief)
-    article["image_url"] = fetch_unsplash_image(brief["primary_keyword"])
     print(f"Generated: {article['title']}")
     print(f"Meta: {article['meta_description']}")
-    print(f"Words: ~{article.get('word_count', 'unknown')}")
+    print(f"Words: ~{article.get('word_count', 'unknown')}\n")
+
+    # Step 4: Fetch image
+    print("Fetching image from Unsplash...")
+    article["image_url"] = fetch_unsplash_image(brief["primary_keyword"])
+    print(f"Image: {article['image_url']}\n")
 
     if dry_run:
-        print("\n--- BODY HTML PREVIEW (first 500 chars) ---")
+        print("--- BODY HTML PREVIEW (first 500 chars) ---")
         print(article["body_html"][:500])
         print("\n[DRY RUN — not published]")
-        # Save preview
         preview_path = f"/tmp/preview_{brief['slug']}.html"
         with open(preview_path, "w") as f:
             f.write(f"<h1>{article['title']}</h1>\n")
+            f.write(f"<p><em>Keyword: {brief['primary_keyword']}</em></p>\n")
             f.write(f"<p><em>Meta: {article['meta_description']}</em></p>\n")
             f.write(article["body_html"])
         print(f"Preview saved: {preview_path}")
         return article
 
-    # Get blog ID
+    # Step 5: Publish
+    print("Publishing to Shopify...")
     blog_id = get_or_create_blog("News")
-    print(f"Blog ID: {blog_id}")
+    published_article = publish_article(blog_id, article)
+    url = f"https://wearthactive.com/blogs/news/{published_article.get('handle', brief['slug'])}"
+    print(f"\n✅ Published: {url}")
+    print(f"Total articles live: {len(existing_articles) + 1}")
+    print(f"Running forever. Next post: Monday or Thursday 8am IST.\n")
 
-    # Publish
-    published_article = publish_article(blog_id, brief, article)
-    url = f"https://wearthactive.com/blogs/wearth-journal/{published_article.get('handle', brief['slug'])}"
-    print(f"\nPublished: {url}")
-
-    # Log it
-    published.append({
-        "slug": brief["slug"],
-        "title": article["title"],
-        "published_at": datetime.now().isoformat(),
-        "shopify_id": published_article["id"],
-        "url": url
-    })
-    with open(log_file, "w") as f:
-        json.dump(published, f, indent=2)
-
-    print(f"\nLog updated. Total published: {len(published)}/12")
     return published_article
 
 
 if __name__ == "__main__":
     import sys
     dry = "--dry" in sys.argv
-    idx = None
-    for arg in sys.argv:
-        if arg.startswith("--index="):
-            idx = int(arg.split("=")[1])
-    run_seo_engine(dry_run=dry, article_index=idx)
+    run_seo_engine(dry_run=dry)
