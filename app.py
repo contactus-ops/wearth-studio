@@ -103,7 +103,16 @@ def generate_article_endpoint():
     def run():
         try:
             r = run_seo_engine(dry_run=dry_run, article_index=index)
-            _seo_results[job_id] = {"status": "complete", "article": str(r)}
+            # Store as proper dict, not string
+            _seo_results[job_id] = {
+                "status": "complete",
+                "article": r if isinstance(r, dict) else {},
+                "title": r.get("title", "") if isinstance(r, dict) else "",
+                "handle": r.get("handle", "") if isinstance(r, dict) else "",
+                "url": f"https://wearthactive.com/blogs/news/{r.get('handle', '')}" if isinstance(r, dict) else "",
+                "image": r.get("image", {}).get("src", "") if isinstance(r, dict) else "",
+                "summary": r.get("summary_html", "") if isinstance(r, dict) else ""
+            }
         except Exception as e:
             _seo_results[job_id] = {"status": "error", "error": str(e)}
     t = _threading.Thread(target=run)
