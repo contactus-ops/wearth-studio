@@ -344,7 +344,16 @@ def run_seo_engine(dry_run: bool = False, article_index: int = None) -> dict:
 
     # Step 4: Fetch image
     print("Fetching image from Unsplash...")
-    article["image_url"] = fetch_unsplash_image(brief["primary_keyword"])
+    # Build gender-aware image search query
+    angle = brief.get("content_angle_type", "")
+    keyword = brief["primary_keyword"]
+    if "male" in angle or "men" in keyword.lower() or "man" in keyword.lower():
+        image_query = keyword + " men fitness india"
+    elif "female" in angle or "women" in keyword.lower() or "woman" in keyword.lower():
+        image_query = keyword + " women fitness india"
+    else:
+        image_query = keyword + " fitness india"
+    article["image_url"] = fetch_unsplash_image(image_query)
     print(f"Image: {article['image_url']}\n")
 
     if dry_run:
