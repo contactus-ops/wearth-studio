@@ -147,20 +147,40 @@ def publish_article(blog_id: str, article: dict) -> dict:
 
 # ─── IMAGE FETCHER ────────────────────────────────────────────────────────────
 
+# Fallback images pool — varied so no repeats
+FALLBACK_IMAGES = [
+    "https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=1200",
+    "https://images.unsplash.com/photo-1518611012118-696072aa579a?w=1200",
+    "https://images.unsplash.com/photo-1506629082955-511b1aa562c8?w=1200",
+    "https://images.unsplash.com/photo-1540497077202-7c8a3999166f?w=1200",
+    "https://images.unsplash.com/photo-1594737625785-a6cbdabd333c?w=1200",
+    "https://images.unsplash.com/photo-1536922246289-88c42f957773?w=1200",
+    "https://images.unsplash.com/photo-1574680096145-d05b474e2155?w=1200",
+    "https://images.unsplash.com/photo-1554284126-aa88f22d8b74?w=1200",
+]
+
 def fetch_unsplash_image(keyword: str) -> str:
-    """Fetch a relevant image from Unsplash."""
+    """Fetch a relevant image from Unsplash with variety."""
+    import random as _random
     try:
+        # Use search endpoint with random page for variety
         search_terms = keyword.replace(" ", "+") + "+activewear+fitness+india"
+        page = _random.randint(1, 5)
+        per_page = 10
         r = requests.get(
-            f"https://api.unsplash.com/photos/random?query={search_terms}&orientation=landscape",
+            f"https://api.unsplash.com/search/photos?query={search_terms}&orientation=landscape&page={page}&per_page={per_page}",
             headers={"Authorization": f"Client-ID {UNSPLASH_KEY}"},
             timeout=10
         )
         if r.status_code == 200:
-            return r.json()["urls"]["regular"]
+            results = r.json().get("results", [])
+            if results:
+                photo = _random.choice(results)
+                return photo["urls"]["regular"]
     except Exception as e:
         print(f"Unsplash fetch failed: {e}")
-    return "https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=1200"
+    # Use varied fallback pool
+    return _random.choice(FALLBACK_IMAGES)
 
 # ─── CLAUDE CALLER ────────────────────────────────────────────────────────────
 
