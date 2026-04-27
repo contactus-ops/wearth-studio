@@ -169,13 +169,21 @@ FALLBACK_IMAGES = [
 def fetch_unsplash_image(keyword: str) -> str:
     """Fetch a relevant image from Unsplash with variety."""
     import random as _random
+    import time as _time
     try:
-        # Use search endpoint with random page for variety
-        search_terms = keyword.replace(" ", "+") + "+activewear+fitness+india"
-        page = _random.randint(1, 5)
-        per_page = 10
+        # Try multiple search terms for variety
+        search_options = [
+            keyword.replace(" ", "+"),
+            "eucalyptus+activewear+india",
+            "fitness+india+workout",
+            "yoga+india+natural",
+            "running+india+outdoor",
+            "gym+india+woman",
+        ]
+        search_terms = _random.choice(search_options)
+        page = _random.randint(1, 8)
         r = requests.get(
-            f"https://api.unsplash.com/search/photos?query={search_terms}&orientation=landscape&page={page}&per_page={per_page}",
+            f"https://api.unsplash.com/search/photos?query={search_terms}&orientation=landscape&page={page}&per_page=15",
             headers={"Authorization": f"Client-ID {UNSPLASH_KEY}"},
             timeout=10
         )
@@ -183,11 +191,13 @@ def fetch_unsplash_image(keyword: str) -> str:
             results = r.json().get("results", [])
             if results:
                 photo = _random.choice(results)
+                print(f"Unsplash image: {photo['urls']['regular'][:60]}...")
                 return photo["urls"]["regular"]
     except Exception as e:
         print(f"Unsplash fetch failed: {e}")
-    # Use varied fallback pool
-    return _random.choice(FALLBACK_IMAGES)
+    # Use varied fallback pool - pick based on time to avoid repeats
+    idx = int(_time.time()) % len(FALLBACK_IMAGES)
+    return FALLBACK_IMAGES[idx]
 
 # ─── CLAUDE CALLER ────────────────────────────────────────────────────────────
 
@@ -416,6 +426,9 @@ def run_seo_engine(dry_run: bool = False, article_index: int = None) -> dict:
     print(f"\n✅ Published: {url}")
     print(f"Total articles live: {len(existing_articles) + 1}")
     print(f"Running forever. Next post: Monday or Thursday 8am IST.\n")
+
+    # Send full article email to Shai
+    send_article_email(article, brief, url)
 
     return published_article
 
