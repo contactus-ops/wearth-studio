@@ -13,7 +13,8 @@ from datetime import datetime
 
 SHOPIFY_STORE = "wearthactive.myshopify.com"
 SHOPIFY_TOKEN = os.environ.get("SHOPIFY_TOKEN", "")
-ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "")  # set in env or Railway
+ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+UNSPLASH_KEY = os.environ.get("UNSPLASH_ACCESS_KEY", "")  # set in env or Railway
 
 SHOPIFY_BASE = f"https://{SHOPIFY_STORE}/admin/api/2024-01"
 HEADERS_SHOPIFY = {
@@ -235,6 +236,23 @@ def get_or_create_blog(blog_title: str = "WEARTH Journal") -> str:
     )
     return r.json()["blog"]["id"]
 
+
+def fetch_unsplash_image(keyword: str) -> str:
+    """Fetch a relevant image URL from Unsplash based on keyword."""
+    try:
+        search_terms = keyword.replace(" ", "+") + "+activewear+fitness"
+        r = requests.get(
+            f"https://api.unsplash.com/photos/random?query={search_terms}&orientation=landscape",
+            headers={"Authorization": f"Client-ID {UNSPLASH_KEY}"},
+            timeout=10
+        )
+        if r.status_code == 200:
+            return r.json()["urls"]["regular"]
+    except Exception as e:
+        print(f"Unsplash fetch failed: {e}")
+    # Fallback image
+    return "https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=1200"
+
 def publish_article(blog_id: str, brief: dict, article: dict) -> dict:
     """Publish article to Shopify blog."""
     payload = {
@@ -244,6 +262,8 @@ def publish_article(blog_id: str, brief: dict, article: dict) -> dict:
             "summary_html": f"<p>{article['meta_description']}</p>",
             "tags": ", ".join(article.get("tags", [])),
             "published": True,
+            "image": {"src": article.get("image_url", "")},
+
             "metafields": [
                 {
                     "key": "description_tag",
@@ -305,6 +325,7 @@ def run_seo_engine(dry_run: bool = False, article_index: int = None):
 
     # Generate article
     article = generate_article(brief)
+    article["image_url"] = fetch_unsplash_image(brief["keyword"])
     print(f"Generated: {article['title']}")
     print(f"Meta: {article['meta_description']}")
     print(f"Words: ~{article.get('word_count', 'unknown')}")
