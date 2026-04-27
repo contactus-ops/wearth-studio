@@ -221,7 +221,7 @@ OUTPUT FORMAT (raw JSON only, no markdown code blocks):
 
 # ─── SHOPIFY PUBLISHER ────────────────────────────────────────────────────────
 
-def get_or_create_blog(blog_title: str = "WEARTH Journal") -> str:
+def get_or_create_blog(blog_title: str = "News") -> str:
     """Get existing blog ID or create one."""
     r = requests.get(f"{SHOPIFY_BASE}/blogs.json", headers=HEADERS_SHOPIFY)
     blogs = r.json().get("blogs", [])
@@ -344,7 +344,7 @@ def run_seo_engine(dry_run: bool = False, article_index: int = None):
         return article
 
     # Get blog ID
-    blog_id = get_or_create_blog("WEARTH Journal")
+    blog_id = get_or_create_blog("News")
     print(f"Blog ID: {blog_id}")
 
     # Publish
