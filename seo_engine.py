@@ -104,12 +104,13 @@ def get_or_create_blog(blog_title: str = "News") -> str:
     )
     return r.json()["blog"]["id"]
 
+NEWS_BLOG_ID = "84314751156"  # Hardcoded — never changes
+
 def get_existing_articles() -> list:
-    """Fetch all published article titles and handles from Shopify."""
+    """Fetch all published article titles and handles from News blog."""
     try:
-        blog_id = get_or_create_blog("News")
         r = requests.get(
-            f"{SHOPIFY_BASE}/blogs/{blog_id}/articles.json?limit=250&fields=handle,title",
+            f"{SHOPIFY_BASE}/blogs/{NEWS_BLOG_ID}/articles.json?limit=250&fields=handle,title",
             headers=HEADERS_SHOPIFY
         )
         return r.json().get("articles", [])
@@ -350,7 +351,7 @@ def run_seo_engine(dry_run: bool = False, article_index: int = None) -> dict:
 
     # Step 5: Publish
     print("Publishing to Shopify...")
-    blog_id = get_or_create_blog("News")
+    blog_id = NEWS_BLOG_ID
     published_article = publish_article(blog_id, article)
     url = f"https://wearthactive.com/blogs/news/{published_article.get('handle', brief['slug'])}"
     print(f"\n✅ Published: {url}")
