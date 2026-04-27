@@ -9,9 +9,6 @@ import os
 import json
 import requests
 from datetime import datetime
-import smtplib
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 
 # ─── CONFIG ───────────────────────────────────────────────────────────────────
 
@@ -19,9 +16,6 @@ SHOPIFY_STORE = "wearthactive.myshopify.com"
 SHOPIFY_TOKEN = os.environ.get("SHOPIFY_TOKEN", "")
 ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 UNSPLASH_KEY = os.environ.get("UNSPLASH_ACCESS_KEY", "")
-GMAIL_USER = os.environ.get("GMAIL_USER", "")
-GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD", "")
-NOTIFY_EMAIL = "contactus@wearthactive.com"
 
 SHOPIFY_BASE = f"https://{SHOPIFY_STORE}/admin/api/2024-01"
 HEADERS_SHOPIFY = {
@@ -313,61 +307,6 @@ No markdown fences. Start with {{ and end with }}."""
 
 # ─── MAIN RUNNER ──────────────────────────────────────────────────────────────
 
-def send_article_email(article: dict, brief: dict, url: str):
-    """Send full article email to Shai after publishing."""
-    print(f"Attempting to send email via {GMAIL_USER}...")
-    try:
-        if not GMAIL_USER or not GMAIL_APP_PASSWORD:
-            print(f"Gmail credentials missing — USER:{bool(GMAIL_USER)} PASS:{bool(GMAIL_APP_PASSWORD)}")
-            return
-
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = f"WEARTH SEO — New Article Published: {article['title']}"
-        msg["From"] = GMAIL_USER
-        msg["To"] = NOTIFY_EMAIL
-
-        html = f"""
-        <html><body style="font-family: Georgia, serif; max-width: 700px; margin: 0 auto; padding: 20px; color: #333;">
-        <div style="border-bottom: 2px solid #2c2c2c; padding-bottom: 20px; margin-bottom: 30px;">
-            <h1 style="font-size: 14px; letter-spacing: 3px; text-transform: uppercase; color: #666; margin: 0;">WEARTH SEO ENGINE</h1>
-            <p style="font-size: 12px; color: #999; margin: 5px 0 0 0;">New article published automatically</p>
-        </div>
-
-        <h2 style="font-size: 28px; font-weight: normal; line-height: 1.3; margin-bottom: 10px;">{article['title']}</h2>
-        <p style="color: #666; font-style: italic; margin-bottom: 5px;">Keyword: {brief['primary_keyword']}</p>
-        <p style="color: #666; font-style: italic; margin-bottom: 20px;">Angle: {brief.get('content_angle_type', '')}</p>
-
-        <div style="background: #f9f9f9; padding: 15px; border-left: 3px solid #2c2c2c; margin-bottom: 30px;">
-            <p style="margin: 0; font-style: italic;">{article.get('meta_description', '')}</p>
-        </div>
-
-        <a href="{url}" style="background: #2c2c2c; color: white; padding: 12px 24px; text-decoration: none; display: inline-block; margin-bottom: 40px; letter-spacing: 1px; font-size: 13px;">READ LIVE ARTICLE →</a>
-
-        <div style="border-top: 1px solid #eee; padding-top: 30px;">
-            {article.get('body_html', '')}
-        </div>
-
-        <div style="border-top: 2px solid #2c2c2c; margin-top: 40px; padding-top: 20px; font-size: 12px; color: #999;">
-            <p>Published: {datetime.now().strftime('%d %B %Y, %I:%M %p IST')}</p>
-            <p>Next article: Monday or Thursday 8am IST automatically</p>
-            <p>View all articles: <a href="https://wearthactive.com/blogs/news">wearthactive.com/blogs/news</a></p>
-        </div>
-        </body></html>
-        """
-
-        msg.attach(MIMEText(html, "html"))
-
-        with smtplib.SMTP("smtp.gmail.com", 587) as server:
-            server.ehlo()
-            server.starttls()
-            server.login(GMAIL_USER, GMAIL_APP_PASSWORD)
-            server.sendmail(GMAIL_USER, NOTIFY_EMAIL, msg.as_string())
-
-        print(f"✅ Email sent to {NOTIFY_EMAIL}")
-
-    except Exception as e:
-        print(f"Email failed: {e}")
-
 
 def run_seo_engine(dry_run: bool = False, article_index: int = None) -> dict:
     """
@@ -429,9 +368,6 @@ def run_seo_engine(dry_run: bool = False, article_index: int = None) -> dict:
     print(f"\n✅ Published: {url}")
     print(f"Total articles live: {len(existing_articles) + 1}")
     print(f"Running forever. Next post: Monday or Thursday 8am IST.\n")
-
-    # Send full article email to Shai
-    send_article_email(article, brief, url)
 
     return published_article
 
