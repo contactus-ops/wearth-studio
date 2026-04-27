@@ -325,7 +325,7 @@ def run_seo_engine(dry_run: bool = False, article_index: int = None):
 
     # Generate article
     article = generate_article(brief)
-    article["image_url"] = fetch_unsplash_image(brief["keyword"])
+    article["image_url"] = fetch_unsplash_image(brief["primary_keyword"])
     print(f"Generated: {article['title']}")
     print(f"Meta: {article['meta_description']}")
     print(f"Words: ~{article.get('word_count', 'unknown')}")
