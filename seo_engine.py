@@ -315,9 +315,10 @@ No markdown fences. Start with {{ and end with }}."""
 
 def send_article_email(article: dict, brief: dict, url: str):
     """Send full article email to Shai after publishing."""
+    print(f"Attempting to send email via {GMAIL_USER}...")
     try:
         if not GMAIL_USER or not GMAIL_APP_PASSWORD:
-            print("Gmail credentials not set — skipping email")
+            print(f"Gmail credentials missing — USER:{bool(GMAIL_USER)} PASS:{bool(GMAIL_APP_PASSWORD)}")
             return
 
         msg = MIMEMultipart("alternative")
