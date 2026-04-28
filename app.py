@@ -1109,6 +1109,7 @@ def publish_meta_advantage_variant():
                 'campaign_id': campaign_id,
                 'status': 'PAUSED',
                 'daily_budget': str(daily_budget_paise),
+                'bid_strategy': 'LOWEST_COST_WITHOUT_CAP',
                 'billing_event': 'IMPRESSIONS',
                 'optimization_goal': 'OFFSITE_CONVERSIONS',
                 'promoted_object': json.dumps({
