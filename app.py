@@ -1115,6 +1115,9 @@ def publish_meta_advantage_variant():
                 'bid_strategy': 'LOWEST_COST_WITHOUT_CAP',
                 'billing_event': 'IMPRESSIONS',
                 'optimization_goal': 'OFFSITE_CONVERSIONS',
+                'targeting_automation': json.dumps({
+                    'advantage_audience': 0
+                }),
                 'promoted_object': json.dumps({
                     'pixel_id': META_PIXEL_ID,
                     'custom_event_type': 'PURCHASE'
