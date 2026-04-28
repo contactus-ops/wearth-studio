@@ -5,6 +5,8 @@ import json
 import time
 import traceback
 import random
+import re
+from urllib.parse import urlparse, parse_qs
 from io import BytesIO
 import base64 as b64mod
 
@@ -654,6 +656,222 @@ def delete_logo():
         return jsonify({'ok': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+# ── META ADVANTAGE+ CREATIVE GENERATOR ──
+GOOGLE_DRIVE_API_KEY = os.environ.get('GOOGLE_DRIVE_API_KEY', '')
+
+META_AB_PROMPT = (
+    "You are generating Meta Advantage+ ad copy variants for WEARTH Active.\n\n"
+    "Brand: Indian eucalyptus activewear. Premium, calm, certain voice.\n"
+    "Never use: TENCEL, lyocell, game-changer, amazing, sacred, ritual.\n"
+    "No exclamation marks. Short lines. Trusted-friend tone.\n\n"
+    "Audience: India metros, 25-40, done with polyester, ingredient-aware.\n"
+    "Goal: High-intent purchases on wearthactive.com.\n\n"
+    "Product context:\nPRODUCT_CONTEXT_PLACEHOLDER\n\n"
+    "Generate exactly CREATIVE_COUNT_PLACEHOLDER distinct ad variants.\n"
+    "Each variant must include keys:\n"
+    "- variant_id (A, B, C...)\n"
+    "- angle (problem/education | aspiration/lifestyle | comparison | india-specific | material-deepdive)\n"
+    "- primary_text (80-150 words)\n"
+    "- headline (max 40 chars)\n"
+    "- description (max 60 chars)\n"
+    "- cta (Shop Now, Learn More, or Buy Now)\n"
+    "- hook_line (max 8 words)\n"
+    "- hashtags (array of 3-6 tags)\n\n"
+    "Return JSON only with this structure:\n"
+    "{\"variants\": [{...}]}\n"
+)
+
+
+def _extract_drive_file_id(url: str) -> str:
+    """Extract file id from common Google Drive URL formats."""
+    if not url:
+        return ''
+    match = re.search(r'/d/([a-zA-Z0-9_-]+)', url)
+    if match:
+        return match.group(1)
+    parsed = urlparse(url)
+    q = parse_qs(parsed.query)
+    if q.get('id'):
+        return q['id'][0]
+    return ''
+
+
+def _extract_drive_folder_id(url: str) -> str:
+    """Extract folder id from common Google Drive folder URL formats."""
+    if not url:
+        return ''
+    match = re.search(r'/folders/([a-zA-Z0-9_-]+)', url)
+    if match:
+        return match.group(1)
+    parsed = urlparse(url)
+    q = parse_qs(parsed.query)
+    if q.get('id'):
+        return q['id'][0]
+    return ''
+
+
+def _drive_file_url(file_id: str) -> str:
+    return f'https://drive.google.com/uc?export=view&id={file_id}'
+
+
+def _list_drive_folder_images(folder_id: str) -> list:
+    """List public Google Drive folder images via Drive API (if API key is set)."""
+    if not GOOGLE_DRIVE_API_KEY or not folder_id:
+        return []
+    try:
+        params = {
+            'key': GOOGLE_DRIVE_API_KEY,
+            'q': f"'{folder_id}' in parents and trashed=false and mimeType contains 'image/'",
+            'fields': 'files(id,name,mimeType,webViewLink)',
+            'pageSize': 100
+        }
+        resp = requests.get('https://www.googleapis.com/drive/v3/files', params=params, timeout=20)
+        if resp.status_code != 200:
+            return []
+        files = resp.json().get('files', [])
+        return [{
+            'id': f.get('id', ''),
+            'name': f.get('name', ''),
+            'url': _drive_file_url(f.get('id', '')),
+            'source': 'google_drive_folder'
+        } for f in files if f.get('id')]
+    except Exception:
+        return []
+
+
+def _resolve_drive_images(payload: dict) -> list:
+    """
+    Resolve input images from:
+    1) google_drive_links (file links)
+    2) google_drive_folder_url or google_drive_folder_id (public folder, API key required)
+    3) image_urls (direct urls)
+    """
+    images = []
+    seen = set()
+
+    for url in payload.get('image_urls', []) or []:
+        if url and url not in seen:
+            seen.add(url)
+            images.append({'id': '', 'name': 'image', 'url': url, 'source': 'direct_url'})
+
+    for link in payload.get('google_drive_links', []) or []:
+        file_id = _extract_drive_file_id(link)
+        if not file_id:
+            continue
+        url = _drive_file_url(file_id)
+        if url in seen:
+            continue
+        seen.add(url)
+        images.append({'id': file_id, 'name': 'drive_image', 'url': url, 'source': 'google_drive_link'})
+
+    folder_id = (payload.get('google_drive_folder_id') or '').strip()
+    if not folder_id:
+        folder_id = _extract_drive_folder_id((payload.get('google_drive_folder_url') or '').strip())
+
+    for image in _list_drive_folder_images(folder_id):
+        url = image.get('url', '')
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        images.append(image)
+
+    return images
+
+
+def _call_claude_json(prompt: str, max_tokens: int = 2200) -> dict:
+    """Call Claude and parse JSON body safely."""
+    resp = requests.post(
+        'https://api.anthropic.com/v1/messages',
+        headers={
+            'Content-Type': 'application/json',
+            'x-api-key': ANTHROPIC_KEY,
+            'anthropic-version': '2023-06-01'
+        },
+        json={
+            'model': 'claude-sonnet-4-20250514',
+            'max_tokens': max_tokens,
+            'messages': [{'role': 'user', 'content': prompt}]
+        },
+        timeout=50
+    )
+    resp.raise_for_status()
+    text = resp.json()['content'][0]['text'].strip()
+    if '```' in text:
+        parts = text.split('```')
+        text = parts[1] if len(parts) > 1 else parts[0]
+        if text.startswith('json'):
+            text = text[4:]
+        text = text.strip()
+    return json.loads(text)
+
+
+@app.route('/api/meta-advantage/generate', methods=['POST'])
+def generate_meta_advantage_creatives():
+    """
+    Generate Meta Advantage+ A/B ad creatives from existing product images.
+    Works with Google Drive links/folder or direct image URLs.
+    """
+    try:
+        data = request.json or {}
+        if not ANTHROPIC_KEY:
+            return jsonify({'error': 'ANTHROPIC_API_KEY not set'}), 500
+
+        images = _resolve_drive_images(data)
+        if not images:
+            return jsonify({
+                'error': 'No images found. Send google_drive_links, image_urls, or a Google Drive folder.',
+                'hint': 'For folder sync, set GOOGLE_DRIVE_API_KEY and pass google_drive_folder_url or google_drive_folder_id.'
+            }), 400
+
+        creative_count = int(data.get('creative_count', 2) or 2)
+        creative_count = max(2, min(8, creative_count))
+
+        product_context = (data.get('product_context') or '').strip()
+        if not product_context:
+            product_context = (
+                "WEARTH Active premium plant-based activewear made from natural fibres for Indian climate. "
+                "Anti-polyester, breathable, no microplastics in wash, built for daily movement."
+            )
+
+        prompt = (META_AB_PROMPT
+            .replace('PRODUCT_CONTEXT_PLACEHOLDER', product_context)
+            .replace('CREATIVE_COUNT_PLACEHOLDER', str(creative_count)))
+
+        claude_payload = _call_claude_json(prompt, max_tokens=2600)
+        variants = claude_payload.get('variants', [])
+        if not isinstance(variants, list):
+            variants = []
+
+        if not variants:
+            return jsonify({'error': 'Claude returned no variants'}), 500
+
+        # Assign images round-robin so each variant maps to a real creative asset.
+        image_count = len(images)
+        enriched = []
+        for idx, variant in enumerate(variants):
+            if not isinstance(variant, dict):
+                continue
+            image = images[idx % image_count]
+            enriched_variant = dict(variant)
+            enriched_variant['image_url'] = image.get('url', '')
+            enriched_variant['image_name'] = image.get('name', '')
+            enriched_variant['image_source'] = image.get('source', '')
+            enriched_variant['variant_id'] = enriched_variant.get('variant_id', chr(65 + idx))
+            enriched.append(enriched_variant)
+
+        return jsonify({
+            'ok': True,
+            'platform': 'meta_advantage_plus',
+            'creative_count': len(enriched),
+            'images_count': len(images),
+            'variants': enriched,
+            'images': images
+        })
+
+    except Exception as e:
+        return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
 
 @app.route('/<path:path>')
 def static_files(path):

@@ -36,11 +36,20 @@ FOUNDER: Shai (Shailaja Gupta), India
 TAGLINE: Activewear Without Polyester. Finally.
 
 FABRIC TRUTH:
-- Made from eucalyptus tree fibre — plant-based, closed-loop manufacturing
+- Made from plant-based fabric — closed-loop manufacturing, grown not made
+- FABRIC LANGUAGE (rotate these, never repeat in same article):
+  * "plant-based fabric that breathes"
+  * "fabric grown from trees, not made in a lab"
+  * "botanical fibre with natural temperature regulation"
+  * "fabric that comes from the ground, not petroleum"
+  * "natural fibre that moves moisture without chemicals"
+  * "tree-derived fabric, closed-loop process"
+  * "fabric grown, not manufactured"
+  * "plant fibre, not plastic"
+- Rotate between: eucalyptus, plant-based fabric, fabric from trees, botanical fibre, tree-derived fabric. Never use TENCEL or lyocell.
 - Breathable, temperature-regulating, moisture-wicking naturally
 - No microplastics shed in wash
 - No chemical treatments on skin during exercise
-- NEVER say: TENCEL, lyocell. ALWAYS say: eucalyptus fibre, plant-based fabric, from trees.
 
 BRAND POSITIONING:
 - Anti-polyester. Anti-synthetic. Pro-plant.
@@ -70,7 +79,7 @@ CONTENT ANGLES TO ROTATE (alternate between these for variety):
 2. Aspiration/Lifestyle — who the WEARTH person is, how they live and move
 3. Comparison — WEARTH vs alternatives, honest and factual  
 4. India-specific — climate, culture, metro life, Indian body types
-5. Ingredient/Material deep dive — what eucalyptus fabric actually is
+5. Ingredient/Material deep dive — what plant-based fabric actually is and how it differs from synthetic
 6. Seasonal/Timely — monsoon workouts, summer heat, festival fitness
 7. Male audience — strong, silent, substance over performance
 """
@@ -79,13 +88,13 @@ CONTENT ANGLES TO ROTATE (alternate between these for variety):
 # Used as inspiration only — Claude will expand and find fresh angles
 
 KEYWORD_SEEDS = [
-    "activewear india", "sustainable activewear", "eucalyptus fabric",
-    "polyester alternatives", "plant based clothing india", "gym wear india",
+    "activewear india", "sustainable activewear", "plant based fabric activewear",
+    "polyester alternatives", "natural fabric activewear india", "gym wear india",
     "yoga clothes india", "breathable activewear", "natural fabric workout",
     "microplastics clothing", "non toxic activewear", "women activewear india",
     "men activewear india", "morning workout india", "fitness lifestyle india",
     "slow fashion india", "conscious clothing india", "fabric skin health",
-    "eucalyptus vs cotton", "workout clothes for indian climate"
+    "natural vs synthetic fabric", "workout clothes for indian climate"
 ]
 
 # ─── SHOPIFY HELPERS ──────────────────────────────────────────────────────────
@@ -179,7 +188,7 @@ def fetch_unsplash_image(keyword: str) -> str:
         # Try multiple search terms for variety
         search_options = [
             keyword.replace(" ", "+"),
-            "eucalyptus+activewear+india",
+            "plant+based+activewear+india",
             "fitness+india+workout",
             "yoga+india+natural",
             "running+india+outdoor",
@@ -239,7 +248,7 @@ def research_best_keyword(existing_articles: list) -> dict:
     existing_titles = [a["title"] for a in existing_articles]
     existing_handles = [a["handle"] for a in existing_articles]
 
-    prompt = f"""You are an SEO strategist for WEARTH Active, an Indian eucalyptus activewear brand.
+    prompt = f"""You are an SEO strategist for WEARTH Active, an Indian plant-based activewear brand.
 
 {BRAND_CONTEXT}
 
