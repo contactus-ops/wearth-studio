@@ -21,7 +21,6 @@ FABRIC_PHRASES = [
     "made from eucalyptus fibres",
     "plant-based fabric that breathes",
     "grown from eucalyptus trees",
-    "TENCEL-free, synthetic-free eucalyptus",
     "fabric that comes from the ground",
     "eucalyptus that actually feels like skin",
     "softer than cotton, cleaner than polyester",
@@ -663,7 +662,7 @@ GOOGLE_DRIVE_API_KEY = os.environ.get('GOOGLE_DRIVE_API_KEY', '')
 
 META_AB_PROMPT = (
     "You are generating Meta Advantage+ ad copy variants for WEARTH Active.\n\n"
-    "Brand: Indian eucalyptus activewear. Premium, calm, certain voice.\n"
+    "Brand: Indian plant-based activewear made from botanical fibres. Premium, calm, certain voice.\n"
     "Never use: TENCEL, lyocell, game-changer, amazing, sacred, ritual.\n"
     "No exclamation marks. Short lines. Trusted-friend tone.\n\n"
     "Audience: India metros, 25-40, done with polyester, ingredient-aware.\n"
