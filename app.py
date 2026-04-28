@@ -1096,6 +1096,9 @@ def publish_meta_advantage_variant():
             'age_max': 40,
             'geo_locations': {'countries': ['IN']},
             'interests': interests,
+            'targeting_automation': {
+                'advantage_audience': 0
+            },
             'publisher_platforms': ['facebook', 'instagram'],
             'facebook_positions': ['feed'],
             'instagram_positions': ['stream', 'story']
@@ -1265,6 +1268,9 @@ def publish_meta_advantage_variant_test():
             'age_max': 40,
             'geo_locations': {'countries': ['IN']},
             'interests': interests,
+            'targeting_automation': {
+                'advantage_audience': 0
+            },
             'publisher_platforms': ['facebook', 'instagram'],
             'facebook_positions': ['feed'],
             'instagram_positions': ['stream', 'story']
