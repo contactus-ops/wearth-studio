@@ -16,6 +16,13 @@ COMPOSITOR_URL = 'https://web-production-48b5f.up.railway.app/compose'
 ANTHROPIC_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
 FAL_API_KEY = os.environ.get('FAL_API_KEY', 'c9d35e47-26a0-4a74-b24b-4075ecc4b1c0:cf04ed86e9925a8d27fc7f93b7cb7c19')
 IMGBB_API_KEY = os.environ.get('IMGBB_API_KEY', 'e1b80ca6ca87d1afe6a114b80e21cbe3')
+META_ACCESS_TOKEN = os.environ.get('META_ACCESS_TOKEN', '')
+META_AD_ACCOUNT_ID = os.environ.get('META_AD_ACCOUNT_ID', '')
+META_APP_ID = os.environ.get('META_APP_ID', '')
+META_PAGE_ID = os.environ.get('META_PAGE_ID', '')
+META_PIXEL_ID = os.environ.get('META_PIXEL_ID', '')
+META_GRAPH_VERSION = 'v22.0'
+META_GRAPH_BASE = f'https://graph.facebook.com/{META_GRAPH_VERSION}'
 
 FABRIC_PHRASES = [
     "made from eucalyptus fibres",
@@ -806,6 +813,110 @@ def _call_claude_json(prompt: str, max_tokens: int = 2200) -> dict:
     return json.loads(text)
 
 
+def _meta_error_message(resp) -> str:
+    """Format Graph API errors into a clean message."""
+    try:
+        payload = resp.json()
+        err = payload.get('error', {})
+        parts = [f"Meta API error {resp.status_code}"]
+        if err.get('message'):
+            parts.append(err['message'])
+        if err.get('error_user_title'):
+            parts.append(err['error_user_title'])
+        if err.get('error_user_msg'):
+            parts.append(err['error_user_msg'])
+        if err.get('code'):
+            parts.append(f"code={err['code']}")
+        if err.get('error_subcode'):
+            parts.append(f"subcode={err['error_subcode']}")
+        if err.get('fbtrace_id'):
+            parts.append(f"trace={err['fbtrace_id']}")
+        return ' | '.join(parts)
+    except Exception:
+        return f"Meta API error {resp.status_code}: {resp.text[:500]}"
+
+
+def _meta_request(method: str, path: str, *, params=None, data=None, files=None) -> dict:
+    """Make a Meta Graph API call and raise a clear exception on failure."""
+    params = dict(params or {})
+    data = dict(data or {})
+    params.setdefault('access_token', META_ACCESS_TOKEN)
+    url = f'{META_GRAPH_BASE}/{path.lstrip("/")}'
+    resp = requests.request(method, url, params=params, data=data, files=files, timeout=60)
+    if resp.status_code not in [200, 201]:
+        raise Exception(_meta_error_message(resp))
+    return resp.json()
+
+
+def _meta_account_path(resource: str) -> str:
+    account_id = str(META_AD_ACCOUNT_ID or '').strip()
+    if not account_id:
+        return ''
+    if not account_id.startswith('act_'):
+        account_id = f'act_{account_id}'
+    return f'{account_id}/{resource.lstrip("/")}'
+
+
+def _meta_interest_ids(names: list) -> tuple:
+    """Resolve interest names to Meta interest IDs. Returns (interests, warnings)."""
+    resolved = []
+    warnings = []
+    for name in names:
+        try:
+            result = _meta_request(
+                'GET',
+                'search',
+                params={
+                    'type': 'adinterest',
+                    'q': json.dumps([name]),
+                    'limit': 1
+                }
+            )
+            matches = result.get('data', [])
+            if matches:
+                resolved.append({
+                    'id': matches[0].get('id'),
+                    'name': matches[0].get('name', name)
+                })
+            else:
+                warnings.append(f'No Meta interest match found for "{name}"')
+        except Exception as e:
+            warnings.append(f'Interest lookup failed for "{name}": {str(e)}')
+    return resolved, warnings
+
+
+def _normalize_cta_button(cta: str) -> str:
+    """Map human CTA labels to Meta call_to_action button types."""
+    lookup = {
+        'shop now': 'SHOP_NOW',
+        'buy now': 'SHOP_NOW',
+        'learn more': 'LEARN_MORE'
+    }
+    return lookup.get((cta or '').strip().lower(), 'SHOP_NOW')
+
+
+def _extract_preview_url(preview_payload: dict, ad_id: str) -> str:
+    """Try to extract a shareable-ish preview URL from previews HTML."""
+    try:
+        html = ''
+        data = preview_payload.get('data', [])
+        if data:
+            html = data[0].get('body', '') or ''
+        match = re.search(r'src="([^"]+)"', html)
+        if match:
+            return match.group(1).replace('&amp;', '&')
+    except Exception:
+        pass
+
+    account_id = str(META_AD_ACCOUNT_ID or '').replace('act_', '')
+    if account_id and ad_id:
+        return (
+            f'https://www.facebook.com/adsmanager/manage/ads?act={account_id}'
+            f'&selected_ad_ids={ad_id}'
+        )
+    return ''
+
+
 @app.route('/api/meta-advantage/generate', methods=['POST'])
 def generate_meta_advantage_creatives():
     """
@@ -871,6 +982,310 @@ def generate_meta_advantage_creatives():
 
     except Exception as e:
         return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
+
+
+@app.route('/api/meta-advantage/publish', methods=['POST'])
+def publish_meta_advantage_variant():
+    """
+    Publish a generated variant to Meta as a paused sales campaign.
+    """
+    try:
+        data = request.json or {}
+
+        required_env = {
+            'META_ACCESS_TOKEN': META_ACCESS_TOKEN,
+            'META_AD_ACCOUNT_ID': META_AD_ACCOUNT_ID,
+            'META_APP_ID': META_APP_ID,
+            'META_PAGE_ID': META_PAGE_ID
+        }
+        missing_env = [key for key, value in required_env.items() if not value]
+        if missing_env:
+            return jsonify({
+                'error': 'Missing required Meta environment variables',
+                'missing': missing_env
+            }), 500
+
+        variant_id = str(data.get('variant_id', '')).strip()
+        headline = str(data.get('headline', '')).strip()
+        primary_text = str(data.get('primary_text', '')).strip()
+        image_url = str(data.get('image_url', '')).strip()
+        cta = str(data.get('cta', 'Shop Now')).strip() or 'Shop Now'
+        daily_budget_rupees = int(data.get('daily_budget', 200) or 200)
+
+        missing_fields = []
+        for field_name, value in {
+            'variant_id': variant_id,
+            'headline': headline,
+            'primary_text': primary_text,
+            'image_url': image_url,
+            'cta': cta
+        }.items():
+            if not value:
+                missing_fields.append(field_name)
+        if missing_fields:
+            return jsonify({
+                'error': 'Missing required request fields',
+                'missing': missing_fields
+            }), 400
+
+        if daily_budget_rupees <= 0:
+            return jsonify({'error': 'daily_budget must be greater than 0'}), 400
+
+        if not META_PIXEL_ID:
+            return jsonify({
+                'error': 'META_PIXEL_ID not set',
+                'hint': 'OFFSITE_CONVERSIONS ad sets require a Meta Pixel. Add META_PIXEL_ID to Railway env vars.'
+            }), 500
+
+        cta_button = _normalize_cta_button(cta)
+        daily_budget_paise = daily_budget_rupees * 100
+        timestamp = int(time.time())
+        base_name = f'WEARTH Meta {variant_id} {timestamp}'
+
+        interest_names = ['fitness', 'yoga', 'sustainable fashion', 'activewear', 'wellness']
+        interests, warnings = _meta_interest_ids(interest_names)
+        if not interests:
+            return jsonify({
+                'error': 'Unable to resolve Meta targeting interests',
+                'requested_interests': interest_names,
+                'warnings': warnings
+            }), 500
+
+        image_resp = requests.get(image_url, timeout=60)
+        if image_resp.status_code != 200:
+            return jsonify({
+                'error': f'Failed to download image from image_url ({image_resp.status_code})',
+                'image_url': image_url
+            }), 400
+
+        content_type = image_resp.headers.get('Content-Type', 'image/jpeg')
+        image_upload = _meta_request(
+            'POST',
+            _meta_account_path('adimages'),
+            files={
+                'source': ('creative.jpg', image_resp.content, content_type)
+            }
+        )
+        images_payload = image_upload.get('images', {}) or {}
+        image_hash = ''
+        for _, meta_image in images_payload.items():
+            image_hash = meta_image.get('hash', '')
+            if image_hash:
+                break
+        if not image_hash:
+            return jsonify({
+                'error': 'Meta image upload succeeded but no image hash was returned',
+                'raw': image_upload
+            }), 500
+
+        campaign = _meta_request(
+            'POST',
+            _meta_account_path('campaigns'),
+            data={
+                'name': f'{base_name} Campaign',
+                'objective': 'OUTCOME_SALES',
+                'status': 'PAUSED',
+                'special_ad_categories': json.dumps([])
+            }
+        )
+        campaign_id = campaign.get('id', '')
+
+        targeting = {
+            'age_min': 25,
+            'age_max': 40,
+            'geo_locations': {'countries': ['IN']},
+            'interests': interests,
+            'publisher_platforms': ['facebook', 'instagram'],
+            'facebook_positions': ['feed'],
+            'instagram_positions': ['stream', 'story']
+        }
+
+        adset = _meta_request(
+            'POST',
+            _meta_account_path('adsets'),
+            data={
+                'name': f'{base_name} Ad Set',
+                'campaign_id': campaign_id,
+                'status': 'PAUSED',
+                'daily_budget': str(daily_budget_paise),
+                'billing_event': 'IMPRESSIONS',
+                'optimization_goal': 'OFFSITE_CONVERSIONS',
+                'promoted_object': json.dumps({
+                    'pixel_id': META_PIXEL_ID,
+                    'custom_event_type': 'PURCHASE'
+                }),
+                'targeting': json.dumps(targeting)
+            }
+        )
+        adset_id = adset.get('id', '')
+
+        creative = _meta_request(
+            'POST',
+            _meta_account_path('adcreatives'),
+            data={
+                'name': f'{base_name} Creative',
+                'object_story_spec': json.dumps({
+                    'page_id': META_PAGE_ID,
+                    'link_data': {
+                        'link': 'https://wearthactive.com',
+                        'message': primary_text,
+                        'name': headline,
+                        'image_hash': image_hash,
+                        'call_to_action': {
+                            'type': cta_button,
+                            'value': {
+                                'link': 'https://wearthactive.com'
+                            }
+                        }
+                    }
+                })
+            }
+        )
+        creative_id = creative.get('id', '')
+
+        ad = _meta_request(
+            'POST',
+            _meta_account_path('ads'),
+            data={
+                'name': f'{base_name} Ad',
+                'adset_id': adset_id,
+                'status': 'PAUSED',
+                'creative': json.dumps({'creative_id': creative_id})
+            }
+        )
+        ad_id = ad.get('id', '')
+
+        preview_payload = {}
+        preview_url = ''
+        try:
+            preview_payload = _meta_request(
+                'GET',
+                f'{ad_id}/previews',
+                params={'ad_format': 'INSTAGRAM_STANDARD'}
+            )
+            preview_url = _extract_preview_url(preview_payload, ad_id)
+        except Exception as e:
+            warnings.append(f'Preview generation failed: {str(e)}')
+
+        return jsonify({
+            'campaign_id': campaign_id,
+            'adset_id': adset_id,
+            'ad_id': ad_id,
+            'status': 'PAUSED',
+            'preview_url': preview_url,
+            'image_hash': image_hash,
+            'warnings': warnings
+        })
+
+    except Exception as e:
+        return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
+
+
+@app.route('/api/meta-advantage/publish-test', methods=['POST'])
+def publish_meta_advantage_variant_test():
+    """
+    Dry-run validator for /api/meta-advantage/publish.
+    Does NOT create any Meta objects (campaign/adset/creative/ad).
+    It validates env vars, payload shape, interest resolution, and image download.
+    """
+    try:
+        data = request.json or {}
+
+        required_env = {
+            'META_ACCESS_TOKEN': META_ACCESS_TOKEN,
+            'META_AD_ACCOUNT_ID': META_AD_ACCOUNT_ID,
+            'META_APP_ID': META_APP_ID,
+            'META_PAGE_ID': META_PAGE_ID,
+            'META_PIXEL_ID': META_PIXEL_ID
+        }
+        missing_env = [key for key, value in required_env.items() if not value]
+        if missing_env:
+            return jsonify({
+                'ok': False,
+                'error': 'Missing required Meta environment variables',
+                'missing': missing_env
+            }), 500
+
+        variant_id = str(data.get('variant_id', '')).strip()
+        headline = str(data.get('headline', '')).strip()
+        primary_text = str(data.get('primary_text', '')).strip()
+        image_url = str(data.get('image_url', '')).strip()
+        cta = str(data.get('cta', 'Shop Now')).strip() or 'Shop Now'
+        daily_budget_rupees = int(data.get('daily_budget', 200) or 200)
+
+        missing_fields = []
+        for field_name, value in {
+            'variant_id': variant_id,
+            'headline': headline,
+            'primary_text': primary_text,
+            'image_url': image_url,
+            'cta': cta
+        }.items():
+            if not value:
+                missing_fields.append(field_name)
+        if missing_fields:
+            return jsonify({
+                'ok': False,
+                'error': 'Missing required request fields',
+                'missing': missing_fields
+            }), 400
+
+        if daily_budget_rupees <= 0:
+            return jsonify({'ok': False, 'error': 'daily_budget must be greater than 0'}), 400
+
+        cta_button = _normalize_cta_button(cta)
+        daily_budget_paise = daily_budget_rupees * 100
+
+        interest_names = ['fitness', 'yoga', 'sustainable fashion', 'activewear', 'wellness']
+        interests, warnings = _meta_interest_ids(interest_names)
+        if not interests:
+            return jsonify({
+                'ok': False,
+                'error': 'Unable to resolve Meta targeting interests',
+                'requested_interests': interest_names,
+                'warnings': warnings
+            }), 500
+
+        # Download image to validate it's reachable and looks like an image.
+        image_resp = requests.get(image_url, timeout=60)
+        if image_resp.status_code != 200:
+            return jsonify({
+                'ok': False,
+                'error': f'Failed to download image from image_url ({image_resp.status_code})',
+                'image_url': image_url
+            }), 400
+        content_type = image_resp.headers.get('Content-Type', 'image/jpeg')
+        if 'image/' not in (content_type or ''):
+            warnings.append(f'Image Content-Type not image/*: {content_type}')
+
+        targeting = {
+            'age_min': 25,
+            'age_max': 40,
+            'geo_locations': {'countries': ['IN']},
+            'interests': interests,
+            'publisher_platforms': ['facebook', 'instagram'],
+            'facebook_positions': ['feed'],
+            'instagram_positions': ['stream', 'story']
+        }
+
+        return jsonify({
+            'ok': True,
+            'dry_run': True,
+            'status': 'VALID',
+            'daily_budget_rupees': daily_budget_rupees,
+            'daily_budget_paise': daily_budget_paise,
+            'cta_button_type': cta_button,
+            'targeting': targeting,
+            'image': {
+                'url': image_url,
+                'content_type': content_type,
+                'bytes': len(image_resp.content or b'')
+            },
+            'warnings': warnings
+        })
+
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e), 'trace': traceback.format_exc()}), 500
 
 @app.route('/<path:path>')
 def static_files(path):
