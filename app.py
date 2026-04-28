@@ -1085,6 +1085,7 @@ def publish_meta_advantage_variant():
                 'name': f'{base_name} Campaign',
                 'objective': 'OUTCOME_SALES',
                 'status': 'PAUSED',
+                'is_adset_budget_sharing_enabled': 'false',
                 'special_ad_categories': json.dumps([])
             }
         )
