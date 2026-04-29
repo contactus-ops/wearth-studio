@@ -666,6 +666,7 @@ def delete_logo():
 
 # ── META ADVANTAGE+ CREATIVE GENERATOR ──
 GOOGLE_DRIVE_API_KEY = os.environ.get('GOOGLE_DRIVE_API_KEY', '')
+META_AD_VIDEOS_DRIVE_FOLDER_ID = '1Zpi1G_zK9o4WrTQkFL9v-yS9K4yxvvMl'
 
 META_AB_PROMPT = (
     "You are generating Meta Advantage+ ad copy variants for WEARTH Active.\n\n"
@@ -682,6 +683,27 @@ META_AB_PROMPT = (
     "- primary_text (80-150 words)\n"
     "- headline (max 40 chars)\n"
     "- description (max 60 chars)\n"
+    "- cta (Shop Now, Learn More, or Buy Now)\n"
+    "- hook_line (max 8 words)\n"
+    "- hashtags (array of 3-6 tags)\n\n"
+    "Return JSON only with this structure:\n"
+    "{\"variants\": [{...}]}\n"
+)
+
+META_VIDEO_COPY_PROMPT = (
+    "You are generating Meta video ad copy variants for WEARTH Active.\n\n"
+    "Brand: Indian plant-based activewear made from botanical fibres. Premium, calm, certain voice.\n"
+    "Never use: TENCEL, lyocell, game-changer, amazing, sacred, ritual.\n"
+    "No exclamation marks. Short lines. Trusted-friend tone.\n\n"
+    "Audience: India metros, 25-40, done with polyester, ingredient-aware.\n"
+    "Goal: High-intent purchases on wearthactive.com.\n\n"
+    "Video context:\nVIDEO_CONTEXT_PLACEHOLDER\n\n"
+    "Generate exactly 3 distinct ad variants for this video.\n"
+    "Each variant must include keys:\n"
+    "- variant_id (A, B, C)\n"
+    "- angle (problem/education | aspiration/lifestyle | comparison | india-specific | material-deepdive)\n"
+    "- headline (max 40 chars)\n"
+    "- primary_text (80-150 words)\n"
     "- cta (Shop Now, Learn More, or Buy Now)\n"
     "- hook_line (max 8 words)\n"
     "- hashtags (array of 3-6 tags)\n\n"
@@ -722,6 +744,14 @@ def _drive_file_url(file_id: str) -> str:
     return f'https://drive.google.com/uc?export=view&id={file_id}'
 
 
+def _drive_file_download_url(file_id: str) -> str:
+    return f'https://drive.google.com/uc?export=download&id={file_id}'
+
+
+def _drive_thumbnail_url(file_id: str) -> str:
+    return f'https://drive.google.com/thumbnail?id={file_id}&sz=w1200'
+
+
 def _list_drive_folder_images(folder_id: str) -> list:
     """List public Google Drive folder images via Drive API (if API key is set)."""
     if not GOOGLE_DRIVE_API_KEY or not folder_id:
@@ -742,6 +772,33 @@ def _list_drive_folder_images(folder_id: str) -> list:
             'name': f.get('name', ''),
             'url': _drive_file_url(f.get('id', '')),
             'source': 'google_drive_folder'
+        } for f in files if f.get('id')]
+    except Exception:
+        return []
+
+
+def _list_drive_folder_videos(folder_id: str) -> list:
+    """List public Google Drive folder videos via Drive API."""
+    if not GOOGLE_DRIVE_API_KEY or not folder_id:
+        return []
+    try:
+        params = {
+            'key': GOOGLE_DRIVE_API_KEY,
+            'q': f"'{folder_id}' in parents and trashed=false and mimeType contains 'video/'",
+            'fields': 'files(id,name,mimeType,thumbnailLink,webViewLink)',
+            'pageSize': 100
+        }
+        resp = requests.get('https://www.googleapis.com/drive/v3/files', params=params, timeout=20)
+        if resp.status_code != 200:
+            raise Exception(f'Google Drive API error {resp.status_code}: {resp.text[:300]}')
+        files = resp.json().get('files', [])
+        return [{
+            'id': f.get('id', ''),
+            'name': f.get('name', ''),
+            'url': _drive_file_download_url(f.get('id', '')),
+            'thumbnail': f.get('thumbnailLink') or _drive_thumbnail_url(f.get('id', '')),
+            'mime_type': f.get('mimeType', ''),
+            'source': 'google_drive_folder_video'
         } for f in files if f.get('id')]
     except Exception:
         return []
@@ -917,6 +974,48 @@ def _extract_preview_url(preview_payload: dict, ad_id: str) -> str:
     return ''
 
 
+def _resolve_video_download_url(video_url: str) -> str:
+    """Convert Drive links to direct-download URL if needed."""
+    file_id = _extract_drive_file_id(video_url)
+    if file_id:
+        return _drive_file_download_url(file_id)
+    return video_url
+
+
+def _upload_meta_video(video_bytes: bytes, file_name: str, content_type: str) -> str:
+    """Upload video to Meta and return video_id."""
+    upload = _meta_request(
+        'POST',
+        _meta_account_path('advideos'),
+        files={'source': (file_name, video_bytes, content_type)}
+    )
+    video_id = upload.get('id', '')
+    if not video_id:
+        raise Exception(f'Meta video upload succeeded but no video id returned: {upload}')
+    return video_id
+
+
+def _wait_for_meta_video_ready(video_id: str, timeout_seconds: int = 300) -> dict:
+    """Poll Meta until video processing is ready."""
+    start = time.time()
+    last_payload = {}
+    while time.time() - start < timeout_seconds:
+        info = _meta_request(
+            'GET',
+            f'{video_id}',
+            params={'fields': 'id,status,processing_progress'}
+        )
+        last_payload = info
+        status_obj = info.get('status', {}) or {}
+        video_status = (status_obj.get('video_status') or '').upper()
+        if video_status in ['READY', 'ACTIVE']:
+            return info
+        if video_status in ['ERROR', 'FAILED']:
+            raise Exception(f'Meta video processing failed: {json.dumps(info)}')
+        time.sleep(10)
+    raise Exception(f'Meta video processing timeout after {timeout_seconds}s: {json.dumps(last_payload)}')
+
+
 @app.route('/api/meta-advantage/generate', methods=['POST'])
 def generate_meta_advantage_creatives():
     """
@@ -980,6 +1079,51 @@ def generate_meta_advantage_creatives():
             'images': images
         })
 
+    except Exception as e:
+        return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
+
+
+@app.route('/api/drive/videos', methods=['GET'])
+def list_drive_videos():
+    """List videos from META AD VIDEOS Google Drive folder."""
+    try:
+        if not GOOGLE_DRIVE_API_KEY:
+            return jsonify({'error': 'GOOGLE_DRIVE_API_KEY not set'}), 500
+        videos = _list_drive_folder_videos(META_AD_VIDEOS_DRIVE_FOLDER_ID)
+        return jsonify({
+            'ok': True,
+            'folder_id': META_AD_VIDEOS_DRIVE_FOLDER_ID,
+            'count': len(videos),
+            'videos': videos
+        })
+    except Exception as e:
+        return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
+
+
+@app.route('/api/meta-advantage/generate-video-copy', methods=['POST'])
+def generate_meta_advantage_video_copy():
+    """Generate 3 copy variants for a video ad asset."""
+    try:
+        data = request.json or {}
+        if not ANTHROPIC_KEY:
+            return jsonify({'error': 'ANTHROPIC_API_KEY not set'}), 500
+
+        video_context = (
+            str(data.get('video_description', '')).strip()
+            or str(data.get('video_filename', '')).strip()
+            or str(data.get('video_name', '')).strip()
+        )
+        if not video_context:
+            return jsonify({'error': 'video filename or description is required'}), 400
+
+        prompt = META_VIDEO_COPY_PROMPT.replace('VIDEO_CONTEXT_PLACEHOLDER', video_context)
+        claude_payload = _call_claude_json(prompt, max_tokens=2200)
+        variants = claude_payload.get('variants', [])
+        if not isinstance(variants, list):
+            variants = []
+        if not variants:
+            return jsonify({'error': 'Claude returned no video copy variants'}), 500
+        return jsonify({'ok': True, 'variants': variants})
     except Exception as e:
         return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
 
@@ -1176,6 +1320,7 @@ def publish_meta_advantage_variant():
             warnings.append(f'Preview generation failed: {str(e)}')
 
         return jsonify({
+            'ok': True,
             'campaign_id': campaign_id,
             'adset_id': adset_id,
             'ad_id': ad_id,
@@ -1185,6 +1330,167 @@ def publish_meta_advantage_variant():
             'warnings': warnings
         })
 
+    except Exception as e:
+        return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
+
+
+@app.route('/api/meta-advantage/publish-video', methods=['POST'])
+def publish_meta_advantage_video():
+    """Publish a video variant to Meta as a paused sales campaign."""
+    try:
+        data = request.json or {}
+
+        required_env = {
+            'META_ACCESS_TOKEN': META_ACCESS_TOKEN,
+            'META_AD_ACCOUNT_ID': META_AD_ACCOUNT_ID,
+            'META_APP_ID': META_APP_ID,
+            'META_PAGE_ID': META_PAGE_ID
+        }
+        missing_env = [key for key, value in required_env.items() if not value]
+        if missing_env:
+            return jsonify({'error': 'Missing required Meta environment variables', 'missing': missing_env}), 500
+
+        if not META_PIXEL_ID:
+            return jsonify({
+                'error': 'META_PIXEL_ID not set',
+                'hint': 'OFFSITE_CONVERSIONS ad sets require a Meta Pixel. Add META_PIXEL_ID to Railway env vars.'
+            }), 500
+
+        variant_id = str(data.get('variant_id', '')).strip()
+        video_url = str(data.get('video_url', '')).strip()
+        headline = str(data.get('headline', '')).strip()
+        primary_text = str(data.get('primary_text', '')).strip()
+        cta = str(data.get('cta', 'Shop Now')).strip() or 'Shop Now'
+        daily_budget_rupees = int(data.get('daily_budget', 200) or 200)
+
+        missing_fields = []
+        for field_name, value in {
+            'variant_id': variant_id,
+            'video_url': video_url,
+            'headline': headline,
+            'primary_text': primary_text,
+            'cta': cta
+        }.items():
+            if not value:
+                missing_fields.append(field_name)
+        if missing_fields:
+            return jsonify({'error': 'Missing required request fields', 'missing': missing_fields}), 400
+        if daily_budget_rupees <= 0:
+            return jsonify({'error': 'daily_budget must be greater than 0'}), 400
+
+        cta_button = _normalize_cta_button(cta)
+        daily_budget_paise = daily_budget_rupees * 100
+        timestamp = int(time.time())
+        base_name = f'WEARTH Video Meta {variant_id} {timestamp}'
+
+        interest_names = ['fitness', 'yoga', 'sustainable fashion', 'activewear', 'wellness']
+        interests, warnings = _meta_interest_ids(interest_names)
+        if not interests:
+            return jsonify({
+                'error': 'Unable to resolve Meta targeting interests',
+                'requested_interests': interest_names,
+                'warnings': warnings
+            }), 500
+
+        download_url = _resolve_video_download_url(video_url)
+        video_resp = requests.get(download_url, timeout=120, allow_redirects=True)
+        if video_resp.status_code != 200:
+            return jsonify({
+                'error': f'Failed to download video from video_url ({video_resp.status_code})',
+                'video_url': video_url
+            }), 400
+
+        content_type = video_resp.headers.get('Content-Type', 'video/mp4')
+        video_id = _upload_meta_video(video_resp.content, f'wearth_{variant_id}_{timestamp}.mp4', content_type)
+        _wait_for_meta_video_ready(video_id)
+
+        campaign = _meta_request(
+            'POST',
+            _meta_account_path('campaigns'),
+            data={
+                'name': f'{base_name} Campaign',
+                'objective': 'OUTCOME_SALES',
+                'status': 'PAUSED',
+                'is_adset_budget_sharing_enabled': 'false',
+                'special_ad_categories': json.dumps([])
+            }
+        )
+        campaign_id = campaign.get('id', '')
+
+        targeting = {
+            'age_min': 25,
+            'age_max': 40,
+            'geo_locations': {'countries': ['IN']},
+            'interests': interests,
+            'targeting_automation': {'advantage_audience': 0},
+            'publisher_platforms': ['facebook', 'instagram'],
+            'facebook_positions': ['feed'],
+            'instagram_positions': ['stream', 'story']
+        }
+
+        adset = _meta_request(
+            'POST',
+            _meta_account_path('adsets'),
+            data={
+                'name': f'{base_name} Ad Set',
+                'campaign_id': campaign_id,
+                'status': 'PAUSED',
+                'daily_budget': str(daily_budget_paise),
+                'bid_strategy': 'LOWEST_COST_WITHOUT_CAP',
+                'billing_event': 'IMPRESSIONS',
+                'optimization_goal': 'OFFSITE_CONVERSIONS',
+                'targeting_automation': json.dumps({'advantage_audience': 0}),
+                'promoted_object': json.dumps({
+                    'pixel_id': META_PIXEL_ID,
+                    'custom_event_type': 'PURCHASE'
+                }),
+                'targeting': json.dumps(targeting)
+            }
+        )
+        adset_id = adset.get('id', '')
+
+        creative = _meta_request(
+            'POST',
+            _meta_account_path('adcreatives'),
+            data={
+                'name': f'{base_name} Creative',
+                'object_story_spec': json.dumps({
+                    'page_id': META_PAGE_ID,
+                    'video_data': {
+                        'video_id': video_id,
+                        'message': primary_text,
+                        'title': headline,
+                        'call_to_action': {
+                            'type': cta_button,
+                            'value': {'link': 'https://wearthactive.com'}
+                        }
+                    }
+                })
+            }
+        )
+        creative_id = creative.get('id', '')
+
+        ad = _meta_request(
+            'POST',
+            _meta_account_path('ads'),
+            data={
+                'name': f'{base_name} Ad',
+                'adset_id': adset_id,
+                'status': 'PAUSED',
+                'creative': json.dumps({'creative_id': creative_id})
+            }
+        )
+        ad_id = ad.get('id', '')
+
+        return jsonify({
+            'ok': True,
+            'campaign_id': campaign_id,
+            'adset_id': adset_id,
+            'ad_id': ad_id,
+            'video_id': video_id,
+            'status': 'PAUSED',
+            'warnings': warnings
+        })
     except Exception as e:
         return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
 
