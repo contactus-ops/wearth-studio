@@ -1,0 +1,16 @@
+wearth_studio_for_claude.lzma
+===============================
+Single-file LZMA-compressed UTF-8 text bundle for code review.
+GARMENTS = [...] in app.py was replaced by an empty list + comment (base64 assets omitted).
+Some large files are truncated; see full repo for complete index.html, full seo_engine, etc.
+
+Decompress (Python):
+  import lzma, pathlib
+  p = pathlib.Path('wearth_studio_for_claude.lzma')
+  pathlib.Path('wearth_studio_for_claude_DECOMPRESSED.txt').write_bytes(lzma.open(p, 'rb').read())
+
+Decompress (Windows with WSL / xz):
+  xz -d -k wearth_studio_for_claude.lzma   # may need renaming to .xz depending on tool
+
+Compressed size: 19864 bytes (kept under 20,000 for tight limits)
+Uncompressed text size: 93806 bytes
