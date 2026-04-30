@@ -1690,7 +1690,7 @@ def publish_meta_advantage_video_from_drive():
     """
     try:
         data = request.json or {}
-        drive_file_id = str(data.get('drive_file_id', '')).strip()
+        drive_file_id = str(data.get('drive_file_id', '')).strip() or str(data.get('file_id', '')).strip()
         drive_file_url = str(data.get('drive_file_url', '')).strip()
         if not drive_file_id and drive_file_url:
             drive_file_id = _extract_drive_file_id(drive_file_url)
@@ -1745,7 +1745,7 @@ def auto_ab_video_from_drive():
     """
     try:
         data = request.json or {}
-        drive_file_id = str(data.get('drive_file_id', '')).strip()
+        drive_file_id = str(data.get('drive_file_id', '')).strip() or str(data.get('file_id', '')).strip()
         drive_file_url = str(data.get('drive_file_url', '')).strip()
         if not drive_file_id and drive_file_url:
             drive_file_id = _extract_drive_file_id(drive_file_url)
