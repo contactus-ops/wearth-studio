@@ -1186,7 +1186,7 @@ def _create_meta_video_ad_from_video_id(video_id: str, variant_id: str, headline
 
     targeting = {
         'age_min': 25,
-        'age_max': 40,
+        'age_max': 65,
         'geo_locations': {'countries': ['IN']},
         'targeting_automation': {'advantage_audience': 1},
         'publisher_platforms': ['facebook', 'instagram'],
