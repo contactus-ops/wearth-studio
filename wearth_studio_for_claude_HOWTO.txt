@@ -13,4 +13,4 @@ Decompress (Windows with WSL / xz):
   xz -d -k wearth_studio_for_claude.lzma   # may need renaming to .xz depending on tool
 
 Compressed size: 19864 bytes (kept under 20,000 for tight limits)
-Uncompressed text size: 93806 bytes
+Uncompressed text size: 93860 bytes

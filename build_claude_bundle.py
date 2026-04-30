@@ -23,10 +23,10 @@ def main():
         return f"\n\n# ===FILE: {name}===\n\n{content}"
 
     manifest = (
-        "\n\n# ===BUNDLE MANIFEST (other repo files not inlined; clone repo for full copy)===\n"
-        "- seo_engine.py (~19 KB), index.html (~49 KB), ARCHITECTURE.md (~10 KB)\n"
-        "- meta_publish_test.ps1, wearth_diagnose.ps1\n"
-        "- GARMENTS in app.py replaced with []; restore from git for local studio image grid."
+        "\n\n# ===BUNDLE MANIFEST===\n"
+        "Inlined below: requirements.txt, Procfile, manifest.json, sw.js, start of ARCHITECTURE.md, start of seo_engine.py.\n"
+        "Not inlined (get from repo): index.html, meta_publish_test.ps1, wearth_diagnose.ps1, full ARCHITECTURE/seo_engine.\n"
+        "GARMENTS in app.py replaced with []; restore from git for embedded garment images."
     )
     blob = app_strip + manifest
     for fn in ("requirements.txt", "Procfile", "manifest.json", "sw.js"):
