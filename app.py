@@ -1170,6 +1170,14 @@ def _create_meta_video_ad_from_video_id(video_id: str, variant_id: str, headline
     timestamp = int(time.time())
     base_name = f'WEARTH Video Meta {variant_id} {timestamp}'
     warnings = []
+    thumbnail_url = ''
+    try:
+        thumbs = _meta_request('GET', f'{video_id}/thumbnails')
+        thumb_list = thumbs.get('data', []) if isinstance(thumbs, dict) else []
+        if thumb_list:
+            thumbnail_url = thumb_list[0].get('uri', '') or thumb_list[0].get('url', '')
+    except Exception as e:
+        warnings.append(f'Video thumbnail fetch failed: {str(e)}')
 
     campaign = _meta_request(
         'POST',
@@ -1224,6 +1232,7 @@ def _create_meta_video_ad_from_video_id(video_id: str, variant_id: str, headline
                 'page_id': META_PAGE_ID,
                 'video_data': {
                     'video_id': video_id,
+                        'image_url': thumbnail_url,
                     'message': primary_text,
                     'title': headline,
                     'call_to_action': {
