@@ -714,6 +714,7 @@ META_VIDEO_COPY_PROMPT = (
 )
 
 _last_video_debug = {}
+_drive_video_jobs = {}
 
 
 def _extract_drive_file_id(url: str) -> str:
@@ -1718,33 +1719,68 @@ def publish_meta_advantage_video_from_drive():
         if not headline or not primary_text:
             return jsonify({'error': 'headline and primary_text are required'}), 400
 
-        video_bytes, _ = _download_drive_video_via_api(drive_file_id)
-        if not video_bytes:
-            return jsonify({'error': 'Drive download returned empty file', 'drive_file_id': drive_file_id}), 400
-        video_bytes = _compress_video_if_needed(video_bytes, threshold_mb=30)
-        fal_url = _upload_bytes_to_fal_storage(
-            video_bytes,
-            f'wearth_drive_{drive_file_id}_{int(time.time())}.mp4',
-            'video/mp4'
-        )
-        publish_payload = {
-            'variant_id': variant_id,
-            'video_url': fal_url,
-            'headline': headline,
-            'primary_text': primary_text,
-            'cta': cta,
-            'daily_budget': daily_budget
+        # Avoid Gunicorn timeout by running heavy pipeline in background.
+        job_id = str(int(time.time() * 1000))
+        _drive_video_jobs[job_id] = {
+            'status': 'running',
+            'mode': 'drive_to_fal_to_meta',
+            'drive_file_id': drive_file_id
         }
-        publish_result = _publish_video_via_existing_endpoint(publish_payload)
+
+        def run_job():
+            try:
+                video_bytes, _ = _download_drive_video_via_api(drive_file_id)
+                if not video_bytes:
+                    raise Exception(f'Drive download returned empty file for {drive_file_id}')
+                video_bytes_local = _compress_video_if_needed(video_bytes, threshold_mb=30)
+                fal_url = _upload_bytes_to_fal_storage(
+                    video_bytes_local,
+                    f'wearth_drive_{drive_file_id}_{int(time.time())}.mp4',
+                    'video/mp4'
+                )
+                publish_payload = {
+                    'variant_id': variant_id,
+                    'video_url': fal_url,
+                    'headline': headline,
+                    'primary_text': primary_text,
+                    'cta': cta,
+                    'daily_budget': daily_budget
+                }
+                publish_result = _publish_video_via_existing_endpoint(publish_payload)
+                _drive_video_jobs[job_id] = {
+                    'status': 'complete',
+                    'mode': 'drive_to_fal_to_meta',
+                    'drive_file_id': drive_file_id,
+                    'fal_video_url': fal_url,
+                    'publish_result': publish_result
+                }
+            except Exception as e:
+                _drive_video_jobs[job_id] = {
+                    'status': 'error',
+                    'mode': 'drive_to_fal_to_meta',
+                    'drive_file_id': drive_file_id,
+                    'error': str(e)
+                }
+
+        t = _threading.Thread(target=run_job)
+        t.daemon = True
+        t.start()
+
         return jsonify({
             'ok': True,
-            'mode': 'drive_to_fal_to_meta',
-            'drive_file_id': drive_file_id,
-            'fal_video_url': fal_url,
-            'publish_result': publish_result
+            'status': 'started',
+            'job_id': job_id,
+            'message': 'Poll /api/meta-advantage/publish-video-from-drive-job/<job_id> for status'
         })
     except Exception as e:
         return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
+
+
+@app.route('/api/meta-advantage/publish-video-from-drive-job/<job_id>', methods=['GET'])
+def publish_video_from_drive_job_status(job_id):
+    """Check async publish-video-from-drive job result."""
+    result = _drive_video_jobs.get(job_id, {'status': 'not_found'})
+    return jsonify(result)
 
 
 @app.route('/api/meta-advantage/auto-ab-video-from-drive', methods=['POST'])
