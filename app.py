@@ -23,6 +23,7 @@ META_PAGE_ID = os.environ.get('META_PAGE_ID', '')
 META_PIXEL_ID = os.environ.get('META_PIXEL_ID', '')
 META_GRAPH_VERSION = 'v22.0'
 META_GRAPH_BASE = f'https://graph.facebook.com/{META_GRAPH_VERSION}'
+APP_BASE_URL = os.environ.get('APP_BASE_URL', 'https://web-production-448c1.up.railway.app')
 
 FABRIC_PHRASES = [
     "made from eucalyptus fibres",
@@ -1093,6 +1094,59 @@ def _is_valid_mp4(video_bytes: bytes) -> bool:
     return (b'ftyp' in header) or (b'moov' in header)
 
 
+def _upload_bytes_to_fal_storage(file_bytes: bytes, file_name: str, content_type: str) -> str:
+    """Upload arbitrary bytes to FAL storage and return a public URL."""
+    fal_headers = {'Authorization': f'Key {FAL_API_KEY}', 'Content-Type': 'application/json'}
+    init_resp = requests.post(
+        'https://rest.alpha.fal.ai/storage/upload/initiate',
+        headers=fal_headers,
+        json={'file_name': file_name, 'content_type': content_type},
+        timeout=30
+    )
+    init_resp.raise_for_status()
+    init_data = init_resp.json()
+    upload_url = init_data.get('upload_url', '')
+    file_url = init_data.get('file_url', '')
+    if not upload_url or not file_url:
+        raise Exception(f'Invalid FAL initiate response: {init_data}')
+    put_resp = requests.put(
+        upload_url,
+        data=file_bytes,
+        headers={'Content-Type': content_type},
+        timeout=180
+    )
+    put_resp.raise_for_status()
+    return file_url
+
+
+def _download_drive_video_via_api(file_id: str) -> tuple:
+    """Download Drive file bytes via Drive API alt=media with API key."""
+    if not GOOGLE_DRIVE_API_KEY:
+        raise Exception('GOOGLE_DRIVE_API_KEY not set')
+    if not file_id:
+        raise Exception('drive_file_id required')
+    url = f'https://www.googleapis.com/drive/v3/files/{file_id}?alt=media&key={GOOGLE_DRIVE_API_KEY}'
+    resp = requests.get(url, timeout=180, allow_redirects=True)
+    if resp.status_code != 200:
+        raise Exception(f'Google Drive API media download failed ({resp.status_code}): {resp.text[:300]}')
+    content_type = resp.headers.get('Content-Type', 'video/mp4')
+    return resp.content, content_type
+
+
+def _publish_video_via_existing_endpoint(payload: dict) -> dict:
+    """Call existing publish-video endpoint so logic stays in one place."""
+    target = f"{APP_BASE_URL.rstrip('/')}/api/meta-advantage/publish-video"
+    resp = requests.post(target, json=payload, timeout=300)
+    raw = {}
+    try:
+        raw = resp.json()
+    except Exception:
+        raw = {'raw_text': resp.text[:1000]}
+    if resp.status_code not in [200, 201]:
+        raise Exception(f'publish-video failed ({resp.status_code}): {raw}')
+    return raw
+
+
 def _upload_meta_video(video_bytes: bytes, file_name: str, content_type: str) -> str:
     """Upload video to Meta and return video_id."""
     upload = _meta_request(
@@ -1623,6 +1677,145 @@ def publish_meta_advantage_video():
             'video_id': video_id,
             'status': 'PAUSED',
             'warnings': warnings
+        })
+    except Exception as e:
+        return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
+
+
+@app.route('/api/meta-advantage/publish-video-from-drive', methods=['POST'])
+def publish_meta_advantage_video_from_drive():
+    """
+    Fully automated flow:
+    Google Drive file -> bytes -> optional compression -> FAL URL -> publish-video endpoint.
+    """
+    try:
+        data = request.json or {}
+        drive_file_id = str(data.get('drive_file_id', '')).strip()
+        drive_file_url = str(data.get('drive_file_url', '')).strip()
+        if not drive_file_id and drive_file_url:
+            drive_file_id = _extract_drive_file_id(drive_file_url)
+        if not drive_file_id:
+            return jsonify({'error': 'drive_file_id or drive_file_url required'}), 400
+
+        variant_id = str(data.get('variant_id', 'A')).strip() or 'A'
+        headline = str(data.get('headline', '')).strip()
+        primary_text = str(data.get('primary_text', '')).strip()
+        cta = str(data.get('cta', 'Shop Now')).strip() or 'Shop Now'
+        daily_budget = int(data.get('daily_budget', 200) or 200)
+        if not headline or not primary_text:
+            return jsonify({'error': 'headline and primary_text are required'}), 400
+
+        video_bytes, _ = _download_drive_video_via_api(drive_file_id)
+        if not video_bytes:
+            return jsonify({'error': 'Drive download returned empty file', 'drive_file_id': drive_file_id}), 400
+        video_bytes = _compress_video_if_needed(video_bytes, threshold_mb=30)
+        fal_url = _upload_bytes_to_fal_storage(
+            video_bytes,
+            f'wearth_drive_{drive_file_id}_{int(time.time())}.mp4',
+            'video/mp4'
+        )
+        publish_payload = {
+            'variant_id': variant_id,
+            'video_url': fal_url,
+            'headline': headline,
+            'primary_text': primary_text,
+            'cta': cta,
+            'daily_budget': daily_budget
+        }
+        publish_result = _publish_video_via_existing_endpoint(publish_payload)
+        return jsonify({
+            'ok': True,
+            'mode': 'drive_to_fal_to_meta',
+            'drive_file_id': drive_file_id,
+            'fal_video_url': fal_url,
+            'publish_result': publish_result
+        })
+    except Exception as e:
+        return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
+
+
+@app.route('/api/meta-advantage/auto-ab-video-from-drive', methods=['POST'])
+def auto_ab_video_from_drive():
+    """
+    End-to-end A/B automation:
+    1) Pull Drive video
+    2) Upload to FAL once
+    3) Generate copy variants
+    4) Publish each variant as paused Meta ad
+    """
+    try:
+        data = request.json or {}
+        drive_file_id = str(data.get('drive_file_id', '')).strip()
+        drive_file_url = str(data.get('drive_file_url', '')).strip()
+        if not drive_file_id and drive_file_url:
+            drive_file_id = _extract_drive_file_id(drive_file_url)
+        if not drive_file_id:
+            return jsonify({'error': 'drive_file_id or drive_file_url required'}), 400
+        if not ANTHROPIC_KEY:
+            return jsonify({'error': 'ANTHROPIC_API_KEY not set'}), 500
+
+        video_context = (
+            str(data.get('video_description', '')).strip()
+            or str(data.get('video_filename', '')).strip()
+            or f'WEARTH ad video file {drive_file_id}'
+        )
+        total_daily_budget = int(data.get('daily_budget_total', 600) or 600)
+        if total_daily_budget <= 0:
+            return jsonify({'error': 'daily_budget_total must be greater than 0'}), 400
+
+        video_bytes, _ = _download_drive_video_via_api(drive_file_id)
+        if not video_bytes:
+            return jsonify({'error': 'Drive download returned empty file', 'drive_file_id': drive_file_id}), 400
+        video_bytes = _compress_video_if_needed(video_bytes, threshold_mb=30)
+        fal_url = _upload_bytes_to_fal_storage(
+            video_bytes,
+            f'wearth_ab_{drive_file_id}_{int(time.time())}.mp4',
+            'video/mp4'
+        )
+
+        prompt = META_VIDEO_COPY_PROMPT.replace('VIDEO_CONTEXT_PLACEHOLDER', video_context)
+        generated = _call_claude_json(prompt, max_tokens=2200)
+        variants = generated.get('variants', [])
+        if not isinstance(variants, list) or not variants:
+            return jsonify({'error': 'No copy variants generated', 'raw': generated}), 500
+
+        per_variant_budget = max(100, int(total_daily_budget / max(1, len(variants))))
+        results = []
+        for i, variant in enumerate(variants):
+            payload = {
+                'variant_id': str(variant.get('variant_id', chr(65 + i))),
+                'video_url': fal_url,
+                'headline': str(variant.get('headline', '')).strip(),
+                'primary_text': str(variant.get('primary_text', '')).strip(),
+                'cta': str(variant.get('cta', 'Shop Now')).strip() or 'Shop Now',
+                'daily_budget': per_variant_budget
+            }
+            if not payload['headline'] or not payload['primary_text']:
+                results.append({'ok': False, 'variant': payload['variant_id'], 'error': 'Missing headline or primary_text'})
+                continue
+            try:
+                publish_result = _publish_video_via_existing_endpoint(payload)
+                results.append({
+                    'ok': True,
+                    'variant': payload['variant_id'],
+                    'budget': per_variant_budget,
+                    'copy': variant,
+                    'publish': publish_result
+                })
+            except Exception as e:
+                results.append({'ok': False, 'variant': payload['variant_id'], 'budget': per_variant_budget, 'copy': variant, 'error': str(e)})
+
+        success_count = len([r for r in results if r.get('ok')])
+        return jsonify({
+            'ok': success_count > 0,
+            'mode': 'auto_ab_video_from_drive',
+            'drive_file_id': drive_file_id,
+            'fal_video_url': fal_url,
+            'variants_generated': len(variants),
+            'variants_published': success_count,
+            'daily_budget_total': total_daily_budget,
+            'daily_budget_per_variant': per_variant_budget,
+            'results': results
         })
     except Exception as e:
         return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
