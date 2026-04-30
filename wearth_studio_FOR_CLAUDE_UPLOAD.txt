@@ -1,0 +1,4338 @@
+WEARTH STUDIO — single-file code dump for review
+GARMENTS in app.py is replaced with []; base64 garment blobs omitted.
+All other listed files are full copies from the repo.
+
+
+========================================================================
+### FILE: app.py
+========================================================================
+
+from flask import Flask, send_file, request, jsonify
+import os
+import requests
+import json
+import time
+import traceback
+import random
+import re
+import shutil
+from urllib.parse import urlparse, parse_qs
+from io import BytesIO
+import base64 as b64mod
+import sys
+import subprocess
+import tempfile
+
+app = Flask(__name__)
+
+COMPOSITOR_URL = 'https://web-production-48b5f.up.railway.app/compose'
+ANTHROPIC_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
+FAL_API_KEY = os.environ.get('FAL_API_KEY', 'c9d35e47-26a0-4a74-b24b-4075ecc4b1c0:cf04ed86e9925a8d27fc7f93b7cb7c19')
+IMGBB_API_KEY = os.environ.get('IMGBB_API_KEY', 'e1b80ca6ca87d1afe6a114b80e21cbe3')
+META_ACCESS_TOKEN = os.environ.get('META_ACCESS_TOKEN', '')
+META_AD_ACCOUNT_ID = os.environ.get('META_AD_ACCOUNT_ID', '')
+META_APP_ID = os.environ.get('META_APP_ID', '')
+META_PAGE_ID = os.environ.get('META_PAGE_ID', '')
+META_PIXEL_ID = os.environ.get('META_PIXEL_ID', '')
+META_GRAPH_VERSION = 'v22.0'
+META_GRAPH_BASE = f'https://graph.facebook.com/{META_GRAPH_VERSION}'
+APP_BASE_URL = os.environ.get('APP_BASE_URL', 'https://web-production-448c1.up.railway.app')
+
+FABRIC_PHRASES = [
+    "made from eucalyptus fibres",
+    "plant-based fabric that breathes",
+    "grown from eucalyptus trees",
+    "fabric that comes from the ground",
+    "eucalyptus that actually feels like skin",
+    "softer than cotton, cleaner than polyester",
+    "plant fibres, not petroleum",
+    "eucalyptus woven into every piece",
+    "no plastic in the fabric",
+    "the kind of soft that doesn't wash out",
+    "breathes because it was grown, not made in a lab",
+]
+
+WEARTH_PROMPT = (
+    "You are writing Instagram content for WEARTH — Indian activewear made from plant-based eucalyptus. Founded by Shai in India.\n\n"
+    "The WEARTH tribe: wakes up early because they want to. reads ingredient labels without being asked. "
+    "switched to natural products quietly, no announcement. moves because it feels good, not for content. "
+    "done with synthetic, done with fast, done with things that look good but feel wrong.\n\n"
+    "Mood today: MOOD_PLACEHOLDER\n\n"
+    "Generate ONE Instagram post with the following parts.\n\n"
+    "HEADLINE (goes on the image):\n"
+    "- Maximum 6 words, all lowercase, ends with a period\n"
+    "- Pure feeling or truth, no product mentions\n"
+    "- Examples: your skin breathes differently here. / made to move with you.\n\n"
+    "TAGLINE (sits below headline on image):\n"
+    "- 2-4 words only, format: words dot wearth like: plant-based · wearth\n"
+    "- Never use TENCEL or lyocell\n\n"
+    "THREE CAPTIONS (Instagram post text options for Shai to choose from):\n"
+    "- Each 100-150 words\n"
+    "- Real person thinking out loud, not a brand, not a copywriter, not AI\n"
+    "- Short sentences. Uneven rhythm. Like texting a friend who gets it.\n"
+    "- No em dashes, no rhetorical questions, no exclamation marks\n"
+    "- No words: sacred, ritual, intentional, conscious, shift, journey, game-changer\n"
+    "- No tricolon patterns like word. word. word.\n"
+    "- FABRIC VARIETY RULE: Each caption must mention the fabric differently. Use one of these angles — never repeat the same one across captions:\n"
+    "  Option A: mention it as FABRIC_A\n"
+    "  Option B: mention it as FABRIC_B\n"
+    "  Option C: mention it as FABRIC_C\n"
+    "- Weave the fabric mention naturally — never as a lecture, never at the start of a sentence\n"
+    "- Each must end with: #WearthActive #PlantBasedActivewear #IndianActivewear #NoPolyester #EucalyptusActivewear #MoveWithIntention #ActivewearIndia #WorthTheSwitch\n\n"
+    "Return ONLY a JSON object. No markdown. No code fences. No explanation.\n"
+    "Start with { and end with }.\n"
+    "Use exactly these keys: headline, tagline, captions (array of 3 strings).\n"
+    "Example structure: {\"headline\": \"...\", \"tagline\": \"...\", \"captions\": [\"caption1\", \"caption2\", \"caption3\"]}"
+)
+
+REPHRASE_PROMPT = (
+    "You are editing a raw Instagram caption draft for WEARTH — Indian activewear made from plant-based eucalyptus.\n\n"
+    "The writer's draft: DRAFT_PLACEHOLDER\n\n"
+    "Rewrite it following these rules exactly:\n"
+    "- Keep the writer's core idea and personal voice\n"
+    "- Short sentences. Uneven rhythm. Real, not polished.\n"
+    "- No em dashes, no rhetorical questions, no exclamation marks\n"
+    "- No words: sacred, ritual, intentional, conscious, shift, journey, game-changer\n"
+    "- Naturally weave in one fabric truth (eucalyptus / plant-based / no synthetic) without lecturing\n"
+    "- 80-150 words\n"
+    "- End with: #WearthActive #PlantBasedActivewear #IndianActivewear #NoPolyester #EucalyptusActivewear #MoveWithIntention #ActivewearIndia #WorthTheSwitch\n\n"
+    "Return ONLY the rewritten caption text. No explanation, no JSON, no quotes around it."
+)
+
+# ── SEO ENGINE ──
+import threading as _threading
+from seo_engine import run_seo_engine
+
+_seo_results = {}
+
+@app.route("/health", methods=["GET"])
+def health():
+    return jsonify({"status": "ok", "engine": "infinite"})
+
+@app.route("/generate-article", methods=["POST"])
+def generate_article_endpoint():
+    data = request.json or {}
+    dry_run_raw = data.get("dry_run", False)
+    if isinstance(dry_run_raw, str):
+        dry_run = dry_run_raw.lower() == "true"
+    else:
+        dry_run = bool(dry_run_raw)
+    index = data.get("index", None)
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        return jsonify({"error": "ANTHROPIC_API_KEY not set"}), 500
+    job_id = str(int(time.time()))
+    _seo_results[job_id] = {"status": "running"}
+    def run():
+        try:
+            r = run_seo_engine(dry_run=dry_run, article_index=index)
+            # Store as proper dict, not string
+            _seo_results[job_id] = {
+                "status": "complete",
+                "article": r if isinstance(r, dict) else {},
+                "title": r.get("title", "") if isinstance(r, dict) else "",
+                "handle": r.get("handle", "") if isinstance(r, dict) else "",
+                "url": f"https://wearthactive.com/blogs/news/{r.get('handle', '')}" if isinstance(r, dict) else "",
+                "image": r.get("image", {}).get("src", "") if isinstance(r, dict) else "",
+                "summary": r.get("summary_html", "") if isinstance(r, dict) else ""
+            }
+        except Exception as e:
+            _seo_results[job_id] = {"status": "error", "error": str(e)}
+    t = _threading.Thread(target=run)
+    t.daemon = True
+    t.start()
+    return jsonify({"status": "started", "job_id": job_id, "message": "Check /seo-job/<job_id> for result"})
+
+@app.route("/seo-job/<job_id>", methods=["GET"])
+def seo_job_status(job_id):
+    result = _seo_results.get(job_id, {"status": "not_found"})
+    return jsonify(result)
+
+@app.route("/seo-status", methods=["GET"])
+def seo_status():
+    from seo_engine import get_existing_articles
+    published = get_existing_articles()
+    return jsonify({
+        "published": len(published),
+        "engine": "infinite",
+        "next_up": "Claude researches and picks automatically"
+    })
+GARMENTS = []  # omitted: embedded base64 garment images (see git for full list)
+
+
+@app.route('/')
+def index():
+    return send_file('index.html')
+
+@app.route('/manifest.json')
+def manifest():
+    return send_file('manifest.json')
+
+@app.route('/sw.js')
+def sw():
+    return send_file('sw.js')
+
+@app.route('/api/garments')
+def get_garments():
+    return jsonify(GARMENTS)
+
+
+def composite_logo(image_url, logo_url, fal_key):
+    """Download image + logo, paste logo at left-chest position, upload result to FAL."""
+    try:
+        from PIL import Image
+        import base64 as b64mod
+        from io import BytesIO
+
+        # Download base image
+        img_resp = requests.get(image_url, timeout=20)
+        img = Image.open(BytesIO(img_resp.content)).convert('RGBA')
+        iw, ih = img.size
+
+        # Download logo (should be transparent PNG from birefnet)
+        logo_resp = requests.get(logo_url, timeout=20)
+        logo = Image.open(BytesIO(logo_resp.content)).convert('RGBA')
+
+        # Resize logo to ~12% of image width, keeping aspect ratio
+        logo_w = int(iw * 0.12)
+        ratio = logo_w / logo.width
+        logo_h = int(logo.height * ratio)
+        logo = logo.resize((logo_w, logo_h), Image.LANCZOS)
+
+        # Tint logo white if image is dark at chest area
+        # Sample brightness at left-chest area (20% from left, 35% from top)
+        cx, cy = int(iw * 0.20), int(ih * 0.35)
+        sample = img.crop((cx-20, cy-20, cx+20, cy+20)).convert('RGB')
+        pixels = list(sample.getdata())
+        avg_brightness = sum(r+g+b for r,g,b in pixels) / (len(pixels) * 3)
+
+        if avg_brightness < 128:
+            # Dark background — make logo white
+            r_ch, g_ch, b_ch, a_ch = logo.split()
+            white_logo = Image.merge('RGBA', [
+                Image.new('L', logo.size, 255),
+                Image.new('L', logo.size, 255),
+                Image.new('L', logo.size, 255),
+                a_ch
+            ])
+            logo = white_logo
+
+        # Position: left chest — 8% from left, 30% from top
+        paste_x = int(iw * 0.08)
+        paste_y = int(ih * 0.30)
+
+        # Paste with transparency mask
+        img.paste(logo, (paste_x, paste_y), logo)
+
+        # Convert back to RGB and save as JPEG
+        final = img.convert('RGB')
+        buf = BytesIO()
+        final.save(buf, format='JPEG', quality=92)
+        buf.seek(0)
+        img_bytes = buf.read()
+
+        # Upload to FAL storage
+        fal_headers = {'Authorization': f'Key {fal_key}', 'Content-Type': 'application/json'}
+        import time as _time
+        key = f'logo_comp_{int(_time.time()*1000)}.jpg'
+        init_resp = requests.post(
+            'https://rest.alpha.fal.ai/storage/upload/initiate',
+            headers=fal_headers,
+            json={'file_name': key, 'content_type': 'image/jpeg'},
+            timeout=15
+        )
+        init_resp.raise_for_status()
+        init_data = init_resp.json()
+        requests.put(init_data['upload_url'], data=img_bytes, headers={'Content-Type': 'image/jpeg'}, timeout=30)
+        return init_data['file_url']
+
+    except Exception as e:
+        print(f'Logo composite error: {e}')
+        return image_url  # fallback to original
+
+
+@app.route('/api/generate', methods=['POST'])
+def generate():
+    try:
+        data = request.json
+        mood = data.get('mood', '')
+        image_url = data.get('image_url', '')
+        skip_composite = data.get('skip_composite', False)
+
+        # Pick 3 different fabric phrases randomly
+        phrases = random.sample(FABRIC_PHRASES, 3)
+        prompt = (WEARTH_PROMPT
+            .replace('MOOD_PLACEHOLDER', mood)
+            .replace('FABRIC_A', phrases[0])
+            .replace('FABRIC_B', phrases[1])
+            .replace('FABRIC_C', phrases[2])
+        )
+
+        claude_resp = requests.post(
+            'https://api.anthropic.com/v1/messages',
+            headers={'Content-Type': 'application/json', 'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01'},
+            json={'model': 'claude-sonnet-4-20250514', 'max_tokens': 2000, 'messages': [{'role': 'user', 'content': prompt}]},
+            timeout=40
+        )
+        claude_data = claude_resp.json()
+        raw_text = claude_data['content'][0]['text'].strip()
+        if '```' in raw_text:
+            parts = raw_text.split('```')
+            raw_text = parts[1] if len(parts) > 1 else parts[0]
+            if raw_text.startswith('json'):
+                raw_text = raw_text[4:]
+            raw_text = raw_text.strip()
+
+        parsed = json.loads(raw_text)
+        headline = parsed.get('headline', 'move with intention.')
+        tagline = parsed.get('tagline', 'plant-based · wearth')
+        captions = parsed.get('captions', [parsed.get('caption', '')])
+        if not isinstance(captions, list):
+            captions = [captions]
+
+        logo_url = data.get('logo_url', '')
+
+        if skip_composite:
+            stable_url = image_url
+        else:
+            comp_resp = requests.post(
+                COMPOSITOR_URL,
+                json={'photo_url': image_url, 'main_text': headline, 'sub_text': tagline, 'logo_base64': ''},
+                timeout=60
+            )
+            comp_data = comp_resp.json()
+            stable_url = comp_data.get('url', image_url)
+
+        # Apply logo overlay if selected (works for both composite and skip_composite)
+        if logo_url:
+            stable_url = composite_logo(stable_url, logo_url, FAL_API_KEY)
+
+        return jsonify({'image_url': stable_url, 'headline': headline, 'tagline': tagline, 'captions': captions})
+
+    except Exception as e:
+        return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
+
+
+@app.route('/api/rephrase', methods=['POST'])
+def rephrase():
+    """Take Shai's raw draft and rephrase it in WEARTH voice."""
+    try:
+        data = request.json
+        draft = data.get('draft', '').strip()
+        if not draft:
+            return jsonify({'error': 'draft required'}), 400
+
+        prompt = REPHRASE_PROMPT.replace('DRAFT_PLACEHOLDER', draft)
+
+        claude_resp = requests.post(
+            'https://api.anthropic.com/v1/messages',
+            headers={'Content-Type': 'application/json', 'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01'},
+            json={'model': 'claude-sonnet-4-20250514', 'max_tokens': 600, 'messages': [{'role': 'user', 'content': prompt}]},
+            timeout=30
+        )
+        result = claude_resp.json()['content'][0]['text'].strip()
+        return jsonify({'rephrased': result})
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/upload-image', methods=['POST'])
+def upload_image():
+    """Upload an image via FAL storage and return a public URL."""
+    try:
+        fal_headers = {'Authorization': f'Key {FAL_API_KEY}', 'Content-Type': 'application/json'}
+
+        # Get base64 image data from request
+        data = request.json
+        image_b64 = data.get('image_b64', '')
+        content_type = data.get('content_type', 'image/jpeg')
+        ext = content_type.split('/')[-1]
+
+        if not image_b64:
+            return jsonify({'error': 'image_b64 required'}), 400
+
+        import base64 as b64mod
+        img_bytes = b64mod.b64decode(image_b64)
+
+        # Initiate FAL storage upload
+        init_resp = requests.post(
+            'https://rest.alpha.fal.ai/storage/upload/initiate',
+            headers=fal_headers,
+            json={'file_name': f'upload.{ext}', 'content_type': content_type},
+            timeout=15
+        )
+        init_resp.raise_for_status()
+        init_data = init_resp.json()
+        upload_url = init_data.get('upload_url', '')
+        file_url = init_data.get('file_url', '')
+
+        if not upload_url:
+            return jsonify({'error': 'No upload_url from FAL', 'raw': init_data}), 500
+
+        # Upload the bytes
+        put_resp = requests.put(
+            upload_url,
+            data=img_bytes,
+            headers={'Content-Type': content_type},
+            timeout=30
+        )
+        put_resp.raise_for_status()
+
+        return jsonify({'url': file_url})
+
+    except Exception as e:
+        return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
+
+
+@app.route('/api/tryon-test', methods=['GET'])
+def tryon_test():
+    try:
+        r = requests.post(
+            'https://fal.run/fal-ai/flux/dev',
+            headers={'Authorization': f'Key {FAL_API_KEY}', 'Content-Type': 'application/json'},
+            json={'prompt': 'fashion model standing', 'image_size': 'portrait_4_3', 'num_inference_steps': 4, 'num_images': 1},
+            timeout=60
+        )
+        return jsonify({'status': r.status_code, 'body_preview': r.text[:500], 'ok': r.status_code == 200})
+    except Exception as e:
+        return jsonify({'error': str(e)})
+
+
+@app.route('/api/fal-upload-test', methods=['GET'])
+def fal_upload_test():
+    fal_headers = {'Authorization': f'Key {FAL_API_KEY}', 'Content-Type': 'application/json'}
+    try:
+        r = requests.post(
+            'https://rest.alpha.fal.ai/storage/upload/initiate',
+            headers=fal_headers,
+            json={'file_name': 'test.webp', 'content_type': 'image/webp'},
+            timeout=15
+        )
+        return jsonify({'status': r.status_code, 'body': r.text[:500]})
+    except Exception as e:
+        return jsonify({'error': str(e)})
+
+
+
+
+@app.route('/api/kling-test', methods=['GET'])
+def kling_test():
+    fal_headers = {'Authorization': f'Key {FAL_API_KEY}', 'Content-Type': 'application/json'}
+    try:
+        r = requests.post(
+            'https://queue.fal.run/fal-ai/kling-video/v1.6/standard/image-to-video',
+            headers=fal_headers,
+            json={
+                'image_url': 'https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=800',
+                'prompt': 'subtle movement, soft breeze',
+                'duration': '5',
+                'aspect_ratio': '9:16'
+            },
+            timeout=30
+        )
+        return jsonify({'status': r.status_code, 'body': r.text[:500]})
+    except Exception as e:
+        return jsonify({'error': str(e)})
+
+@app.route('/api/kling/submit', methods=['POST'])
+def kling_submit():
+    """Submit Kling job and return request_id immediately — no waiting."""
+    try:
+        data = request.json
+        image_url = data.get('image_url', '')
+        mood = data.get('mood', 'natural movement, cinematic, soft light')
+        if not image_url:
+            return jsonify({'error': 'image_url required'}), 400
+
+        fal_headers = {'Authorization': f'Key {FAL_API_KEY}', 'Content-Type': 'application/json'}
+        motion_prompt = (
+            f"subtle natural movement, {mood}, "
+            "gentle fabric sway, soft breeze, cinematic slow motion, "
+            "high quality, smooth, no camera shake"
+        )
+
+        submit_resp = requests.post(
+            'https://queue.fal.run/fal-ai/kling-video/v1.6/standard/image-to-video',
+            headers=fal_headers,
+            json={
+                'image_url': image_url,
+                'prompt': motion_prompt,
+                'duration': '5',
+                'aspect_ratio': '9:16',
+                'negative_prompt': 'blur, distortion, bad quality, watermark'
+            },
+            timeout=30
+        )
+
+        if not submit_resp.text.strip():
+            return jsonify({'error': 'Empty response from Kling', 'status_code': submit_resp.status_code}), 500
+
+        if submit_resp.status_code != 200:
+            return jsonify({'error': f'Kling HTTP {submit_resp.status_code}', 'body': submit_resp.text[:400]}), 500
+
+        resp_data = submit_resp.json()
+        request_id = resp_data.get('request_id', '')
+        if not request_id:
+            return jsonify({'error': 'No request_id', 'raw': resp_data}), 500
+
+        return jsonify({'request_id': request_id})
+
+    except Exception as e:
+        return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
+
+
+@app.route('/api/kling/status', methods=['POST'])
+def kling_status():
+    """Poll Kling job status — called repeatedly from frontend."""
+    try:
+        request_id = request.json.get('request_id', '')
+        if not request_id:
+            return jsonify({'error': 'request_id required'}), 400
+
+        fal_headers = {'Authorization': f'Key {FAL_API_KEY}', 'Content-Type': 'application/json'}
+
+        status_resp = requests.get(
+            f'https://queue.fal.run/fal-ai/kling-video/requests/{request_id}/status',
+            headers=fal_headers,
+            timeout=15
+        )
+        status_data = status_resp.json()
+        status = status_data.get('status', '')
+
+        if status == 'COMPLETED':
+            result_resp = requests.get(
+                f'https://queue.fal.run/fal-ai/kling-video/requests/{request_id}',
+                headers=fal_headers,
+                timeout=15
+            )
+            result = result_resp.json()
+            video_url = (
+                result.get('video', {}).get('url') or
+                result.get('output', {}).get('video', {}).get('url') or
+                (result.get('videos') or [{}])[0].get('url') or ''
+            )
+            return jsonify({'status': 'COMPLETED', 'video_url': video_url})
+
+        return jsonify({'status': status})
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ── LIBRARY ──
+# Library stored as a simple JSON file on disk (persists on Railway volume)
+import json as _json
+
+LIBRARY_FILE = 'library.json'
+
+def load_library_data():
+    try:
+        with open(LIBRARY_FILE,'r') as f:
+            return _json.load(f)
+    except:
+        return []
+
+def save_library_data(photos):
+    with open(LIBRARY_FILE,'w') as f:
+        _json.dump(photos, f)
+
+
+@app.route('/api/library', methods=['GET'])
+def get_library():
+    return jsonify({'photos': load_library_data()})
+
+
+@app.route('/api/library/add', methods=['POST'])
+def add_to_library():
+    try:
+        data = request.json
+        image_b64 = data.get('image_b64','')
+        content_type = data.get('content_type','image/jpeg')
+        name = data.get('name','photo')
+        ext = content_type.split('/')[-1]
+
+        import base64 as b64mod, time as _time
+        img_bytes = b64mod.b64decode(image_b64)
+
+        fal_headers = {'Authorization': f'Key {FAL_API_KEY}', 'Content-Type': 'application/json'}
+        key = f'library_{int(_time.time()*1000)}.{ext}'
+
+        # Upload to FAL storage
+        init_resp = requests.post(
+            'https://rest.alpha.fal.ai/storage/upload/initiate',
+            headers=fal_headers,
+            json={'file_name': key, 'content_type': content_type},
+            timeout=15
+        )
+        init_resp.raise_for_status()
+        init_data = init_resp.json()
+        upload_url = init_data.get('upload_url','')
+        file_url = init_data.get('file_url','')
+
+        requests.put(upload_url, data=img_bytes, headers={'Content-Type': content_type}, timeout=30)
+
+        # Save to library
+        photos = load_library_data()
+        photos.insert(0, {'url': file_url, 'key': key, 'name': name})
+        save_library_data(photos)
+
+        return jsonify({'url': file_url, 'key': key})
+    except Exception as e:
+        return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
+
+
+@app.route('/api/library/delete', methods=['POST'])
+def delete_from_library():
+    try:
+        key = request.json.get('key','')
+        photos = load_library_data()
+        photos = [p for p in photos if p.get('key') != key]
+        save_library_data(photos)
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ── LOGO REPOSITORY ──
+LOGO_FILE = 'logos.json'
+
+def load_logo_data():
+    try:
+        with open(LOGO_FILE,'r') as f:
+            return _json.load(f)
+    except:
+        return []
+
+def save_logo_data(logos):
+    with open(LOGO_FILE,'w') as f:
+        _json.dump(logos, f)
+
+
+@app.route('/api/logos', methods=['GET'])
+def get_logos():
+    return jsonify({'logos': load_logo_data()})
+
+
+@app.route('/api/logos/add', methods=['POST'])
+def add_logo():
+    try:
+        data = request.json
+        image_b64 = data.get('image_b64','')
+        content_type = data.get('content_type','image/png')
+        name = data.get('name','logo')
+        ext = content_type.split('/')[-1]
+
+        import base64 as b64mod, time as _time
+        img_bytes = b64mod.b64decode(image_b64)
+        key = f'logo_{int(_time.time()*1000)}.{ext}'
+
+        fal_headers = {'Authorization': f'Key {FAL_API_KEY}', 'Content-Type': 'application/json'}
+
+        # 1. Upload original to FAL storage
+        init_resp = requests.post(
+            'https://rest.alpha.fal.ai/storage/upload/initiate',
+            headers=fal_headers,
+            json={'file_name': key, 'content_type': content_type},
+            timeout=15
+        )
+        init_resp.raise_for_status()
+        init_data = init_resp.json()
+        upload_url = init_data.get('upload_url','')
+        file_url = init_data.get('file_url','')
+        requests.put(upload_url, data=img_bytes, headers={'Content-Type': content_type}, timeout=30)
+
+        # 2. Remove background via FAL birefnet
+        clean_url = file_url  # fallback to original
+        try:
+            bg_resp = requests.post(
+                'https://fal.run/fal-ai/birefnet',
+                headers=fal_headers,
+                json={'image_url': file_url, 'model': 'General Use (Light)', 'output_format': 'png'},
+                timeout=60
+            )
+            if bg_resp.status_code == 200:
+                bg_data = bg_resp.json()
+                clean_url = bg_data.get('image', {}).get('url', file_url) or file_url
+        except:
+            pass  # use original if bg removal fails
+
+        # 3. Save to logo repo
+        logos = load_logo_data()
+        logos.insert(0, {'url': file_url, 'clean_url': clean_url, 'key': key, 'name': name})
+        save_logo_data(logos)
+
+        return jsonify({'url': file_url, 'clean_url': clean_url, 'key': key})
+    except Exception as e:
+        return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
+
+
+@app.route('/api/logos/delete', methods=['POST'])
+def delete_logo():
+    try:
+        key = request.json.get('key','')
+        logos = load_logo_data()
+        logos = [l for l in logos if l.get('key') != key]
+        save_logo_data(logos)
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ── META ADVANTAGE+ CREATIVE GENERATOR ──
+GOOGLE_DRIVE_API_KEY = os.environ.get('GOOGLE_DRIVE_API_KEY', '')
+META_AD_VIDEOS_DRIVE_FOLDER_ID = '1Zpi1G_zK9o4WrTQkFL9v-yS9K4yxvvMl'
+
+META_AB_PROMPT = (
+    "You are generating Meta Advantage+ ad copy variants for WEARTH Active.\n\n"
+    "Brand: Indian plant-based activewear made from botanical fibres. Premium, calm, certain voice.\n"
+    "Never use: TENCEL, lyocell, game-changer, amazing, sacred, ritual.\n"
+    "No exclamation marks. Short lines. Trusted-friend tone.\n\n"
+    "Audience: India metros, 25-40, done with polyester, ingredient-aware.\n"
+    "Goal: High-intent purchases on wearthactive.com.\n\n"
+    "Product context:\nPRODUCT_CONTEXT_PLACEHOLDER\n\n"
+    "Generate exactly CREATIVE_COUNT_PLACEHOLDER distinct ad variants.\n"
+    "Each variant must include keys:\n"
+    "- variant_id (A, B, C...)\n"
+    "- angle (problem/education | aspiration/lifestyle | comparison | india-specific | material-deepdive)\n"
+    "- primary_text (80-150 words)\n"
+    "- headline (max 40 chars)\n"
+    "- description (max 60 chars)\n"
+    "- cta (Shop Now, Learn More, or Buy Now)\n"
+    "- hook_line (max 8 words)\n"
+    "- hashtags (array of 3-6 tags)\n\n"
+    "Return JSON only with this structure:\n"
+    "{\"variants\": [{...}]}\n"
+)
+
+META_VIDEO_COPY_PROMPT = (
+    "You are generating Meta video ad copy variants for WEARTH Active.\n\n"
+    "Brand: Indian plant-based activewear made from botanical fibres. Premium, calm, certain voice.\n"
+    "Never use: TENCEL, lyocell, game-changer, amazing, sacred, ritual.\n"
+    "No exclamation marks. Short lines. Trusted-friend tone.\n\n"
+    "Audience: India metros, 25-40, done with polyester, ingredient-aware.\n"
+    "Goal: High-intent purchases on wearthactive.com.\n\n"
+    "Video context:\nVIDEO_CONTEXT_PLACEHOLDER\n\n"
+    "Generate exactly 3 distinct ad variants for this video.\n"
+    "Each variant must include keys:\n"
+    "- variant_id (A, B, C)\n"
+    "- angle (problem/education | aspiration/lifestyle | comparison | india-specific | material-deepdive)\n"
+    "- headline (max 40 chars)\n"
+    "- primary_text (80-150 words)\n"
+    "- cta (Shop Now, Learn More, or Buy Now)\n"
+    "- hook_line (max 8 words)\n"
+    "- hashtags (array of 3-6 tags)\n\n"
+    "Return JSON only with this structure:\n"
+    "{\"variants\": [{...}]}\n"
+)
+
+_last_video_debug = {}
+_drive_video_jobs = {}
+
+
+def _extract_drive_file_id(url: str) -> str:
+    """Extract file id from common Google Drive URL formats."""
+    if not url:
+        return ''
+    match = re.search(r'/d/([a-zA-Z0-9_-]+)', url)
+    if match:
+        return match.group(1)
+    parsed = urlparse(url)
+    q = parse_qs(parsed.query)
+    if q.get('id'):
+        return q['id'][0]
+    return ''
+
+
+def _parse_drive_video_publish_payload(data: dict):
+    """Validate JSON for Drive → Meta video publish; returns tuple of core fields."""
+    drive_file_id = str(data.get('drive_file_id', '')).strip() or str(data.get('file_id', '')).strip()
+    drive_file_url = str(data.get('drive_file_url', '')).strip()
+    if not drive_file_id and drive_file_url:
+        drive_file_id = _extract_drive_file_id(drive_file_url)
+    if not drive_file_id:
+        raise ValueError('drive_file_id or drive_file_url required')
+    variant_id = str(data.get('variant_id', 'A')).strip() or 'A'
+    headline = str(data.get('headline', '')).strip()
+    primary_text = str(data.get('primary_text', '')).strip()
+    cta = str(data.get('cta', 'Shop Now')).strip() or 'Shop Now'
+    daily_budget = int(data.get('daily_budget', 200) or 200)
+    if not headline or not primary_text:
+        raise ValueError('headline and primary_text are required')
+    ac = data.get('auto_captions', False)
+    if isinstance(ac, str):
+        ac = str(ac).strip().lower() in ('1', 'true', 'yes', 'on')
+    else:
+        ac = bool(ac)
+    return drive_file_id, variant_id, headline, primary_text, cta, daily_budget, ac
+
+
+def _run_drive_video_meta_pipeline(
+    drive_file_id: str,
+    variant_id: str,
+    headline: str,
+    primary_text: str,
+    cta: str,
+    daily_budget: int,
+    auto_captions: bool = False,
+) -> dict:
+    """Download from Drive, compress, upload to Meta, create paused campaign/ad."""
+    video_bytes, _ = _download_drive_video_via_api(drive_file_id)
+    if not video_bytes:
+        raise Exception(f'Drive download returned empty file for {drive_file_id}')
+    video_bytes_local = _compress_video_if_needed(video_bytes, threshold_mb=30)
+    video_bytes_local, cap_meta = _maybe_burn_auto_captions(
+        video_bytes_local, headline, primary_text, auto_captions
+    )
+    video_id = _upload_meta_video(video_bytes_local, f'wearth_drive_{drive_file_id}_{int(time.time())}.mp4', 'video/mp4')
+    _wait_for_meta_video_ready(video_id)
+    publish_result = _create_meta_video_ad_from_video_id(
+        video_id=video_id,
+        variant_id=variant_id,
+        headline=headline,
+        primary_text=primary_text,
+        cta=cta,
+        daily_budget_rupees=daily_budget
+    )
+    return {
+        'mode': 'drive_to_meta_video',
+        'drive_file_id': drive_file_id,
+        'video_id': video_id,
+        'publish_result': publish_result,
+        'caption_processing': cap_meta,
+    }
+
+
+def _extract_drive_folder_id(url: str) -> str:
+    """Extract folder id from common Google Drive folder URL formats."""
+    if not url:
+        return ''
+    match = re.search(r'/folders/([a-zA-Z0-9_-]+)', url)
+    if match:
+        return match.group(1)
+    parsed = urlparse(url)
+    q = parse_qs(parsed.query)
+    if q.get('id'):
+        return q['id'][0]
+    return ''
+
+
+def _drive_file_url(file_id: str) -> str:
+    return f'https://drive.google.com/uc?export=view&id={file_id}'
+
+
+def _drive_file_download_url(file_id: str) -> str:
+    return f'https://drive.google.com/uc?export=download&id={file_id}'
+
+
+def _drive_thumbnail_url(file_id: str) -> str:
+    return f'https://drive.google.com/thumbnail?id={file_id}&sz=w1200'
+
+
+def _list_drive_folder_images(folder_id: str) -> list:
+    """List public Google Drive folder images via Drive API (if API key is set)."""
+    if not GOOGLE_DRIVE_API_KEY or not folder_id:
+        return []
+    try:
+        params = {
+            'key': GOOGLE_DRIVE_API_KEY,
+            'q': f"'{folder_id}' in parents and trashed=false and mimeType contains 'image/'",
+            'fields': 'files(id,name,mimeType,webViewLink)',
+            'pageSize': 100
+        }
+        resp = requests.get('https://www.googleapis.com/drive/v3/files', params=params, timeout=20)
+        if resp.status_code != 200:
+            return []
+        files = resp.json().get('files', [])
+        return [{
+            'id': f.get('id', ''),
+            'name': f.get('name', ''),
+            'url': _drive_file_url(f.get('id', '')),
+            'source': 'google_drive_folder'
+        } for f in files if f.get('id')]
+    except Exception:
+        return []
+
+
+def _list_drive_folder_videos(folder_id: str) -> list:
+    """List public Google Drive folder videos via Drive API."""
+    if not GOOGLE_DRIVE_API_KEY or not folder_id:
+        return []
+    try:
+        params = {
+            'key': GOOGLE_DRIVE_API_KEY,
+            'q': f"'{folder_id}' in parents and trashed=false and mimeType contains 'video/'",
+            'fields': 'files(id,name,mimeType,thumbnailLink,webViewLink)',
+            'pageSize': 100
+        }
+        resp = requests.get('https://www.googleapis.com/drive/v3/files', params=params, timeout=20)
+        if resp.status_code != 200:
+            raise Exception(f'Google Drive API error {resp.status_code}: {resp.text[:300]}')
+        files = resp.json().get('files', [])
+        return [{
+            'id': f.get('id', ''),
+            'name': f.get('name', ''),
+            'url': _drive_file_download_url(f.get('id', '')),
+            'thumbnail': f.get('thumbnailLink') or _drive_thumbnail_url(f.get('id', '')),
+            'mime_type': f.get('mimeType', ''),
+            'source': 'google_drive_folder_video'
+        } for f in files if f.get('id')]
+    except Exception:
+        return []
+
+
+def _resolve_drive_images(payload: dict) -> list:
+    """
+    Resolve input images from:
+    1) google_drive_links (file links)
+    2) google_drive_folder_url or google_drive_folder_id (public folder, API key required)
+    3) image_urls (direct urls)
+    """
+    images = []
+    seen = set()
+
+    for url in payload.get('image_urls', []) or []:
+        if url and url not in seen:
+            seen.add(url)
+            images.append({'id': '', 'name': 'image', 'url': url, 'source': 'direct_url'})
+
+    for link in payload.get('google_drive_links', []) or []:
+        file_id = _extract_drive_file_id(link)
+        if not file_id:
+            continue
+        url = _drive_file_url(file_id)
+        if url in seen:
+            continue
+        seen.add(url)
+        images.append({'id': file_id, 'name': 'drive_image', 'url': url, 'source': 'google_drive_link'})
+
+    folder_id = (payload.get('google_drive_folder_id') or '').strip()
+    if not folder_id:
+        folder_id = _extract_drive_folder_id((payload.get('google_drive_folder_url') or '').strip())
+
+    for image in _list_drive_folder_images(folder_id):
+        url = image.get('url', '')
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        images.append(image)
+
+    return images
+
+
+def _call_claude_json(prompt: str, max_tokens: int = 2200) -> dict:
+    """Call Claude and parse JSON body safely."""
+    resp = requests.post(
+        'https://api.anthropic.com/v1/messages',
+        headers={
+            'Content-Type': 'application/json',
+            'x-api-key': ANTHROPIC_KEY,
+            'anthropic-version': '2023-06-01'
+        },
+        json={
+            'model': 'claude-sonnet-4-20250514',
+            'max_tokens': max_tokens,
+            'messages': [{'role': 'user', 'content': prompt}]
+        },
+        timeout=50
+    )
+    resp.raise_for_status()
+    text = resp.json()['content'][0]['text'].strip()
+    if '```' in text:
+        parts = text.split('```')
+        text = parts[1] if len(parts) > 1 else parts[0]
+        if text.startswith('json'):
+            text = text[4:]
+        text = text.strip()
+    return json.loads(text)
+
+
+def _meta_error_message(resp) -> str:
+    """Format Graph API errors into a clean message."""
+    try:
+        payload = resp.json()
+        err = payload.get('error', {})
+        parts = [f"Meta API error {resp.status_code}"]
+        if err.get('message'):
+            parts.append(err['message'])
+        if err.get('error_user_title'):
+            parts.append(err['error_user_title'])
+        if err.get('error_user_msg'):
+            parts.append(err['error_user_msg'])
+        if err.get('code'):
+            parts.append(f"code={err['code']}")
+        if err.get('error_subcode'):
+            parts.append(f"subcode={err['error_subcode']}")
+        if err.get('fbtrace_id'):
+            parts.append(f"trace={err['fbtrace_id']}")
+        return ' | '.join(parts)
+    except Exception:
+        return f"Meta API error {resp.status_code}: {resp.text[:500]}"
+
+
+def _meta_request(method: str, path: str, *, params=None, data=None, files=None) -> dict:
+    """Make a Meta Graph API call and raise a clear exception on failure."""
+    params = dict(params or {})
+    data = dict(data or {})
+    params.setdefault('access_token', META_ACCESS_TOKEN)
+    url = f'{META_GRAPH_BASE}/{path.lstrip("/")}'
+    resp = requests.request(method, url, params=params, data=data, files=files, timeout=60)
+    if resp.status_code not in [200, 201]:
+        raise Exception(_meta_error_message(resp))
+    return resp.json()
+
+
+def _meta_account_path(resource: str) -> str:
+    account_id = str(META_AD_ACCOUNT_ID or '').strip()
+    if not account_id:
+        return ''
+    if not account_id.startswith('act_'):
+        account_id = f'act_{account_id}'
+    return f'{account_id}/{resource.lstrip("/")}'
+
+
+def _meta_interest_ids(names: list) -> tuple:
+    """Resolve interest names to Meta interest IDs. Returns (interests, warnings)."""
+    resolved = []
+    warnings = []
+    for name in names:
+        try:
+            result = _meta_request(
+                'GET',
+                'search',
+                params={
+                    'type': 'adinterest',
+                    'q': json.dumps([name]),
+                    'limit': 1
+                }
+            )
+            matches = result.get('data', [])
+            if matches:
+                resolved.append({
+                    'id': matches[0].get('id'),
+                    'name': matches[0].get('name', name)
+                })
+            else:
+                warnings.append(f'No Meta interest match found for "{name}"')
+        except Exception as e:
+            warnings.append(f'Interest lookup failed for "{name}": {str(e)}')
+    return resolved, warnings
+
+
+def _normalize_cta_button(cta: str) -> str:
+    """Map human CTA labels to Meta call_to_action button types."""
+    lookup = {
+        'shop now': 'SHOP_NOW',
+        'buy now': 'SHOP_NOW',
+        'learn more': 'LEARN_MORE'
+    }
+    return lookup.get((cta or '').strip().lower(), 'SHOP_NOW')
+
+
+def _extract_preview_url(preview_payload: dict, ad_id: str) -> str:
+    """Try to extract a shareable-ish preview URL from previews HTML."""
+    try:
+        html = ''
+        data = preview_payload.get('data', [])
+        if data:
+            html = data[0].get('body', '') or ''
+        match = re.search(r'src="([^"]+)"', html)
+        if match:
+            return match.group(1).replace('&amp;', '&')
+    except Exception:
+        pass
+
+    account_id = str(META_AD_ACCOUNT_ID or '').replace('act_', '')
+    if account_id and ad_id:
+        return (
+            f'https://www.facebook.com/adsmanager/manage/ads?act={account_id}'
+            f'&selected_ad_ids={ad_id}'
+        )
+    return ''
+
+
+def _resolve_video_download_url(video_url: str) -> tuple:
+    """Download video bytes from URL, handling Google Drive confirmation flow robustly."""
+    file_id = _extract_drive_file_id(video_url)
+    if file_id:
+        download_url = _drive_file_download_url(file_id)
+    else:
+        download_url = video_url
+
+    session = requests.Session()
+    resp = session.get(download_url, timeout=120, allow_redirects=True)
+    content_type = (resp.headers.get('Content-Type') or '').lower()
+    if 'text/html' not in content_type:
+        return resp.content, resp.headers.get('Content-Type', 'video/mp4')
+
+    html = resp.text or ''
+
+    # 1) Cookie-based confirm token (most reliable on Drive warning pages)
+    confirm_token = ''
+    for key, value in session.cookies.items():
+        if key.startswith('download_warning'):
+            confirm_token = value
+            break
+    if confirm_token and file_id:
+        confirmed_url = f'https://drive.google.com/uc?export=download&id={file_id}&confirm={confirm_token}'
+        resp2 = session.get(confirmed_url, timeout=120, allow_redirects=True)
+        ct2 = (resp2.headers.get('Content-Type') or '').lower()
+        if 'text/html' not in ct2:
+            return resp2.content, resp2.headers.get('Content-Type', 'video/mp4')
+
+    # 2) confirm= token in HTML
+    confirm_match = re.search(r'confirm=([0-9A-Za-z_-]+)', html)
+    if confirm_match and file_id:
+        confirmed_url = f'https://drive.google.com/uc?export=download&id={file_id}&confirm={confirm_match.group(1)}'
+        resp3 = session.get(confirmed_url, timeout=120, allow_redirects=True)
+        ct3 = (resp3.headers.get('Content-Type') or '').lower()
+        if 'text/html' not in ct3:
+            return resp3.content, resp3.headers.get('Content-Type', 'video/mp4')
+
+    # 3) Download form action fallback (Drive warning page with hidden inputs)
+    form_match = re.search(r'<form[^>]+id="download-form"[^>]+action="([^"]+)"', html)
+    if form_match:
+        action = form_match.group(1).replace('&amp;', '&')
+        if action.startswith('/'):
+            action = f'https://drive.google.com{action}'
+        params = {}
+        for key, value in re.findall(r'<input[^>]+name="([^"]+)"[^>]+value="([^"]*)"', html):
+            params[key] = value
+        resp4 = session.get(action, params=params, timeout=120, allow_redirects=True)
+        ct4 = (resp4.headers.get('Content-Type') or '').lower()
+        if 'text/html' not in ct4:
+            return resp4.content, resp4.headers.get('Content-Type', 'video/mp4')
+
+    # Still HTML: return raw bytes for debug endpoint visibility
+    return resp.content, resp.headers.get('Content-Type', 'text/html')
+
+
+def _resolve_ffmpeg_bin() -> str:
+    """Return path to ffmpeg binary, or ''."""
+    b = shutil.which('ffmpeg')
+    if b:
+        return b
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe() or ''
+    except Exception:
+        return ''
+
+
+def _resolve_ffprobe_bin() -> str:
+    """Return path to ffprobe binary, or ''."""
+    b = shutil.which('ffprobe')
+    if b:
+        return b
+    ffmpeg = _resolve_ffmpeg_bin()
+    if not ffmpeg:
+        return ''
+    d = os.path.dirname(ffmpeg)
+    name = 'ffprobe.exe' if sys.platform == 'win32' else 'ffprobe'
+    candidate = os.path.join(d, name)
+    return candidate if os.path.isfile(candidate) else ''
+
+
+def _ffprobe_json(path: str) -> dict:
+    """Run ffprobe and return parsed JSON, or {} on failure."""
+    ffprobe = _resolve_ffprobe_bin()
+    if not ffprobe:
+        return {}
+    try:
+        r = subprocess.run(
+            [
+                ffprobe, '-v', 'error', '-print_format', 'json',
+                '-show_format', '-show_streams', path
+            ],
+            capture_output=True,
+            timeout=60,
+            text=True,
+        )
+        if r.returncode != 0 or not r.stdout:
+            return {}
+        return json.loads(r.stdout)
+    except Exception:
+        return {}
+
+
+def _video_file_has_subtitle_stream(path: str) -> bool:
+    """True if container reports at least one subtitle stream (not burned-in pixels)."""
+    data = _ffprobe_json(path)
+    for stream in data.get('streams') or []:
+        if (stream.get('codec_type') or '').lower() == 'subtitle':
+            return True
+    return False
+
+
+def _ffprobe_video_dimensions_and_duration(path: str) -> tuple:
+    """Returns (width, height, duration_sec) with sensible defaults."""
+    data = _ffprobe_json(path)
+    w, h, dur = 1280, 720, 30.0
+    for stream in data.get('streams') or []:
+        if (stream.get('codec_type') or '').lower() == 'video':
+            try:
+                w = int(stream.get('width') or w)
+                h = int(stream.get('height') or h)
+            except (TypeError, ValueError):
+                pass
+            d = stream.get('duration')
+            if d:
+                try:
+                    dur = float(d)
+                except (TypeError, ValueError):
+                    pass
+            break
+    fmt = data.get('format') or {}
+    if fmt.get('duration'):
+        try:
+            dur = float(fmt['duration'])
+        except (TypeError, ValueError):
+            pass
+    dur = max(3.0, min(dur, 600.0))
+    return w, h, dur
+
+
+def _ass_escape(text: str) -> str:
+    """Escape user text for ASS dialogue lines."""
+    if not text:
+        return ''
+    t = text.replace('\\', '\\\\').replace('{', '\\{').replace('}', '\\}')
+    return t.replace('\n', '\\N').replace('\r', '')
+
+
+def _headline_to_highlighted_ass_dialogue(headline: str) -> str:
+    """Last word in yellow (BGR &H00FFFF), rest white (&HFFFFFF)."""
+    parts = (headline or '').strip().split()
+    if not parts:
+        return ''
+    if len(parts) == 1:
+        return '{\\c&H00FFFF&}' + _ass_escape(parts[0])
+    lead = ' '.join(parts[:-1])
+    last = parts[-1]
+    return '{\\c&HFFFFFF&}' + _ass_escape(lead) + ' {\\c&H00FFFF&}' + _ass_escape(last)
+
+
+def _wrap_primary_for_ass(primary_text: str, max_len: int = 46, max_lines: int = 2) -> str:
+    """Break primary_text into short ASS lines."""
+    words = (primary_text or '').split()
+    if not words:
+        return ''
+    lines = []
+    cur = []
+    cur_len = 0
+    for w in words:
+        add = len(w) + (1 if cur else 0)
+        if cur_len + add > max_len and cur:
+            lines.append(' '.join(cur))
+            cur = [w]
+            cur_len = len(w)
+            if len(lines) >= max_lines:
+                break
+        else:
+            cur.append(w)
+            cur_len += add
+    if cur and len(lines) < max_lines:
+        lines.append(' '.join(cur))
+    if len(lines) > max_lines:
+        lines = lines[:max_lines]
+    return '\\N'.join('{\\c&HFFFFFF&}' + _ass_escape(line) for line in lines)
+
+
+def _write_auto_caption_ass(
+    ass_path: str,
+    headline: str,
+    primary_text: str,
+    width: int,
+    height: int,
+    duration_sec: float,
+) -> None:
+    """Write a minimal ASS with lower-third headline + primary lines."""
+    head_line = _headline_to_highlighted_ass_dialogue(headline)
+    body = _wrap_primary_for_ass(primary_text)
+    dialogue = head_line + ('\\N' + body if body else '')
+    end_h = int(duration_sec // 3600)
+    end_m = int((duration_sec % 3600) // 60)
+    end_s = duration_sec % 60
+    end_ts = f'{end_h}:{end_m:02d}:{end_s:05.2f}'
+    # Large outline for readability on varied backgrounds
+    ass = (
+        '[Script Info]\nScriptType: v4.00+\nPlayResX: %d\nPlayResY: %d\nScaledBorderAndShadow: yes\n\n'
+        '[V4+ Styles]\n'
+        'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, '
+        'Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, '
+        'Alignment, MarginL, MarginR, MarginV, Encoding\n'
+        'Style: Default,Arial Black,52,&H00FFFFFF,&H000000FF,&H80000000,&H80000000,-1,0,0,0,100,100,0,0,'
+        '1,4,2,2,60,60,90,1\n\n'
+        '[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n'
+    ) % (width, height)
+    ass += f'Dialogue: 0,0:00:00.00,{end_ts},Default,,0,0,0,,{dialogue}\n'
+    with open(ass_path, 'w', encoding='utf-8-sig') as f:
+        f.write(ass)
+
+
+def _maybe_burn_auto_captions(
+    video_bytes: bytes,
+    headline: str,
+    primary_text: str,
+    auto_captions: bool,
+) -> tuple:
+    """
+    If auto_captions is True and ffprobe finds no embedded subtitle streams, burn a simple
+    lower-third (headline with last word in yellow + primary text). Burned-in styled
+    captions without a subtitle track cannot be detected; we only skip when a subtitle
+    stream exists. Returns (video_bytes, meta_dict).
+    """
+    meta: dict = {'auto_captions_requested': bool(auto_captions)}
+    if not auto_captions:
+        return video_bytes, meta
+
+    ffmpeg = _resolve_ffmpeg_bin()
+    ffprobe = _resolve_ffprobe_bin()
+    if not ffmpeg or not ffprobe:
+        meta['auto_captions_action'] = 'skipped_no_ffprobe'
+        return video_bytes, meta
+
+    work = tempfile.mkdtemp(prefix='wearth_cap_')
+    inp = os.path.join(work, 'in.mp4')
+    outp = os.path.join(work, 'out.mp4')
+    assp = os.path.join(work, 'cap.ass')
+    try:
+        with open(inp, 'wb') as f:
+            f.write(video_bytes)
+        if _video_file_has_subtitle_stream(inp):
+            meta['auto_captions_action'] = 'skipped_embedded_subtitle_tracks_present'
+            return video_bytes, meta
+
+        w, h, dur = _ffprobe_video_dimensions_and_duration(inp)
+        _write_auto_caption_ass(assp, headline, primary_text, w, h, dur)
+        cmd = [
+            ffmpeg, '-y', '-i', 'in.mp4',
+            '-vf', 'subtitles=cap.ass',
+            '-c:v', 'libx264', '-preset', 'fast', '-crf', '20',
+            '-c:a', 'copy', '-movflags', '+faststart',
+            'out.mp4',
+        ]
+        r = subprocess.run(cmd, cwd=work, capture_output=True, timeout=600)
+        if r.returncode != 0 or not os.path.isfile(outp):
+            err = (r.stderr or b'').decode('utf-8', errors='replace')[:400]
+            print(f'Auto-caption burn failed: {err}')
+            meta['auto_captions_action'] = 'burn_failed_used_original'
+            return video_bytes, meta
+        with open(outp, 'rb') as f:
+            out_bytes = f.read()
+        meta['auto_captions_action'] = 'burned_lower_third'
+        meta['auto_captions_bytes_in'] = len(video_bytes)
+        meta['auto_captions_bytes_out'] = len(out_bytes)
+        return out_bytes, meta
+    except Exception as e:
+        print(f'Auto-caption error: {e}')
+        meta['auto_captions_action'] = 'error_used_original'
+        meta['auto_captions_error'] = str(e)
+        return video_bytes, meta
+    finally:
+        try:
+            shutil.rmtree(work, ignore_errors=True)
+        except Exception:
+            pass
+
+
+def _compress_video_if_needed(video_bytes: bytes, threshold_mb: int = 30) -> bytes:
+    """Compress video to H.264 720p 6Mbps if larger than threshold."""
+    import os
+
+    size_mb = len(video_bytes) / (1024 * 1024)
+    if size_mb <= threshold_mb:
+        return video_bytes
+
+    print(f'Video is {size_mb:.1f}MB, compressing to optimise for Meta...')
+
+    input_tmp = None
+    output_tmp = None
+    try:
+        # Write input to temp file
+        with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as f:
+            f.write(video_bytes)
+            input_tmp = f.name
+
+        output_tmp = input_tmp.replace('.mp4', '_compressed.mp4')
+
+        ffmpeg_bin = _resolve_ffmpeg_bin()
+        if not ffmpeg_bin:
+            print('FFmpeg binary not found, using original')
+            return video_bytes
+
+        # Run ffmpeg compression
+        cmd = [
+            ffmpeg_bin, '-i', input_tmp,
+            '-vcodec', 'libx264',
+            '-vf', 'scale=-2:720',
+            '-r', '30',
+            '-b:v', '6M',
+            '-b:a', '128k',
+            '-movflags', '+faststart',
+            '-y', output_tmp
+        ]
+        result = subprocess.run(cmd, capture_output=True, timeout=300)
+
+        if result.returncode == 0:
+            with open(output_tmp, 'rb') as f:
+                compressed = f.read()
+            compressed_mb = len(compressed) / (1024 * 1024)
+            print(f'Compressed to {compressed_mb:.1f}MB')
+            return compressed
+        else:
+            print(f'FFmpeg compression failed: {result.stderr.decode()}, using original')
+            return video_bytes
+
+    except Exception as e:
+        print(f'Compression error: {e}, using original')
+        return video_bytes
+    finally:
+        if input_tmp and os.path.exists(input_tmp):
+            os.remove(input_tmp)
+        if output_tmp and os.path.exists(output_tmp):
+            os.remove(output_tmp)
+
+
+def _is_valid_mp4(video_bytes: bytes) -> bool:
+    """Basic MP4 signature check via common box headers."""
+    if not video_bytes or len(video_bytes) < 12:
+        return False
+    header = video_bytes[:64]
+    return (b'ftyp' in header) or (b'moov' in header)
+
+
+def _upload_bytes_to_fal_storage(file_bytes: bytes, file_name: str, content_type: str) -> str:
+    """Upload arbitrary bytes to FAL storage and return a public URL."""
+    fal_headers = {'Authorization': f'Key {FAL_API_KEY}', 'Content-Type': 'application/json'}
+    init_resp = requests.post(
+        'https://rest.alpha.fal.ai/storage/upload/initiate',
+        headers=fal_headers,
+        json={'file_name': file_name, 'content_type': content_type},
+        timeout=30
+    )
+    init_resp.raise_for_status()
+    init_data = init_resp.json()
+    upload_url = init_data.get('upload_url', '')
+    file_url = init_data.get('file_url', '')
+    if not upload_url or not file_url:
+        raise Exception(f'Invalid FAL initiate response: {init_data}')
+    put_resp = requests.put(
+        upload_url,
+        data=file_bytes,
+        headers={'Content-Type': content_type},
+        timeout=180
+    )
+    put_resp.raise_for_status()
+    return file_url
+
+
+def _download_drive_video_via_api(file_id: str) -> tuple:
+    """Download Drive file bytes via Drive API alt=media with API key."""
+    if not GOOGLE_DRIVE_API_KEY:
+        raise Exception('GOOGLE_DRIVE_API_KEY not set')
+    if not file_id:
+        raise Exception('drive_file_id required')
+    url = f'https://www.googleapis.com/drive/v3/files/{file_id}?alt=media&key={GOOGLE_DRIVE_API_KEY}'
+    resp = requests.get(url, timeout=180, allow_redirects=True)
+    if resp.status_code != 200:
+        raise Exception(f'Google Drive API media download failed ({resp.status_code}): {resp.text[:300]}')
+    content_type = resp.headers.get('Content-Type', 'video/mp4')
+    return resp.content, content_type
+
+
+def _publish_video_via_existing_endpoint(payload: dict) -> dict:
+    """Call existing publish-video endpoint so logic stays in one place."""
+    target = f"{APP_BASE_URL.rstrip('/')}/api/meta-advantage/publish-video"
+    resp = requests.post(target, json=payload, timeout=300)
+    raw = {}
+    try:
+        raw = resp.json()
+    except Exception:
+        raw = {'raw_text': resp.text[:1000]}
+    if resp.status_code not in [200, 201]:
+        raise Exception(f'publish-video failed ({resp.status_code}): {raw}')
+    return raw
+
+
+def _create_meta_video_ad_from_video_id(video_id: str, variant_id: str, headline: str, primary_text: str, cta: str, daily_budget_rupees: int) -> dict:
+    """Create campaign, adset, creative, and ad for an already-uploaded Meta video."""
+    if not META_PIXEL_ID:
+        raise Exception('META_PIXEL_ID not set')
+    cta_button = _normalize_cta_button(cta)
+    daily_budget_paise = daily_budget_rupees * 100
+    timestamp = int(time.time())
+    base_name = f'WEARTH Video Meta {variant_id} {timestamp}'
+    warnings = []
+    thumbnail_url = ''
+    try:
+        thumbs = _meta_request('GET', f'{video_id}/thumbnails')
+        thumb_list = thumbs.get('data', []) if isinstance(thumbs, dict) else []
+        if thumb_list:
+            thumbnail_url = thumb_list[0].get('uri', '') or thumb_list[0].get('url', '')
+    except Exception as e:
+        warnings.append(f'Video thumbnail fetch failed: {str(e)}')
+
+    campaign = _meta_request(
+        'POST',
+        _meta_account_path('campaigns'),
+        data={
+            'name': f'{base_name} Campaign',
+            'objective': 'OUTCOME_SALES',
+            'status': 'PAUSED',
+            'is_adset_budget_sharing_enabled': 'false',
+            'special_ad_categories': json.dumps([])
+        }
+    )
+    campaign_id = campaign.get('id', '')
+
+    targeting = {
+        'age_min': 25,
+        'age_max': 65,
+        'geo_locations': {'countries': ['IN']},
+        'targeting_automation': {'advantage_audience': 1},
+        'publisher_platforms': ['facebook', 'instagram'],
+        'facebook_positions': ['feed'],
+        'instagram_positions': ['stream', 'story']
+    }
+
+    adset = _meta_request(
+        'POST',
+        _meta_account_path('adsets'),
+        data={
+            'name': f'{base_name} Ad Set',
+            'campaign_id': campaign_id,
+            'status': 'PAUSED',
+            'daily_budget': str(daily_budget_paise),
+            'bid_strategy': 'LOWEST_COST_WITHOUT_CAP',
+            'billing_event': 'IMPRESSIONS',
+            'optimization_goal': 'OFFSITE_CONVERSIONS',
+            'targeting_automation': json.dumps({'advantage_audience': 0}),
+            'promoted_object': json.dumps({
+                'pixel_id': META_PIXEL_ID,
+                'custom_event_type': 'PURCHASE'
+            }),
+            'targeting': json.dumps(targeting)
+        }
+    )
+    adset_id = adset.get('id', '')
+
+    creative = _meta_request(
+        'POST',
+        _meta_account_path('adcreatives'),
+        data={
+            'name': f'{base_name} Creative',
+            'object_story_spec': json.dumps({
+                'page_id': META_PAGE_ID,
+                'video_data': {
+                    'video_id': video_id,
+                        'image_url': thumbnail_url,
+                    'message': primary_text,
+                    'title': headline,
+                    'call_to_action': {
+                        'type': cta_button,
+                        'value': {'link': 'https://wearthactive.com'}
+                    }
+                }
+            })
+        }
+    )
+    creative_id = creative.get('id', '')
+
+    ad = _meta_request(
+        'POST',
+        _meta_account_path('ads'),
+        data={
+            'name': f'{base_name} Ad',
+            'adset_id': adset_id,
+            'status': 'PAUSED',
+            'creative': json.dumps({'creative_id': creative_id})
+        }
+    )
+    ad_id = ad.get('id', '')
+
+    return {
+        'ok': True,
+        'campaign_id': campaign_id,
+        'adset_id': adset_id,
+        'ad_id': ad_id,
+        'video_id': video_id,
+        'status': 'PAUSED',
+        'warnings': warnings
+    }
+
+
+def _upload_meta_video(video_bytes: bytes, file_name: str, content_type: str) -> str:
+    """Upload video to Meta and return video_id."""
+    upload = _meta_request(
+        'POST',
+        _meta_account_path('advideos'),
+        files={'source': (file_name, video_bytes, content_type)}
+    )
+    video_id = upload.get('id', '')
+    if not video_id:
+        raise Exception(f'Meta video upload succeeded but no video id returned: {upload}')
+    return video_id
+
+
+def _wait_for_meta_video_ready(video_id: str, timeout_seconds: int = 300) -> dict:
+    """Poll Meta until video processing is ready."""
+    start = time.time()
+    last_payload = {}
+    while time.time() - start < timeout_seconds:
+        info = _meta_request(
+            'GET',
+            f'{video_id}',
+            params={'fields': 'id,status'}
+        )
+        last_payload = info
+        status_obj = info.get('status', {}) or {}
+        video_status = (status_obj.get('video_status') or '').upper()
+        if video_status in ['READY', 'ACTIVE']:
+            return info
+        if video_status in ['ERROR', 'FAILED']:
+            raise Exception(f'Meta video processing failed: {json.dumps(info)}')
+        time.sleep(10)
+    raise Exception(f'Meta video processing timeout after {timeout_seconds}s: {json.dumps(last_payload)}')
+
+
+@app.route('/api/meta-advantage/generate', methods=['POST'])
+def generate_meta_advantage_creatives():
+    """
+    Generate Meta Advantage+ A/B ad creatives from existing product images.
+    Works with Google Drive links/folder or direct image URLs.
+    """
+    try:
+        data = request.json or {}
+        if not ANTHROPIC_KEY:
+            return jsonify({'error': 'ANTHROPIC_API_KEY not set'}), 500
+
+        images = _resolve_drive_images(data)
+        if not images:
+            return jsonify({
+                'error': 'No images found. Send google_drive_links, image_urls, or a Google Drive folder.',
+                'hint': 'For folder sync, set GOOGLE_DRIVE_API_KEY and pass google_drive_folder_url or google_drive_folder_id.'
+            }), 400
+
+        creative_count = int(data.get('creative_count', 2) or 2)
+        creative_count = max(2, min(8, creative_count))
+
+        product_context = (data.get('product_context') or '').strip()
+        if not product_context:
+            product_context = (
+                "WEARTH Active premium plant-based activewear made from natural fibres for Indian climate. "
+                "Anti-polyester, breathable, no microplastics in wash, built for daily movement."
+            )
+
+        prompt = (META_AB_PROMPT
+            .replace('PRODUCT_CONTEXT_PLACEHOLDER', product_context)
+            .replace('CREATIVE_COUNT_PLACEHOLDER', str(creative_count)))
+
+        claude_payload = _call_claude_json(prompt, max_tokens=2600)
+        variants = claude_payload.get('variants', [])
+        if not isinstance(variants, list):
+            variants = []
+
+        if not variants:
+            return jsonify({'error': 'Claude returned no variants'}), 500
+
+        # Assign images round-robin so each variant maps to a real creative asset.
+        image_count = len(images)
+        enriched = []
+        for idx, variant in enumerate(variants):
+            if not isinstance(variant, dict):
+                continue
+            image = images[idx % image_count]
+            enriched_variant = dict(variant)
+            enriched_variant['image_url'] = image.get('url', '')
+            enriched_variant['image_name'] = image.get('name', '')
+            enriched_variant['image_source'] = image.get('source', '')
+            enriched_variant['variant_id'] = enriched_variant.get('variant_id', chr(65 + idx))
+            enriched.append(enriched_variant)
+
+        return jsonify({
+            'ok': True,
+            'platform': 'meta_advantage_plus',
+            'creative_count': len(enriched),
+            'images_count': len(images),
+            'variants': enriched,
+            'images': images
+        })
+
+    except Exception as e:
+        return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
+
+
+@app.route('/api/debug/last-video', methods=['GET'])
+def debug_last_video():
+    """Return metadata for the latest video bytes handled by publish-video/download-test."""
+    return jsonify({'ok': True, 'last_video': _last_video_debug})
+
+
+@app.route('/api/debug/download-test', methods=['GET'])
+def debug_download_test():
+    """
+    Download video via current resolver and return byte-level debug info.
+    Accepts optional query param: video_url
+    """
+    try:
+        video_url = (
+            request.args.get('video_url', '').strip()
+            or 'https://drive.google.com/uc?export=download&id=1i3NheWQhJx6_8UJThGq3UQmmFewQC85_'
+        )
+        video_bytes, content_type = _resolve_video_download_url(video_url)
+        first_200 = video_bytes[:200] if video_bytes else b''
+        result = {
+            'ok': True,
+            'video_url': video_url,
+            'content_type': content_type,
+            'size_bytes': len(video_bytes or b''),
+            'first_200_bytes_hex': first_200.hex(),
+            'is_valid_mp4': _is_valid_mp4(video_bytes or b'')
+        }
+        _last_video_debug.update(result)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
+
+
+@app.route('/api/drive/videos', methods=['GET'])
+def list_drive_videos():
+    """List videos from META AD VIDEOS Google Drive folder."""
+    try:
+        if not GOOGLE_DRIVE_API_KEY:
+            return jsonify({'error': 'GOOGLE_DRIVE_API_KEY not set'}), 500
+        videos = _list_drive_folder_videos(META_AD_VIDEOS_DRIVE_FOLDER_ID)
+        return jsonify({
+            'ok': True,
+            'folder_id': META_AD_VIDEOS_DRIVE_FOLDER_ID,
+            'count': len(videos),
+            'videos': videos
+        })
+    except Exception as e:
+        return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
+
+
+@app.route('/api/meta-advantage/generate-video-copy', methods=['POST'])
+def generate_meta_advantage_video_copy():
+    """Generate 3 copy variants for a video ad asset."""
+    try:
+        data = request.json or {}
+        if not ANTHROPIC_KEY:
+            return jsonify({'error': 'ANTHROPIC_API_KEY not set'}), 500
+
+        video_context = (
+            str(data.get('video_description', '')).strip()
+            or str(data.get('video_filename', '')).strip()
+            or str(data.get('video_name', '')).strip()
+        )
+        if not video_context:
+            return jsonify({'error': 'video filename or description is required'}), 400
+
+        prompt = META_VIDEO_COPY_PROMPT.replace('VIDEO_CONTEXT_PLACEHOLDER', video_context)
+        claude_payload = _call_claude_json(prompt, max_tokens=2200)
+        variants = claude_payload.get('variants', [])
+        if not isinstance(variants, list):
+            variants = []
+        if not variants:
+            return jsonify({'error': 'Claude returned no video copy variants'}), 500
+        return jsonify({'ok': True, 'variants': variants})
+    except Exception as e:
+        return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
+
+
+@app.route('/api/meta-advantage/publish', methods=['POST'])
+def publish_meta_advantage_variant():
+    """
+    Publish a generated variant to Meta as a paused sales campaign.
+    """
+    try:
+        data = request.json or {}
+
+        required_env = {
+            'META_ACCESS_TOKEN': META_ACCESS_TOKEN,
+            'META_AD_ACCOUNT_ID': META_AD_ACCOUNT_ID,
+            'META_APP_ID': META_APP_ID,
+            'META_PAGE_ID': META_PAGE_ID
+        }
+        missing_env = [key for key, value in required_env.items() if not value]
+        if missing_env:
+            return jsonify({
+                'error': 'Missing required Meta environment variables',
+                'missing': missing_env
+            }), 500
+
+        variant_id = str(data.get('variant_id', '')).strip()
+        headline = str(data.get('headline', '')).strip()
+        primary_text = str(data.get('primary_text', '')).strip()
+        image_url = str(data.get('image_url', '')).strip()
+        cta = str(data.get('cta', 'Shop Now')).strip() or 'Shop Now'
+        daily_budget_rupees = int(data.get('daily_budget', 200) or 200)
+
+        missing_fields = []
+        for field_name, value in {
+            'variant_id': variant_id,
+            'headline': headline,
+            'primary_text': primary_text,
+            'image_url': image_url,
+            'cta': cta
+        }.items():
+            if not value:
+                missing_fields.append(field_name)
+        if missing_fields:
+            return jsonify({
+                'error': 'Missing required request fields',
+                'missing': missing_fields
+            }), 400
+
+        if daily_budget_rupees <= 0:
+            return jsonify({'error': 'daily_budget must be greater than 0'}), 400
+
+        if not META_PIXEL_ID:
+            return jsonify({
+                'error': 'META_PIXEL_ID not set',
+                'hint': 'OFFSITE_CONVERSIONS ad sets require a Meta Pixel. Add META_PIXEL_ID to Railway env vars.'
+            }), 500
+
+        cta_button = _normalize_cta_button(cta)
+        daily_budget_paise = daily_budget_rupees * 100
+        timestamp = int(time.time())
+        base_name = f'WEARTH Meta {variant_id} {timestamp}'
+        warnings = []
+
+        image_resp = requests.get(image_url, timeout=60)
+        if image_resp.status_code != 200:
+            return jsonify({
+                'error': f'Failed to download image from image_url ({image_resp.status_code})',
+                'image_url': image_url
+            }), 400
+
+        content_type = image_resp.headers.get('Content-Type', 'image/jpeg')
+        image_upload = _meta_request(
+            'POST',
+            _meta_account_path('adimages'),
+            files={
+                'source': ('creative.jpg', image_resp.content, content_type)
+            }
+        )
+        images_payload = image_upload.get('images', {}) or {}
+        image_hash = ''
+        for _, meta_image in images_payload.items():
+            image_hash = meta_image.get('hash', '')
+            if image_hash:
+                break
+        if not image_hash:
+            return jsonify({
+                'error': 'Meta image upload succeeded but no image hash was returned',
+                'raw': image_upload
+            }), 500
+
+        campaign = _meta_request(
+            'POST',
+            _meta_account_path('campaigns'),
+            data={
+                'name': f'{base_name} Campaign',
+                'objective': 'OUTCOME_SALES',
+                'status': 'PAUSED',
+                'is_adset_budget_sharing_enabled': 'false',
+                'special_ad_categories': json.dumps([])
+            }
+        )
+        campaign_id = campaign.get('id', '')
+
+        targeting = {
+            'age_min': 25,
+            'age_max': 40,
+            'geo_locations': {'countries': ['IN']},
+            'targeting_automation': {'advantage_audience': 1},
+            'publisher_platforms': ['facebook', 'instagram'],
+            'facebook_positions': ['feed'],
+            'instagram_positions': ['stream', 'story']
+        }
+
+        adset = _meta_request(
+            'POST',
+            _meta_account_path('adsets'),
+            data={
+                'name': f'{base_name} Ad Set',
+                'campaign_id': campaign_id,
+                'status': 'PAUSED',
+                'daily_budget': str(daily_budget_paise),
+                'bid_strategy': 'LOWEST_COST_WITHOUT_CAP',
+                'billing_event': 'IMPRESSIONS',
+                'optimization_goal': 'OFFSITE_CONVERSIONS',
+                'targeting_automation': json.dumps({
+                    'advantage_audience': 0
+                }),
+                'promoted_object': json.dumps({
+                    'pixel_id': META_PIXEL_ID,
+                    'custom_event_type': 'PURCHASE'
+                }),
+                'targeting': json.dumps(targeting)
+            }
+        )
+        adset_id = adset.get('id', '')
+
+        creative = _meta_request(
+            'POST',
+            _meta_account_path('adcreatives'),
+            data={
+                'name': f'{base_name} Creative',
+                'object_story_spec': json.dumps({
+                    'page_id': META_PAGE_ID,
+                    'link_data': {
+                        'link': 'https://wearthactive.com',
+                        'message': primary_text,
+                        'name': headline,
+                        'image_hash': image_hash,
+                        'call_to_action': {
+                            'type': cta_button,
+                            'value': {
+                                'link': 'https://wearthactive.com'
+                            }
+                        }
+                    }
+                })
+            }
+        )
+        creative_id = creative.get('id', '')
+
+        ad = _meta_request(
+            'POST',
+            _meta_account_path('ads'),
+            data={
+                'name': f'{base_name} Ad',
+                'adset_id': adset_id,
+                'status': 'PAUSED',
+                'creative': json.dumps({'creative_id': creative_id})
+            }
+        )
+        ad_id = ad.get('id', '')
+
+        preview_payload = {}
+        preview_url = ''
+        try:
+            preview_payload = _meta_request(
+                'GET',
+                f'{ad_id}/previews',
+                params={'ad_format': 'INSTAGRAM_STANDARD'}
+            )
+            preview_url = _extract_preview_url(preview_payload, ad_id)
+        except Exception as e:
+            warnings.append(f'Preview generation failed: {str(e)}')
+
+        return jsonify({
+            'ok': True,
+            'campaign_id': campaign_id,
+            'adset_id': adset_id,
+            'ad_id': ad_id,
+            'status': 'PAUSED',
+            'preview_url': preview_url,
+            'image_hash': image_hash,
+            'warnings': warnings
+        })
+
+    except Exception as e:
+        return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
+
+
+@app.route('/api/meta-advantage/publish-video', methods=['POST'])
+def publish_meta_advantage_video():
+    """Publish a video variant to Meta as a paused sales campaign."""
+    try:
+        data = request.json or {}
+
+        required_env = {
+            'META_ACCESS_TOKEN': META_ACCESS_TOKEN,
+            'META_AD_ACCOUNT_ID': META_AD_ACCOUNT_ID,
+            'META_APP_ID': META_APP_ID,
+            'META_PAGE_ID': META_PAGE_ID
+        }
+        missing_env = [key for key, value in required_env.items() if not value]
+        if missing_env:
+            return jsonify({'error': 'Missing required Meta environment variables', 'missing': missing_env}), 500
+
+        if not META_PIXEL_ID:
+            return jsonify({
+                'error': 'META_PIXEL_ID not set',
+                'hint': 'OFFSITE_CONVERSIONS ad sets require a Meta Pixel. Add META_PIXEL_ID to Railway env vars.'
+            }), 500
+
+        variant_id = str(data.get('variant_id', '')).strip()
+        video_url = str(data.get('video_url', '')).strip()
+        headline = str(data.get('headline', '')).strip()
+        primary_text = str(data.get('primary_text', '')).strip()
+        cta = str(data.get('cta', 'Shop Now')).strip() or 'Shop Now'
+        daily_budget_rupees = int(data.get('daily_budget', 200) or 200)
+
+        missing_fields = []
+        for field_name, value in {
+            'variant_id': variant_id,
+            'video_url': video_url,
+            'headline': headline,
+            'primary_text': primary_text,
+            'cta': cta
+        }.items():
+            if not value:
+                missing_fields.append(field_name)
+        if missing_fields:
+            return jsonify({'error': 'Missing required request fields', 'missing': missing_fields}), 400
+        if daily_budget_rupees <= 0:
+            return jsonify({'error': 'daily_budget must be greater than 0'}), 400
+
+        timestamp = int(time.time())
+
+        video_bytes, content_type = _resolve_video_download_url(video_url)
+        if not video_bytes:
+            return jsonify({
+                'error': 'Failed to download video from video_url',
+                'video_url': video_url
+            }), 400
+
+        video_bytes = _compress_video_if_needed(video_bytes, threshold_mb=30)
+        with open('/tmp/test_video.mp4', 'wb') as f:
+            f.write(video_bytes)
+        _last_video_debug.update({
+            'video_url': video_url,
+            'content_type': content_type,
+            'size_bytes': len(video_bytes),
+            'first_200_bytes_hex': video_bytes[:200].hex(),
+            'is_valid_mp4': _is_valid_mp4(video_bytes),
+            'saved_path': '/tmp/test_video.mp4'
+        })
+        video_id = _upload_meta_video(video_bytes, f'wearth_{variant_id}_{timestamp}.mp4', 'video/mp4')
+        _wait_for_meta_video_ready(video_id)
+        return jsonify(_create_meta_video_ad_from_video_id(
+            video_id=video_id,
+            variant_id=variant_id,
+            headline=headline,
+            primary_text=primary_text,
+            cta=cta,
+            daily_budget_rupees=daily_budget_rupees
+        ))
+    except Exception as e:
+        return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
+
+
+@app.route('/api/meta-advantage/publish-video-from-drive', methods=['POST'])
+def publish_meta_advantage_video_from_drive():
+    """
+    Fully automated flow:
+    Google Drive file -> bytes -> optional compression -> Meta advideo -> paused campaign/ad.
+
+    Optional JSON: auto_captions (bool, default false). When true, if ffprobe finds no embedded
+    subtitle stream, burns a lower-third from headline (last word yellow) + primary_text.
+    """
+    try:
+        data = request.json or {}
+        try:
+            drive_file_id, variant_id, headline, primary_text, cta, daily_budget, auto_captions = (
+                _parse_drive_video_publish_payload(data)
+            )
+        except ValueError as e:
+            return jsonify({'error': str(e)}), 400
+
+        run_async = data.get('async', True)
+        if isinstance(run_async, str):
+            run_async = run_async.lower() != 'false'
+        else:
+            run_async = bool(run_async)
+
+        if not run_async:
+            result = _run_drive_video_meta_pipeline(
+                drive_file_id, variant_id, headline, primary_text, cta, daily_budget, auto_captions
+            )
+            return jsonify({'ok': True, 'status': 'complete', **result})
+
+        # Avoid Gunicorn timeout by running heavy pipeline in background.
+        job_id = str(int(time.time() * 1000))
+        _drive_video_jobs[job_id] = {
+            'status': 'running',
+            'mode': 'drive_to_meta_video',
+            'drive_file_id': drive_file_id
+        }
+
+        def run_job():
+            try:
+                result = _run_drive_video_meta_pipeline(
+                    drive_file_id, variant_id, headline, primary_text, cta, daily_budget, auto_captions
+                )
+                _drive_video_jobs[job_id] = {
+                    'status': 'complete',
+                    **result,
+                    'result': {
+                        'ok': True,
+                        'status': 'complete',
+                        **result
+                    }
+                }
+            except Exception as e:
+                _drive_video_jobs[job_id] = {
+                    'status': 'error',
+                    'mode': 'drive_to_meta_video',
+                    'drive_file_id': drive_file_id,
+                    'error': str(e)
+                }
+
+        t = _threading.Thread(target=run_job)
+        t.daemon = True
+        t.start()
+
+        return jsonify({
+            'ok': True,
+            'status': 'started',
+            'job_id': job_id,
+            'message': 'Poll /api/meta-advantage/publish-video-from-drive-job/<job_id> for status'
+        })
+    except Exception as e:
+        return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
+
+
+@app.route('/api/meta-advantage/publish-video-async', methods=['POST'])
+def publish_meta_advantage_video_async():
+    """
+    Same payload as publish-video-from-drive; always runs in a background thread and returns job_id.
+    Poll GET /api/meta-advantage/job-status/<job_id>.
+    Supports auto_captions like publish-video-from-drive.
+    """
+    try:
+        data = request.json or {}
+        try:
+            drive_file_id, variant_id, headline, primary_text, cta, daily_budget, auto_captions = (
+                _parse_drive_video_publish_payload(data)
+            )
+        except ValueError as e:
+            return jsonify({'error': str(e)}), 400
+
+        job_id = str(int(time.time() * 1000))
+        _drive_video_jobs[job_id] = {
+            'status': 'running',
+            'mode': 'publish_video_async',
+            'drive_file_id': drive_file_id
+        }
+
+        def run_job():
+            try:
+                result = _run_drive_video_meta_pipeline(
+                    drive_file_id, variant_id, headline, primary_text, cta, daily_budget, auto_captions
+                )
+                _drive_video_jobs[job_id] = {
+                    'status': 'complete',
+                    **result,
+                    'result': {
+                        'ok': True,
+                        'status': 'complete',
+                        **result
+                    }
+                }
+            except Exception as e:
+                _drive_video_jobs[job_id] = {
+                    'status': 'error',
+                    'mode': 'publish_video_async',
+                    'drive_file_id': drive_file_id,
+                    'error': str(e)
+                }
+
+        t = _threading.Thread(target=run_job)
+        t.daemon = True
+        t.start()
+
+        return jsonify({
+            'ok': True,
+            'status': 'started',
+            'job_id': job_id,
+            'message': 'Poll GET /api/meta-advantage/job-status/<job_id>'
+        })
+    except Exception as e:
+        return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
+
+
+@app.route('/api/meta-advantage/publish-video-from-drive-job/<job_id>', methods=['GET'])
+def publish_video_from_drive_job_status(job_id):
+    """Check async publish-video-from-drive job result."""
+    result = _drive_video_jobs.get(job_id, {'status': 'not_found'})
+    return jsonify(result)
+
+
+@app.route('/api/meta-advantage/job-status/<job_id>', methods=['GET'])
+def meta_advantage_publish_job_status(job_id):
+    """
+    Normalized status for async video publish jobs (from-drive or publish-video-async).
+    """
+    raw = _drive_video_jobs.get(job_id)
+    if raw is None:
+        return jsonify({'status': 'not_found'})
+    st = raw.get('status')
+    if st == 'running':
+        return jsonify({'status': 'running'})
+    if st == 'complete':
+        full = raw.get('result')
+        if full is None:
+            full = {'ok': True, 'status': 'complete', **{k: v for k, v in raw.items() if k not in ('status', 'result')}}
+        return jsonify({'status': 'complete', 'result': full})
+    if st == 'error':
+        return jsonify({'status': 'error', 'error': raw.get('error', '')})
+    return jsonify(raw)
+
+
+@app.route('/api/meta-advantage/auto-ab-video-from-drive', methods=['POST'])
+def auto_ab_video_from_drive():
+    """
+    End-to-end A/B automation:
+    1) Pull Drive video
+    2) Upload to FAL once
+    3) Generate copy variants
+    4) Publish each variant as paused Meta ad
+    """
+    try:
+        data = request.json or {}
+        drive_file_id = str(data.get('drive_file_id', '')).strip() or str(data.get('file_id', '')).strip()
+        drive_file_url = str(data.get('drive_file_url', '')).strip()
+        if not drive_file_id and drive_file_url:
+            drive_file_id = _extract_drive_file_id(drive_file_url)
+        if not drive_file_id:
+            return jsonify({'error': 'drive_file_id or drive_file_url required'}), 400
+        if not ANTHROPIC_KEY:
+            return jsonify({'error': 'ANTHROPIC_API_KEY not set'}), 500
+
+        video_context = (
+            str(data.get('video_description', '')).strip()
+            or str(data.get('video_filename', '')).strip()
+            or f'WEARTH ad video file {drive_file_id}'
+        )
+        total_daily_budget = int(data.get('daily_budget_total', 600) or 600)
+        if total_daily_budget <= 0:
+            return jsonify({'error': 'daily_budget_total must be greater than 0'}), 400
+
+        video_bytes, _ = _download_drive_video_via_api(drive_file_id)
+        if not video_bytes:
+            return jsonify({'error': 'Drive download returned empty file', 'drive_file_id': drive_file_id}), 400
+        video_bytes = _compress_video_if_needed(video_bytes, threshold_mb=30)
+        video_id = _upload_meta_video(video_bytes, f'wearth_ab_{drive_file_id}_{int(time.time())}.mp4', 'video/mp4')
+        _wait_for_meta_video_ready(video_id)
+
+        prompt = META_VIDEO_COPY_PROMPT.replace('VIDEO_CONTEXT_PLACEHOLDER', video_context)
+        generated = _call_claude_json(prompt, max_tokens=2200)
+        variants = generated.get('variants', [])
+        if not isinstance(variants, list) or not variants:
+            return jsonify({'error': 'No copy variants generated', 'raw': generated}), 500
+
+        per_variant_budget = max(100, int(total_daily_budget / max(1, len(variants))))
+        results = []
+        for i, variant in enumerate(variants):
+            payload = {
+                'variant_id': str(variant.get('variant_id', chr(65 + i))),
+                'headline': str(variant.get('headline', '')).strip(),
+                'primary_text': str(variant.get('primary_text', '')).strip(),
+                'cta': str(variant.get('cta', 'Shop Now')).strip() or 'Shop Now',
+                'daily_budget': per_variant_budget
+            }
+            if not payload['headline'] or not payload['primary_text']:
+                results.append({'ok': False, 'variant': payload['variant_id'], 'error': 'Missing headline or primary_text'})
+                continue
+            try:
+                publish_result = _create_meta_video_ad_from_video_id(
+                    video_id=video_id,
+                    variant_id=payload['variant_id'],
+                    headline=payload['headline'],
+                    primary_text=payload['primary_text'],
+                    cta=payload['cta'],
+                    daily_budget_rupees=payload['daily_budget']
+                )
+                results.append({
+                    'ok': True,
+                    'variant': payload['variant_id'],
+                    'budget': per_variant_budget,
+                    'copy': variant,
+                    'publish': publish_result
+                })
+            except Exception as e:
+                results.append({'ok': False, 'variant': payload['variant_id'], 'budget': per_variant_budget, 'copy': variant, 'error': str(e)})
+
+        success_count = len([r for r in results if r.get('ok')])
+        return jsonify({
+            'ok': success_count > 0,
+            'mode': 'auto_ab_video_from_drive',
+            'drive_file_id': drive_file_id,
+            'video_id': video_id,
+            'variants_generated': len(variants),
+            'variants_published': success_count,
+            'daily_budget_total': total_daily_budget,
+            'daily_budget_per_variant': per_variant_budget,
+            'results': results
+        })
+    except Exception as e:
+        return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
+
+
+@app.route('/api/meta-advantage/publish-test', methods=['POST'])
+def publish_meta_advantage_variant_test():
+    """
+    Dry-run validator for /api/meta-advantage/publish.
+    Does NOT create any Meta objects (campaign/adset/creative/ad).
+    It validates env vars, payload shape, interest resolution, and image download.
+    """
+    try:
+        data = request.json or {}
+
+        required_env = {
+            'META_ACCESS_TOKEN': META_ACCESS_TOKEN,
+            'META_AD_ACCOUNT_ID': META_AD_ACCOUNT_ID,
+            'META_APP_ID': META_APP_ID,
+            'META_PAGE_ID': META_PAGE_ID,
+            'META_PIXEL_ID': META_PIXEL_ID
+        }
+        missing_env = [key for key, value in required_env.items() if not value]
+        if missing_env:
+            return jsonify({
+                'ok': False,
+                'error': 'Missing required Meta environment variables',
+                'missing': missing_env
+            }), 500
+
+        variant_id = str(data.get('variant_id', '')).strip()
+        headline = str(data.get('headline', '')).strip()
+        primary_text = str(data.get('primary_text', '')).strip()
+        image_url = str(data.get('image_url', '')).strip()
+        cta = str(data.get('cta', 'Shop Now')).strip() or 'Shop Now'
+        daily_budget_rupees = int(data.get('daily_budget', 200) or 200)
+
+        missing_fields = []
+        for field_name, value in {
+            'variant_id': variant_id,
+            'headline': headline,
+            'primary_text': primary_text,
+            'image_url': image_url,
+            'cta': cta
+        }.items():
+            if not value:
+                missing_fields.append(field_name)
+        if missing_fields:
+            return jsonify({
+                'ok': False,
+                'error': 'Missing required request fields',
+                'missing': missing_fields
+            }), 400
+
+        if daily_budget_rupees <= 0:
+            return jsonify({'ok': False, 'error': 'daily_budget must be greater than 0'}), 400
+
+        cta_button = _normalize_cta_button(cta)
+        daily_budget_paise = daily_budget_rupees * 100
+
+        interest_names = ['fitness', 'yoga', 'sustainable fashion', 'activewear', 'wellness']
+        interests, warnings = _meta_interest_ids(interest_names)
+        if not interests:
+            return jsonify({
+                'ok': False,
+                'error': 'Unable to resolve Meta targeting interests',
+                'requested_interests': interest_names,
+                'warnings': warnings
+            }), 500
+
+        # Download image to validate it's reachable and looks like an image.
+        image_resp = requests.get(image_url, timeout=60)
+        if image_resp.status_code != 200:
+            return jsonify({
+                'ok': False,
+                'error': f'Failed to download image from image_url ({image_resp.status_code})',
+                'image_url': image_url
+            }), 400
+        content_type = image_resp.headers.get('Content-Type', 'image/jpeg')
+        if 'image/' not in (content_type or ''):
+            warnings.append(f'Image Content-Type not image/*: {content_type}')
+
+        targeting = {
+            'age_min': 25,
+            'age_max': 40,
+            'geo_locations': {'countries': ['IN']},
+            'interests': interests,
+            'targeting_automation': {
+                'advantage_audience': 0
+            },
+            'publisher_platforms': ['facebook', 'instagram'],
+            'facebook_positions': ['feed'],
+            'instagram_positions': ['stream', 'story']
+        }
+
+        return jsonify({
+            'ok': True,
+            'dry_run': True,
+            'status': 'VALID',
+            'daily_budget_rupees': daily_budget_rupees,
+            'daily_budget_paise': daily_budget_paise,
+            'cta_button_type': cta_button,
+            'targeting': targeting,
+            'image': {
+                'url': image_url,
+                'content_type': content_type,
+                'bytes': len(image_resp.content or b'')
+            },
+            'warnings': warnings
+        })
+
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e), 'trace': traceback.format_exc()}), 500
+
+@app.route('/<path:path>')
+def static_files(path):
+    try:
+        return send_file(path)
+    except Exception:
+        return '', 404
+
+
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
+
+
+========================================================================
+### FILE: requirements.txt
+========================================================================
+
+flask==3.0.0
+gunicorn==21.2.0
+requests==2.31.0
+ffmpeg-python
+imageio-ffmpeg
+
+
+========================================================================
+### FILE: Procfile
+========================================================================
+
+web: gunicorn app:app
+
+
+========================================================================
+### FILE: manifest.json
+========================================================================
+
+{
+  "name": "WEARTH Studio",
+  "short_name": "WEARTH",
+  "description": "WEARTH Instagram Studio",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0e0c0a",
+  "theme_color": "#0e0c0a",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icon.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
+
+
+========================================================================
+### FILE: sw.js
+========================================================================
+
+const CACHE = 'wearth-v1';
+const ASSETS = ['/', '/manifest.json'];
+
+self.addEventListener('install', e => {
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)));
+});
+
+self.addEventListener('fetch', e => {
+  e.respondWith(
+    caches.match(e.request).then(r => r || fetch(e.request))
+  );
+});
+
+
+========================================================================
+### FILE: seo_engine.py
+========================================================================
+
+"""
+WEARTH INFINITE SEO ENGINE
+Automatically researches, generates and publishes SEO articles forever.
+No fixed article list. Claude picks the best keyword opportunity each time.
+Runs via n8n every Monday & Thursday 8am IST.
+"""
+
+import os
+import json
+import requests
+from datetime import datetime
+
+# ─── CONFIG ───────────────────────────────────────────────────────────────────
+
+SHOPIFY_STORE = "wearthactive.myshopify.com"
+SHOPIFY_TOKEN = os.environ.get("SHOPIFY_TOKEN", "")
+ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+UNSPLASH_KEY = os.environ.get("UNSPLASH_ACCESS_KEY", "")
+
+SHOPIFY_BASE = f"https://{SHOPIFY_STORE}/admin/api/2024-01"
+HEADERS_SHOPIFY = {
+    "X-Shopify-Access-Token": SHOPIFY_TOKEN,
+    "Content-Type": "application/json"
+}
+HEADERS_CLAUDE = {
+    "x-api-key": ANTHROPIC_KEY,
+    "anthropic-version": "2023-06-01",
+    "content-type": "application/json"
+}
+
+# ─── BRAND CONTEXT ────────────────────────────────────────────────────────────
+
+BRAND_CONTEXT = """
+BRAND: WEARTH Active (wearthactive.com)
+FOUNDER: Shai (Shailaja Gupta), India
+TAGLINE: Activewear Without Polyester. Finally.
+
+FABRIC TRUTH:
+- Made from plant-based fabric — closed-loop manufacturing, grown not made
+- FABRIC LANGUAGE (rotate these, never repeat in same article):
+  * "plant-based fabric that breathes"
+  * "fabric grown from trees, not made in a lab"
+  * "botanical fibre with natural temperature regulation"
+  * "fabric that comes from the ground, not petroleum"
+  * "natural fibre that moves moisture without chemicals"
+  * "tree-derived fabric, closed-loop process"
+  * "fabric grown, not manufactured"
+  * "plant fibre, not plastic"
+- Rotate between: eucalyptus, plant-based fabric, fabric from trees, botanical fibre, tree-derived fabric. Never use TENCEL or lyocell.
+- Breathable, temperature-regulating, moisture-wicking naturally
+- No microplastics shed in wash
+- No chemical treatments on skin during exercise
+
+BRAND POSITIONING:
+- Anti-polyester. Anti-synthetic. Pro-plant.
+- Quiet luxury. Not LV or Lululemon. More Patagonia — values-driven, substance over logo.
+- The WEARTH person reads ingredient labels. Drinks almond milk coffee at home.
+  Buys expensive Vit C serum. Chooses quality over quantity, silently.
+  Their richness shows in their choices, not their logos.
+- Premium product that deserves premium pricing. Content must build that perception.
+
+TARGET READER:
+Indian woman AND man, 25-40, metros (Mumbai, Bangalore, Delhi, Pune, Hyderabad).
+Reads ingredient labels. Switched to natural products quietly, no announcement.
+Moves because it feels good, not for content. Done with synthetic, fast, fake.
+When they find WEARTH: "oh. this is it."
+
+PRODUCTS: Flow Tank, Power Crop, Align Bra, Terra Bra, Everyday Joggers,
+Maria Skort, Biker Shorts, Leggings, Men's Motion Tee, Edge Tank, Essential Shorts.
+Price: ~₹2,000. Sold exclusively at wearthactive.com
+
+VOICE: Calm. Certain. Trusted friend who has done the research.
+Short sentences. Uneven rhythm. No exclamation marks. No hype words.
+No: sacred, ritual, intentional, conscious, shift, journey, game-changer, amazing.
+Declarative. Real. Like texting someone who gets it.
+
+CONTENT ANGLES TO ROTATE (alternate between these for variety):
+1. Problem/Education — why polyester/synthetic is harmful, science-backed
+2. Aspiration/Lifestyle — who the WEARTH person is, how they live and move
+3. Comparison — WEARTH vs alternatives, honest and factual  
+4. India-specific — climate, culture, metro life, Indian body types
+5. Ingredient/Material deep dive — what plant-based fabric actually is and how it differs from synthetic
+6. Seasonal/Timely — monsoon workouts, summer heat, festival fitness
+7. Male audience — strong, silent, substance over performance
+"""
+
+# ─── KEYWORD SEED CLUSTERS ────────────────────────────────────────────────────
+# Used as inspiration only — Claude will expand and find fresh angles
+
+KEYWORD_SEEDS = [
+    "activewear india", "sustainable activewear", "plant based fabric activewear",
+    "polyester alternatives", "natural fabric activewear india", "gym wear india",
+    "yoga clothes india", "breathable activewear", "natural fabric workout",
+    "microplastics clothing", "non toxic activewear", "women activewear india",
+    "men activewear india", "morning workout india", "fitness lifestyle india",
+    "slow fashion india", "conscious clothing india", "fabric skin health",
+    "natural vs synthetic fabric", "workout clothes for indian climate"
+]
+
+# ─── SHOPIFY HELPERS ──────────────────────────────────────────────────────────
+
+def get_or_create_blog(blog_title: str = "News") -> str:
+    """Get existing blog ID or create one."""
+    r = requests.get(f"{SHOPIFY_BASE}/blogs.json", headers=HEADERS_SHOPIFY)
+    blogs = r.json().get("blogs", [])
+    for blog in blogs:
+        if blog["title"] == blog_title:
+            return blog["id"]
+    r = requests.post(
+        f"{SHOPIFY_BASE}/blogs.json",
+        headers=HEADERS_SHOPIFY,
+        json={"blog": {"title": blog_title}}
+    )
+    return r.json()["blog"]["id"]
+
+NEWS_BLOG_ID = "84314751156"  # Hardcoded — never changes
+
+def get_existing_articles() -> list:
+    """Fetch all published article titles and handles from News blog."""
+    try:
+        r = requests.get(
+            f"{SHOPIFY_BASE}/blogs/{NEWS_BLOG_ID}/articles.json?limit=250&fields=handle,title",
+            headers=HEADERS_SHOPIFY
+        )
+        return r.json().get("articles", [])
+    except:
+        return []
+
+def publish_article(blog_id: str, article: dict) -> dict:
+    """Publish article to Shopify blog."""
+    payload = {
+        "article": {
+            "title": article["title"],
+            "body_html": article["body_html"],
+            "summary_html": f"<p>{article['meta_description']}</p>",
+            "tags": ", ".join(article.get("tags", [])),
+            "published": True,
+            "image": {"src": article.get("image_url", "")},
+            "metafields": [
+                {
+                    "key": "description_tag",
+                    "value": article["meta_description"],
+                    "type": "single_line_text_field",
+                    "namespace": "global"
+                }
+            ]
+        }
+    }
+    r = requests.post(
+        f"{SHOPIFY_BASE}/blogs/{blog_id}/articles.json",
+        headers=HEADERS_SHOPIFY,
+        json=payload
+    )
+    if r.status_code not in [200, 201]:
+        raise Exception(f"Shopify publish error: {r.status_code} {r.text}")
+    return r.json()["article"]
+
+# ─── IMAGE FETCHER ────────────────────────────────────────────────────────────
+
+# Fallback images pool — varied so no repeats
+FALLBACK_IMAGES = [
+    "https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=1200",
+    "https://images.unsplash.com/photo-1518611012118-696072aa579a?w=1200",
+    "https://images.unsplash.com/photo-1506629082955-511b1aa562c8?w=1200",
+    "https://images.unsplash.com/photo-1540497077202-7c8a3999166f?w=1200",
+    "https://images.unsplash.com/photo-1594737625785-a6cbdabd333c?w=1200",
+    "https://images.unsplash.com/photo-1536922246289-88c42f957773?w=1200",
+    "https://images.unsplash.com/photo-1574680096145-d05b474e2155?w=1200",
+    "https://images.unsplash.com/photo-1554284126-aa88f22d8b74?w=1200",
+    "https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=1200",
+    "https://images.unsplash.com/photo-1541534741688-6078c6bfb5c5?w=1200",
+    "https://images.unsplash.com/photo-1526506118085-60ce8714f8c5?w=1200",
+    "https://images.unsplash.com/photo-1507398941214-572c25f4b1dc?w=1200",
+    "https://images.unsplash.com/photo-1549060279-7e168fcee0c2?w=1200",
+    "https://images.unsplash.com/photo-1583454110551-21f2fa2afe61?w=1200",
+    "https://images.unsplash.com/photo-1544367567-0f2fcb009e0b?w=1200",
+    "https://images.unsplash.com/photo-1552196563-55cd4e45efb3?w=1200",
+]
+
+# Track used images to avoid repeats within same session
+_used_images = set()
+
+def fetch_unsplash_image(keyword: str) -> str:
+    """Fetch a relevant image from Unsplash with variety."""
+    import random as _random
+    import time as _time
+    try:
+        # Try multiple search terms for variety
+        search_options = [
+            keyword.replace(" ", "+"),
+            "plant+based+activewear+india",
+            "fitness+india+workout",
+            "yoga+india+natural",
+            "running+india+outdoor",
+            "gym+india+woman",
+        ]
+        search_terms = _random.choice(search_options)
+        page = _random.randint(1, 8)
+        r = requests.get(
+            f"https://api.unsplash.com/search/photos?query={search_terms}&orientation=landscape&page={page}&per_page=15",
+            headers={"Authorization": f"Client-ID {UNSPLASH_KEY}"},
+            timeout=10
+        )
+        if r.status_code == 200:
+            results = r.json().get("results", [])
+            # Filter out already used images
+            unused = [p for p in results if p["urls"]["regular"] not in _used_images]
+            if unused:
+                photo = _random.choice(unused)
+                url = photo["urls"]["regular"]
+                _used_images.add(url)
+                print(f"Unsplash image: {url[:60]}...")
+                return url
+    except Exception as e:
+        print(f"Unsplash fetch failed: {e}")
+    # Use fallback pool — pick unused one
+    unused_fallbacks = [img for img in FALLBACK_IMAGES if img not in _used_images]
+    if not unused_fallbacks:
+        unused_fallbacks = FALLBACK_IMAGES  # reset if all used
+    url = _random.choice(unused_fallbacks)
+    _used_images.add(url)
+    return url
+
+# ─── CLAUDE CALLER ────────────────────────────────────────────────────────────
+
+def call_claude(prompt: str, max_tokens: int = 4000) -> str:
+    """Call Claude API and return text response."""
+    response = requests.post(
+        "https://api.anthropic.com/v1/messages",
+        headers=HEADERS_CLAUDE,
+        json={
+            "model": "claude-sonnet-4-20250514",
+            "max_tokens": max_tokens,
+            "messages": [{"role": "user", "content": prompt}]
+        }
+    )
+    if response.status_code != 200:
+        raise Exception(f"Claude API error: {response.status_code} {response.text}")
+    return response.json()["content"][0]["text"]
+
+# ─── STEP 1: KEYWORD RESEARCHER ───────────────────────────────────────────────
+
+def research_best_keyword(existing_articles: list) -> dict:
+    """
+    Ask Claude to pick the best keyword opportunity not yet covered.
+    Returns a complete article brief.
+    """
+    existing_titles = [a["title"] for a in existing_articles]
+    existing_handles = [a["handle"] for a in existing_articles]
+
+    prompt = f"""You are an SEO strategist for WEARTH Active, an Indian plant-based activewear brand.
+
+{BRAND_CONTEXT}
+
+ALREADY PUBLISHED ARTICLES (do NOT repeat these topics):
+{json.dumps(existing_titles, indent=2)}
+
+KEYWORD SEED IDEAS (expand beyond these):
+{json.dumps(KEYWORD_SEEDS, indent=2)}
+
+YOUR TASK:
+Research and identify the BEST keyword opportunity for WEARTH's next blog article.
+
+Consider:
+1. Search volume potential in India (monthly searches)
+2. Commercial intent — will this reader buy activewear?
+3. Competition level — can a new brand rank for this?
+4. Brand fit — does this topic serve the WEARTH tribe?
+5. Content variety — pick a different angle from what's already published
+6. Seasonal relevance — is there a timely angle right now?
+
+Think about long-tail keywords, question-based searches, comparison searches,
+India-specific fitness/lifestyle trends, ingredient curiosity searches.
+
+Return ONLY a JSON object with this exact structure:
+{{
+  "primary_keyword": "the main keyword to target",
+  "secondary_keywords": ["keyword2", "keyword3", "keyword4"],
+  "title": "The article title (SEO optimized, compelling, under 70 chars)",
+  "slug": "url-friendly-slug-with-hyphens",
+  "angle": "2-3 sentences describing the content angle, tone, and what makes it unique",
+  "word_count": 900,
+  "content_angle_type": "one of: problem/education, aspiration/lifestyle, comparison, india-specific, material-deepdive, seasonal, male-audience",
+  "why_this_keyword": "one sentence explaining why this is the best opportunity right now"
+}}
+
+No markdown. No explanation. Start with {{ and end with }}."""
+
+    raw = call_claude(prompt, max_tokens=1000)
+    cleaned = raw.replace("```json", "").replace("```", "").strip()
+    return json.loads(cleaned)
+
+# ─── STEP 2: ARTICLE GENERATOR ────────────────────────────────────────────────
+
+def generate_article(brief: dict) -> dict:
+    """Generate full SEO article based on brief."""
+
+    prompt = f"""You are writing a blog article for WEARTH Active (wearthactive.com).
+
+{BRAND_CONTEXT}
+
+ARTICLE BRIEF:
+Title: {brief['title']}
+Primary Keyword: {brief['primary_keyword']}
+Secondary Keywords: {', '.join(brief['secondary_keywords'])}
+Content Angle: {brief['angle']}
+Target Word Count: {brief.get('word_count', 900)}
+
+WRITING RULES:
+- Use the primary keyword naturally in: title, first paragraph, 2-3 subheadings, conclusion
+- Use secondary keywords naturally throughout — never forced
+- Structure: intro hook → 3-5 H2 sections with H3 subsections → conclusion with CTA
+- CTA at end: link to https://wearthactive.com with anchor text relevant to article
+- Write for the WEARTH tribe — intelligent, ingredient-aware, done with synthetic
+- Calm authority. Not a lecture. Like a trusted friend sharing research.
+- No exclamation marks. No: amazing, incredible, game-changer, sacred, ritual, journey
+- Short paragraphs. Real sentences. Uneven rhythm.
+- Include specific facts, comparisons, and practical insights
+- India-specific references where relevant (climate, cities, culture)
+
+Return ONLY a JSON object:
+{{
+  "title": "exact article title",
+  "meta_description": "compelling meta description under 160 chars with primary keyword",
+  "body_html": "complete article HTML with proper h2, h3, p tags",
+  "tags": ["tag1", "tag2", "tag3", "tag4", "tag5"],
+  "word_count": approximate_number
+}}
+
+No markdown fences. Start with {{ and end with }}."""
+
+    raw = call_claude(prompt, max_tokens=4000)
+    cleaned = raw.replace("```json", "").replace("```", "").strip()
+    return json.loads(cleaned)
+
+# ─── MAIN RUNNER ──────────────────────────────────────────────────────────────
+
+
+def run_seo_engine(dry_run: bool = False, article_index: int = None) -> dict:
+    """
+    Main entry point. Called by Flask API.
+    1. Fetch existing articles from Shopify
+    2. Ask Claude to research best keyword opportunity
+    3. Generate full article
+    4. Fetch image from Unsplash
+    5. Publish to Shopify
+    """
+    print(f"\n{'='*60}")
+    print(f"WEARTH INFINITE SEO ENGINE — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    print(f"Mode: {'DRY RUN' if dry_run else 'LIVE PUBLISH'}")
+    print(f"{'='*60}\n")
+
+    # Step 1: Get existing articles from Shopify
+    print("Fetching existing articles from Shopify...")
+    existing_articles = get_existing_articles()
+    print(f"Found {len(existing_articles)} existing articles\n")
+
+    # Step 2: Research best keyword
+    print("Researching best keyword opportunity...")
+    brief = research_best_keyword(existing_articles)
+    print(f"Selected keyword: {brief['primary_keyword']}")
+    print(f"Title: {brief['title']}")
+    print(f"Angle: {brief['content_angle_type']}")
+    print(f"Why: {brief['why_this_keyword']}\n")
+
+    # Step 3: Generate article
+    print("Generating article...")
+    article = generate_article(brief)
+    print(f"Generated: {article['title']}")
+    print(f"Meta: {article['meta_description']}")
+    print(f"Words: ~{article.get('word_count', 'unknown')}\n")
+
+    # Step 4: Fetch image
+    print("Fetching image from Unsplash...")
+    # Build gender-aware image search query
+    angle = brief.get("content_angle_type", "")
+    keyword = brief["primary_keyword"]
+    if "male" in angle or "men" in keyword.lower() or "man" in keyword.lower():
+        image_query = keyword + " men fitness india"
+    elif "female" in angle or "women" in keyword.lower() or "woman" in keyword.lower():
+        image_query = keyword + " women fitness india"
+    else:
+        image_query = keyword + " fitness india"
+    article["image_url"] = fetch_unsplash_image(image_query)
+    print(f"Image: {article['image_url']}\n")
+
+    if dry_run:
+        print("--- BODY HTML PREVIEW (first 500 chars) ---")
+        print(article["body_html"][:500])
+        print("\n[DRY RUN — not published]")
+        preview_path = f"/tmp/preview_{brief['slug']}.html"
+        with open(preview_path, "w") as f:
+            f.write(f"<h1>{article['title']}</h1>\n")
+            f.write(f"<p><em>Keyword: {brief['primary_keyword']}</em></p>\n")
+            f.write(f"<p><em>Meta: {article['meta_description']}</em></p>\n")
+            f.write(article["body_html"])
+        print(f"Preview saved: {preview_path}")
+        return article
+
+    # Step 5: Publish
+    print("Publishing to Shopify...")
+    blog_id = NEWS_BLOG_ID
+    published_article = publish_article(blog_id, article)
+    url = f"https://wearthactive.com/blogs/news/{published_article.get('handle', brief['slug'])}"
+    print(f"\n✅ Published: {url}")
+    print(f"Total articles live: {len(existing_articles) + 1}")
+    print(f"Running forever. Next post: Monday or Thursday 8am IST.\n")
+
+    return published_article
+
+
+if __name__ == "__main__":
+    import sys
+    dry = "--dry" in sys.argv
+    run_seo_engine(dry_run=dry)
+
+========================================================================
+### FILE: ARCHITECTURE.md
+========================================================================
+
+# WEARTH Studio Architecture Map
+
+Purpose: quick wiring reference for n8n without reading `app.py`.
+
+## Runtime + External Systems
+
+- App runtime: Flask (`app.py`) on Railway
+- Content generation: Anthropic API
+- Image/video processing + storage: FAL.ai
+- Commerce publishing: Shopify (via `seo_engine.py`)
+- Ads: Meta Graph API
+- Asset source: Google Drive API
+
+---
+
+## Environment Variables
+
+### Core AI / Media
+- `ANTHROPIC_API_KEY`
+- `FAL_API_KEY`
+- `GOOGLE_DRIVE_API_KEY`
+
+### Meta Ads
+- `META_ACCESS_TOKEN`
+- `META_AD_ACCOUNT_ID`
+- `META_APP_ID`
+- `META_PAGE_ID`
+- `META_PIXEL_ID`
+
+### SEO / Shopify Engine
+- `SHOPIFY_TOKEN`
+- `UNSPLASH_ACCESS_KEY` (fallback imagery for SEO blog posts)
+
+---
+
+## Endpoints (Method, Path, Inputs, Response, Env, Status)
+
+## Health + SEO Engine
+
+- `GET /health`
+  - **Inputs:** none
+  - **Response:** `{ "status": "ok", "engine": "infinite" }`
+  - **Env:** none
+  - **Status:** working
+
+- `POST /generate-article`
+  - **Inputs:** optional `dry_run` (bool/string), optional `index`
+  - **Response:** `{ "status": "started", "job_id": "...", "message": "Check /seo-job/<job_id> for result" }`
+  - **Env:** `ANTHROPIC_API_KEY` (+ Shopify vars required downstream in `seo_engine.py`)
+  - **Status:** working (async pattern)
+
+- `GET /seo-job/<job_id>`
+  - **Inputs:** path `job_id`
+  - **Response:** running/complete/error payload from in-memory job map
+  - **Env:** none
+  - **Status:** working
+
+- `GET /seo-status`
+  - **Inputs:** none
+  - **Response:** `{ "published": <count>, "engine": "infinite", "next_up": "..." }`
+  - **Env:** Shopify credentials used via `seo_engine.py`
+  - **Status:** working
+
+## Frontend Static / PWA
+
+- `GET /`
+  - **Inputs:** none
+  - **Response:** `index.html`
+  - **Env:** none
+  - **Status:** working
+
+- `GET /manifest.json`
+  - **Inputs:** none
+  - **Response:** `manifest.json`
+  - **Env:** none
+  - **Status:** working
+
+- `GET /sw.js`
+  - **Inputs:** none
+  - **Response:** service worker file
+  - **Env:** none
+  - **Status:** working
+
+- `GET /<path:path>`
+  - **Inputs:** static file path
+  - **Response:** file or 404
+  - **Env:** none
+  - **Status:** working
+
+## Instagram Content + Media
+
+- `GET /api/garments`
+  - **Inputs:** none
+  - **Response:** garment list payload
+  - **Env:** none
+  - **Status:** working
+
+- `POST /api/generate`
+  - **Inputs:** `mood`, `image_url`, optional `skip_composite`, optional `logo_url`
+  - **Response:** `{ "image_url", "headline", "tagline", "captions" }`
+  - **Env:** `ANTHROPIC_API_KEY`, `FAL_API_KEY`
+  - **Status:** working
+
+- `POST /api/rephrase`
+  - **Inputs:** `draft`
+  - **Response:** `{ "rephrased": "..." }`
+  - **Env:** `ANTHROPIC_API_KEY`
+  - **Status:** working
+
+- `POST /api/upload-image`
+  - **Inputs:** `image_b64`, optional `content_type`
+  - **Response:** `{ "url": "..." }`
+  - **Env:** `FAL_API_KEY`
+  - **Status:** working
+
+## Kling / FAL Diagnostics + Video Generation
+
+- `GET /api/tryon-test`
+  - **Inputs:** none
+  - **Response:** status/body preview test payload
+  - **Env:** `FAL_API_KEY`
+  - **Status:** working (diagnostic)
+
+- `GET /api/fal-upload-test`
+  - **Inputs:** none
+  - **Response:** FAL upload-init status payload
+  - **Env:** `FAL_API_KEY`
+  - **Status:** working (diagnostic)
+
+- `GET /api/kling-test`
+  - **Inputs:** none
+  - **Response:** Kling queue test status payload
+  - **Env:** `FAL_API_KEY`
+  - **Status:** working (diagnostic)
+
+- `POST /api/kling/submit`
+  - **Inputs:** `image_url`, optional `mood`
+  - **Response:** `{ "request_id": "..." }`
+  - **Env:** `FAL_API_KEY`
+  - **Status:** working
+
+- `POST /api/kling/status`
+  - **Inputs:** `request_id`
+  - **Response:** `{ "status": "..." }` or `{ "status": "COMPLETED", "video_url": "..." }`
+  - **Env:** `FAL_API_KEY`
+  - **Status:** working
+
+## Asset Libraries
+
+- `GET /api/library`
+  - **Inputs:** none
+  - **Response:** `{ "photos": [...] }`
+  - **Env:** none
+  - **Status:** working
+
+- `POST /api/library/add`
+  - **Inputs:** `image_b64`, optional `content_type`, optional `name`
+  - **Response:** `{ "url": "...", "key": "..." }`
+  - **Env:** `FAL_API_KEY`
+  - **Status:** working
+
+- `POST /api/library/delete`
+  - **Inputs:** `key`
+  - **Response:** `{ "ok": true }`
+  - **Env:** none
+  - **Status:** working
+
+- `GET /api/logos`
+  - **Inputs:** none
+  - **Response:** `{ "logos": [...] }`
+  - **Env:** none
+  - **Status:** working
+
+- `POST /api/logos/add`
+  - **Inputs:** `image_b64`, optional `content_type`, optional `name`
+  - **Response:** `{ "url": "...", "clean_url": "...", "key": "..." }`
+  - **Env:** `FAL_API_KEY`
+  - **Status:** working
+
+- `POST /api/logos/delete`
+  - **Inputs:** `key`
+  - **Response:** `{ "ok": true }`
+  - **Env:** none
+  - **Status:** working
+
+## Meta Advantage+ (Image)
+
+- `POST /api/meta-advantage/generate`
+  - **Inputs:** one or more of:
+    - `google_drive_links[]`
+    - `google_drive_folder_url` or `google_drive_folder_id`
+    - `image_urls[]`
+    - optional `creative_count`, optional `product_context`
+  - **Response:** `{ "ok": true, "platform", "creative_count", "images_count", "variants", "images" }`
+  - **Env:** `ANTHROPIC_API_KEY`, optional `GOOGLE_DRIVE_API_KEY` for folder listing
+  - **Status:** working
+
+- `POST /api/meta-advantage/publish`
+  - **Inputs:** `variant_id`, `headline`, `primary_text`, `image_url`, `cta`, optional `daily_budget` (default 200)
+  - **Response (success):** `{ "ok": true, "campaign_id", "adset_id", "ad_id", "status", "preview_url", "image_hash", "warnings" }`
+  - **Env:** `META_ACCESS_TOKEN`, `META_AD_ACCOUNT_ID`, `META_APP_ID`, `META_PAGE_ID`, `META_PIXEL_ID`
+  - **Status:** broken externally in current environment (Meta API `code=200` access blocked observed)
+
+- `POST /api/meta-advantage/publish-test`
+  - **Inputs:** same core fields as image publish
+  - **Response:** dry-run validation payload (`ok`, budget conversion, targeting, image metadata, warnings)
+  - **Env:** same Meta vars as publish endpoint
+  - **Status:** working code path; depends on Meta token/account access for full validation
+
+## Meta Advantage+ (Video)
+
+- `GET /api/drive/videos`
+  - **Inputs:** none (fixed Drive folder id)
+  - **Response:** `{ "ok": true, "folder_id", "count", "videos": [{ "id", "name", "url", "thumbnail", ...}] }`
+  - **Env:** `GOOGLE_DRIVE_API_KEY`
+  - **Status:** working
+
+- `POST /api/meta-advantage/generate-video-copy`
+  - **Inputs:** one of `video_description`, `video_filename`, `video_name`
+  - **Response:** `{ "ok": true, "variants": [...] }`
+  - **Env:** `ANTHROPIC_API_KEY`
+  - **Status:** working
+
+- `POST /api/meta-advantage/publish-video`
+  - **Inputs:** `variant_id`, `video_url`, `headline`, `primary_text`, `cta`, optional `daily_budget` (default 200)
+  - **Response (success):** `{ "ok": true, "campaign_id", "adset_id", "ad_id", "video_id", "status", "warnings" }`
+  - **Env:** `META_ACCESS_TOKEN`, `META_AD_ACCOUNT_ID`, `META_APP_ID`, `META_PAGE_ID`, `META_PIXEL_ID`
+  - **Status:** broken externally in current environment (Meta API `code=200` access blocked observed)
+
+---
+
+## n8n Workflow Triggers + Call Order
+
+## 1) SEO Automation (Mon/Thu 8am IST)
+
+- Trigger: `Cron` (Mon, Thu, 08:00 IST)
+- Call: `POST /generate-article` with optional `{ "dry_run": false }`
+- Save `job_id`
+- Loop/poll: `GET /seo-job/<job_id>` every 20-30s
+- Branch:
+  - `status=complete` -> log title/url and notify
+  - `status=error` -> alert + stop
+
+## 2) Instagram Automation
+
+- Trigger: schedule or manual webhook
+- (Optional) upload source media: `POST /api/upload-image`
+- Generate copy+visual output: `POST /api/generate`
+- (Optional) rewrite draft captions: `POST /api/rephrase`
+- (Optional) animate: `POST /api/kling/submit` -> poll `POST /api/kling/status`
+- Publish to IG via your separate channel integration
+
+## 3) Meta Image Ad Automation
+
+- Trigger: schedule/manual/new asset event
+- Generate variants: `POST /api/meta-advantage/generate`
+- Pick winning variant in n8n logic
+- (Recommended precheck) `POST /api/meta-advantage/publish-test`
+- Publish: `POST /api/meta-advantage/publish`
+- Store IDs (`campaign_id`, `adset_id`, `ad_id`) for tracking
+
+## 4) Meta Video Ad Automation
+
+- Trigger: schedule/manual/new video event
+- List videos: `GET /api/drive/videos`
+- Generate copy: `POST /api/meta-advantage/generate-video-copy`
+- Pick variant + video
+- Publish: `POST /api/meta-advantage/publish-video`
+- Store IDs (`campaign_id`, `adset_id`, `ad_id`, `video_id`)
+
+---
+
+## Current Endpoint Status Summary
+
+- **Working:** health, seo job orchestration, Instagram generate/rephrase/upload, Kling submit/status, library/logo CRUD, meta copy generation, drive video listing.
+- **Externally blocked right now:** meta publish endpoints (`/api/meta-advantage/publish`, `/api/meta-advantage/publish-video`) due current Meta API access restrictions in deployed credentials.
+- **Pending verification after credential update:** meta publish-test + live publish flows end-to-end.
+
+---
+
+## Known Issues + Workarounds
+
+- **Meta Graph API `code=200` API access blocked**
+  - **Symptom:** publish endpoints fail before ad object creation.
+  - **Workaround:** fix Meta app/token/ad-account permissions first (app live mode, ads permissions, ad account access, system user mapping).
+
+- **Google Drive large video file confirmation pages**
+  - **Symptom:** HTML response instead of raw video bytes.
+  - **Workaround implemented:** downloader now parses `confirm`/`uuid` tokens and retries with confirmed URL.
+
+- **Large video uploads can fail/be slow**
+  - **Workaround implemented:** auto-compress >30MB to H.264 720p via ffmpeg before Meta upload.
+
+- **Ad set targeting automation inconsistency**
+  - Current code sends `targeting.targeting_automation.advantage_audience = 1` but adset-level `targeting_automation` payload still serializes `advantage_audience = 0` in publish routes.
+  - If Meta validation becomes strict again, align both to the same value.
+
+- **In-memory SEO job tracking**
+  - `_seo_results` is process-memory only; restarts lose job state.
+  - Workaround: in n8n, keep your own execution log and retry strategy.
+
+
+
+========================================================================
+### FILE: index.html
+========================================================================
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#f0ede8">
+<title>WEARTH Studio</title>
+<link rel="manifest" href="/manifest.json">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300;1,400&family=Jost:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#f0ede8;--bg2:#e8e4de;--sf:#ffffff;--sf2:#faf8f5;
+  --bd:#d4cfc8;--bd2:#b8b0a6;
+  --tx:#1a1714;--tx2:#4a4540;--tx3:#8a8278;
+  --ac:#2d5a3d;--ac2:#e8f0eb;--acl:#4a7c5e;
+  --err:#c0392b;--r:10px;--r2:16px
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;overflow:hidden;background:var(--bg)}
+body{font-family:'Jost',sans-serif;color:var(--tx);font-weight:400;font-size:15px}
+.screen{position:fixed;inset:0;display:flex;flex-direction:column;opacity:0;pointer-events:none;transition:opacity .3s}
+.screen.active{opacity:1;pointer-events:all}
+#s-login{align-items:center;justify-content:center;padding:2rem;background:linear-gradient(160deg,#e8f0eb 0%,#f0ede8 50%,#ede8e0 100%)}
+.li{width:100%;max-width:320px;display:flex;flex-direction:column;align-items:center;gap:1.75rem}
+.bn{font-family:'Cormorant Garamond',serif;font-size:14px;font-weight:500;letter-spacing:8px;color:var(--ac);text-align:center}
+.bs{font-size:11px;letter-spacing:3px;color:var(--tx3);margin-top:4px;text-transform:uppercase;text-align:center}
+.lh{font-family:'Cormorant Garamond',serif;font-size:38px;font-weight:400;text-align:center;line-height:1.2;color:var(--tx)}
+.lf{width:100%;display:flex;flex-direction:column;gap:12px}
+input[type=password]{width:100%;padding:14px 16px;background:var(--sf);border:1.5px solid var(--bd);border-radius:var(--r);color:var(--tx);font-size:15px;font-family:'Jost',sans-serif;font-weight:400;transition:border-color .2s;box-shadow:0 1px 3px rgba(0,0,0,0.06)}
+input[type=password]:focus{outline:none;border-color:var(--ac)}
+input[type=password]::placeholder{color:var(--tx3)}
+.er{font-size:12px;color:var(--err);text-align:center;min-height:16px}
+.btn{width:100%;padding:14px;background:var(--ac);color:#fff;border:none;border-radius:var(--r);font-family:'Jost',sans-serif;font-size:12px;font-weight:600;letter-spacing:2px;text-transform:uppercase;cursor:pointer;transition:background .2s,transform .1s;box-shadow:0 2px 8px rgba(45,90,61,0.2)}
+.btn:hover{background:var(--acl)}
+.btn:active{transform:scale(.98)}
+.btn:disabled{opacity:.35;cursor:not-allowed;transform:none;box-shadow:none}
+.btn-g{width:100%;padding:12px;background:var(--sf);border:1.5px solid var(--bd);border-radius:var(--r);color:var(--tx2);font-size:12px;letter-spacing:1px;text-transform:uppercase;cursor:pointer;font-family:'Jost',sans-serif;margin-top:8px;transition:all .2s}
+.btn-g:hover{border-color:var(--ac);color:var(--ac)}
+#s-app{flex-direction:column;background:var(--bg)}
+.hdr{display:flex;align-items:center;justify-content:space-between;padding:.9rem 1.25rem;border-bottom:1px solid var(--bd);flex-shrink:0;background:var(--sf);box-shadow:0 1px 4px rgba(0,0,0,0.05)}
+.hl{font-family:'Cormorant Garamond',serif;font-size:14px;letter-spacing:5px;color:var(--ac);font-weight:500}
+.ho{font-size:12px;color:var(--tx3);background:none;border:none;cursor:pointer;font-family:'Jost',sans-serif}
+.ho:hover{color:var(--ac)}
+.body{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:1.25rem}
+.prog{display:flex;gap:6px;justify-content:center;margin-bottom:1.5rem}
+.pd{width:28px;height:3px;border-radius:3px;background:var(--bd);transition:background .3s}
+.pd.on{background:var(--ac)}
+.pd.was{background:#a8c4b0}
+.lbl{font-size:11px;letter-spacing:2px;color:var(--tx3);text-transform:uppercase;margin-bottom:10px;font-weight:500}
+.step{display:none}
+.step.on{display:block}
+.mta{width:100%;padding:14px 16px;background:var(--sf);border:1.5px solid var(--bd);border-radius:var(--r2);color:var(--tx);font-size:16px;font-family:'Cormorant Garamond',serif;font-style:italic;font-weight:400;resize:none;line-height:1.6;transition:border-color .2s;box-shadow:0 1px 3px rgba(0,0,0,0.05)}
+.mta:focus{outline:none;border-color:var(--ac)}
+.mta::placeholder{color:var(--tx3)}
+.chips{display:flex;flex-wrap:wrap;gap:7px;margin-top:12px}
+.chip{padding:7px 14px;border-radius:20px;border:1.5px solid var(--bd);font-size:12px;color:var(--tx2);cursor:pointer;background:var(--sf);font-family:'Jost',sans-serif;transition:all .2s}
+.chip:hover{border-color:var(--ac);color:var(--ac);background:var(--ac2)}
+.src-row{display:flex;gap:6px;margin-top:1.25rem;flex-wrap:wrap}
+.stab{flex:1;min-width:55px;padding:9px 4px;border:1.5px solid var(--bd);border-radius:var(--r);font-size:11px;color:var(--tx2);cursor:pointer;background:var(--sf);text-align:center;font-family:'Jost',sans-serif;transition:all .2s}
+.stab.on{background:var(--ac2);border-color:var(--ac);color:var(--ac);font-weight:600}
+.bk{font-size:12px;letter-spacing:1px;color:var(--tx3);background:none;border:none;cursor:pointer;font-family:'Jost',sans-serif;text-transform:uppercase;margin-bottom:1.25rem;display:block}
+.bk:hover{color:var(--ac)}
+.igrid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+.ic{aspect-ratio:3/4;border-radius:8px;overflow:hidden;cursor:pointer;border:2px solid transparent;position:relative;background:var(--bd);transition:border-color .2s,transform .15s}
+.ic:hover{transform:scale(1.02)}
+.ic img{width:100%;height:100%;object-fit:cover;display:block}
+.ic.sel{border-color:var(--ac)}
+.tk{position:absolute;top:5px;right:5px;width:20px;height:20px;background:var(--ac);border-radius:50%;display:none;align-items:center;justify-content:center}
+.ic.sel .tk{display:flex}
+.tk svg{width:9px;height:9px;stroke:#fff;fill:none;stroke-width:2.5}
+.ibadge{position:absolute;bottom:5px;left:5px;font-size:8px;padding:2px 6px;border-radius:8px;background:rgba(26,23,20,0.65);color:#fff;text-transform:uppercase}
+.media-preview-wrap img,.media-preview-wrap video{width:100%;border-radius:var(--r);display:block;margin-bottom:1rem;border:1px solid var(--bd);box-shadow:0 2px 8px rgba(0,0,0,0.08)}
+.cc{padding:14px 16px;margin-bottom:8px;border:1.5px solid var(--bd);border-radius:var(--r);cursor:pointer;font-size:13px;line-height:1.7;color:var(--tx2);background:var(--sf);transition:all .2s}
+.cc:hover{border-color:var(--acl);background:var(--ac2)}
+.cc.sel{border-color:var(--ac);color:var(--tx);background:var(--ac2)}
+.cn{font-size:10px;letter-spacing:2px;color:var(--tx3);margin-bottom:6px;text-transform:uppercase;font-weight:500}
+.ldr{display:flex;gap:7px;justify-content:center;padding:2.5rem}
+.ld{width:7px;height:7px;border-radius:50%;background:var(--ac);animation:lp 1.2s ease-in-out infinite}
+.ld:nth-child(2){animation-delay:.2s}
+.ld:nth-child(3){animation-delay:.4s}
+@keyframes lp{0%,80%,100%{opacity:.2;transform:scale(.7)}40%{opacity:1;transform:scale(1.2)}}
+.emsg{font-size:13px;color:var(--err);text-align:center;padding:1rem}
+.foot{padding:.9rem 1.25rem 1.5rem;flex-shrink:0;border-top:1px solid var(--bd);background:var(--sf)}
+.suc{text-align:center;padding:3rem 1rem 2rem}
+.sm{font-size:56px;color:var(--ac);line-height:1;margin-bottom:1rem}
+.st{font-family:'Cormorant Garamond',serif;font-size:28px;font-weight:400;margin-bottom:6px;color:var(--tx)}
+.ss{font-size:11px;color:var(--tx3);letter-spacing:3px;margin-bottom:2.5rem;text-transform:uppercase}
+.processing-msg{font-size:12px;color:var(--tx3);text-align:center;letter-spacing:1px;text-transform:uppercase;margin-bottom:.75rem}
+.upload-zone{width:100%;aspect-ratio:3/2;border:2px dashed var(--bd);border-radius:var(--r2);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;cursor:pointer;transition:all .2s;background:var(--sf2);position:relative;overflow:hidden}
+.upload-zone:hover{border-color:var(--ac);background:var(--ac2)}
+.upload-zone img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.upload-zone .uz-label{font-size:12px;letter-spacing:1px;color:var(--tx3);text-transform:uppercase;position:relative;z-index:1;font-weight:500}
+.upload-zone .uz-icon{font-size:22px;position:relative;z-index:1}
+.upload-zone.has-img .uz-label,.upload-zone.has-img .uz-icon{display:none}
+.draft-wrap{margin-top:1.25rem;border:1.5px solid var(--bd);border-radius:var(--r);overflow:hidden;background:var(--sf)}
+.draft-hdr{padding:10px 14px;font-size:11px;letter-spacing:1px;color:var(--tx2);background:var(--sf2);display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--bd);font-weight:500}
+.draft-hdr .tog{font-size:11px;color:var(--ac);cursor:pointer;font-weight:600}
+.draft-ta{width:100%;padding:12px 14px;background:transparent;border:none;color:var(--tx);font-size:14px;font-family:'Jost',sans-serif;font-weight:400;resize:none;line-height:1.7;min-height:80px}
+.draft-ta:focus{outline:none}
+.draft-ta::placeholder{color:var(--tx3)}
+.draft-hint{font-size:11px;color:var(--tx3);padding:4px 14px 10px}
+.rephrasing{font-size:11px;color:var(--ac);padding:8px 14px;font-weight:500}
+.ov-card{padding:18px;border:1.5px solid var(--bd);border-radius:var(--r);cursor:pointer;background:var(--sf);transition:all .2s;margin-bottom:10px}
+.ov-card:hover{border-color:var(--ac);background:var(--ac2);transform:translateY(-1px);box-shadow:0 3px 10px rgba(45,90,61,0.1)}
+.ov-title{font-size:15px;color:var(--tx);margin-bottom:5px;font-weight:500}
+.ov-sub{font-size:12px;color:var(--tx3);line-height:1.5}
+.logo-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:.5rem}
+.logo-card{border:2px solid var(--bd);border-radius:8px;overflow:hidden;cursor:pointer;position:relative;background:var(--sf);padding:10px;display:flex;flex-direction:column;align-items:center;gap:6px;transition:all .2s}
+.logo-card:hover{border-color:var(--ac);background:var(--ac2)}
+.logo-card.sel{border-color:var(--ac);background:var(--ac2)}
+.logo-card img{width:100%;height:60px;object-fit:contain;display:block}
+.logo-card .logo-name{font-size:9px;letter-spacing:.5px;color:var(--tx3);text-transform:uppercase;text-align:center;line-height:1.3}
+.logo-card .logo-del{position:absolute;top:3px;right:3px;width:18px;height:18px;background:rgba(192,57,43,0.85);border-radius:50%;border:none;color:#fff;font-size:12px;cursor:pointer;display:none;align-items:center;justify-content:center;line-height:1}
+.logo-card:hover .logo-del{display:flex}
+.logo-none-card{border:2px solid var(--bd);border-radius:8px;cursor:pointer;position:relative;background:var(--sf);padding:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;transition:all .2s;height:90px}
+.logo-none-card:hover{border-color:var(--ac);background:var(--ac2)}
+.logo-none-card.sel{border-color:var(--ac);background:var(--ac2)}
+.lib-del{position:absolute;top:4px;left:4px;width:20px;height:20px;background:rgba(192,57,43,0.85);border-radius:50%;border:none;color:#fff;font-size:13px;cursor:pointer;display:none;align-items:center;justify-content:center;line-height:1}
+.ic:hover .lib-del{display:flex}
+.lib-suggest-img{width:100%;border-radius:var(--r);display:block;border:1.5px solid var(--ac);box-shadow:0 2px 8px rgba(0,0,0,0.08);cursor:pointer;margin-bottom:8px}
+.lib-suggest-label{font-size:11px;color:var(--tx3);text-align:center;margin-bottom:10px}
+</style>
+</head>
+<body>
+
+<div class="screen active" id="s-login">
+  <div class="li">
+    <div><div class="bn">WEA<strong>RTH</strong></div><div class="bs">instagram studio</div></div>
+    <div class="lh">Create.<br>Choose.<br>Post.</div>
+    <div class="lf">
+      <input type="password" id="pwd" placeholder="password" onkeydown="if(event.key==='Enter')login()"/>
+      <div class="er" id="lerr"></div>
+      <button class="btn" onclick="login()">enter studio</button>
+    </div>
+  </div>
+</div>
+
+<div class="screen" id="s-app">
+  <div class="hdr">
+    <div class="hl">WEA<strong>RTH</strong> <span style="font-size:10px;letter-spacing:3px;color:var(--tx3)">STUDIO</span></div>
+    <button class="ho" onclick="logout()">sign out</button>
+  </div>
+  <div class="body" id="abody">
+
+    <!-- STEP 1: MOOD -->
+    <div class="step on" id="st-mood">
+      <div class="prog"><div class="pd on"></div><div class="pd"></div><div class="pd"></div></div>
+      <div class="lbl">set the mood</div>
+      <textarea class="mta" id="mood" rows="3" placeholder="sunday morning softness, earthy, still..." oninput="checkMood()"></textarea>
+      <div class="chips">
+        <div class="chip" onclick="setM('sunday softness, warm golden light, minimal')">sunday softness</div>
+        <div class="chip" onclick="setM('early morning run, dewy forest, fresh green')">morning run</div>
+        <div class="chip" onclick="setM('strong woman, power, movement, nature')">power</div>
+        <div class="chip" onclick="setM('yoga flow, indoor calm, soft light')">yoga flow</div>
+        <div class="chip" onclick="setM('autumn leaves, barefoot, breathe deep')">autumn</div>
+        <div class="chip" onclick="setM('minimal studio, eucalyptus, clean lines')">studio</div>
+      </div>
+      <div class="src-row">
+        <div class="stab on" id="sf" onclick="setSrc('fal')">AI images</div>
+        <div class="stab" id="su" onclick="setSrc('unsplash')">real photos</div>
+        <div class="stab" id="sb" onclick="setSrc('both')">mix both</div>
+        <div class="stab" id="sm" onclick="setSrc('mine')">my photo</div>
+        <div class="stab" id="sl" onclick="setSrc('library')">library</div>
+      </div>
+
+      <!-- Library suggest box — shown when src=library -->
+      <div id="library-suggest" style="display:none;margin-top:1rem">
+        <div id="lib-suggest-wrap"></div>
+        <button class="btn-g" style="margin-top:0" onclick="goTo('st-library')">manage library ↗</button>
+      </div>
+
+      <div id="upload-area" style="display:none;margin-top:1rem">
+        <div class="upload-zone" id="upload-zone" onclick="document.getElementById('file-input').click()">
+          <div class="uz-icon">↑</div>
+          <div class="uz-label">tap to upload photo</div>
+          <img id="upload-preview" src="" style="display:none"/>
+        </div>
+        <input type="file" id="file-input" accept="image/*" style="display:none" onchange="handleFileSelect(event)"/>
+      </div>
+      <div class="draft-wrap" style="margin-top:1.5rem">
+        <div class="draft-hdr">
+          <span>write your own caption (optional)</span>
+          <span class="tog" onclick="toggleDraft()">+ expand</span>
+        </div>
+        <div id="draft-body" style="display:none">
+          <textarea class="draft-ta" id="draft-input" rows="4" placeholder="just write what you feel. AI will shape it into WEARTH voice..." oninput="onDraftInput()"></textarea>
+          <div class="draft-hint" id="draft-hint">start typing — AI refines as you pause</div>
+          <div class="rephrasing" id="rephrasing-indicator" style="display:none">✦ rephrasing...</div>
+          <div id="rephrased-result" style="display:none;padding:12px 16px;border-top:.5px solid var(--bd)">
+            <div style="font-size:9px;letter-spacing:2px;color:var(--ac);margin-bottom:8px;text-transform:uppercase">rephrased</div>
+            <div id="rephrased-text" style="font-size:13px;line-height:1.75;color:var(--tx2)"></div>
+            <button class="btn" style="margin-top:12px;font-size:10px;padding:10px" onclick="useRephrased()">use this caption → post</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- STEP 2: IMAGES -->
+    <div class="step" id="st-images">
+      <div class="prog"><div class="pd was"></div><div class="pd on"></div><div class="pd"></div></div>
+      <button class="bk" onclick="goTo('st-mood')">← back</button>
+      <div class="lbl">pick your image</div>
+      <div id="iload" class="ldr"><div class="ld"></div><div class="ld"></div><div class="ld"></div></div>
+      <div id="igrid" class="igrid" style="display:none"></div>
+      <div id="ierr" class="emsg" style="display:none"></div>
+    </div>
+
+    <!-- STEP 2.5: STILL OR MOVING + COMPOSITE -->
+    <div class="step" id="st-overlay">
+      <div class="prog"><div class="pd was"></div><div class="pd on"></div><div class="pd"></div></div>
+      <button class="bk" onclick="goTo(src==='mine'?'st-mood':'st-images')">← back</button>
+      <div style="margin-bottom:1rem">
+        <div class="lbl">still or moving?</div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <div class="ov-card" onclick="chooseMotion(false)">
+            <div class="ov-title">📷 still image</div>
+            <div class="ov-sub">clean photo post — fast, reliable</div>
+          </div>
+          <div class="ov-card" onclick="chooseMotion(true)">
+            <div class="ov-title">🎬 moving image <span style="font-size:10px;background:var(--ac);color:#fff;padding:2px 7px;border-radius:10px;margin-left:6px;vertical-align:middle">AI · ~60s</span></div>
+            <div class="ov-sub">Kling AI brings the photo to life — posts as a Reel</div>
+          </div>
+        </div>
+      </div>
+      <div id="overlay-choice" style="display:none">
+        <div class="lbl">add text overlay?</div>
+        <div style="display:flex;gap:8px">
+          <div class="ov-card" style="flex:1;text-align:center" onclick="proceedWithOverlay(true)">
+            <div class="ov-title" style="font-size:13px">yes</div>
+            <div class="ov-sub">headline + tagline on image</div>
+          </div>
+          <div class="ov-card" style="flex:1;text-align:center" onclick="proceedWithOverlay(false)">
+            <div class="ov-title" style="font-size:13px">no</div>
+            <div class="ov-sub">clean photo, no text</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- STEP 2.7: KLING LOADING -->
+    <div class="step" id="st-kling">
+      <div class="prog"><div class="pd was"></div><div class="pd on"></div><div class="pd"></div></div>
+      <div style="padding:3rem 1rem;text-align:center">
+        <div style="font-size:32px;margin-bottom:1rem">🎬</div>
+        <div class="lbl" style="justify-content:center;display:flex;margin-bottom:.5rem">bringing it to life</div>
+        <div id="kling-status" style="font-size:12px;color:var(--tx3);margin-bottom:1.5rem">generating video...</div>
+        <div class="ldr"><div class="ld"></div><div class="ld"></div><div class="ld"></div></div>
+        <div style="font-size:11px;color:var(--tx3);margin-top:1rem">Kling AI · usually 60–90 seconds</div>
+      </div>
+    </div>
+
+    <!-- STEP 3: CAPTIONS -->
+    <div class="step" id="st-captions">
+      <div class="prog"><div class="pd was"></div><div class="pd was"></div><div class="pd on"></div></div>
+      <button class="bk" onclick="goTo('st-overlay')">← back</button>
+      <div id="cload">
+        <div class="processing-msg">writing captions...</div>
+        <div class="ldr"><div class="ld"></div><div class="ld"></div><div class="ld"></div></div>
+      </div>
+      <div id="caption-content" style="display:none">
+        <div id="media-preview" class="media-preview-wrap"></div>
+        <div class="lbl">pick your caption</div>
+        <div id="clist"></div>
+      </div>
+      <div id="cerr" class="emsg" style="display:none"></div>
+    </div>
+
+    <!-- LIBRARY SCREEN -->
+    <div class="step" id="st-library">
+      <div class="prog"><div class="pd on"></div><div class="pd"></div><div class="pd"></div></div>
+      <button class="bk" onclick="goTo('st-mood')">← back</button>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem">
+        <div class="lbl" style="margin-bottom:0">photo library</div>
+        <button class="btn" style="width:auto;padding:8px 16px;font-size:10px" onclick="document.getElementById('lib-file-input').click()">+ add photo</button>
+      </div>
+      <input type="file" id="lib-file-input" accept="image/*" multiple style="display:none" onchange="addToLibrary(event)"/>
+      <div id="lib-uploading" style="display:none;font-size:11px;color:var(--tx3);text-align:center;padding:1rem">uploading...</div>
+      <div id="lib-grid" class="igrid" style="margin-top:.5rem"></div>
+      <div id="lib-empty" style="text-align:center;padding:3rem 1rem;color:var(--tx3);font-size:13px;display:none">
+        no photos yet — tap + add photo to build your library
+      </div>
+    </div>
+
+    <!-- LOGO PICKER STEP -->
+    <div class="step" id="st-logo">
+      <div class="prog"><div class="pd was"></div><div class="pd was"></div><div class="pd on"></div></div>
+      <button class="bk" onclick="goTo('st-overlay')">← back</button>
+      <div class="lbl">add a logo?</div>
+      <div class="logo-grid" id="logo-picker-grid"></div>
+      <div id="logo-loading" style="text-align:center;padding:1.5rem;font-size:12px;color:var(--tx3)">loading logos...</div>
+      <button class="btn-g" style="margin-top:12px" onclick="goTo('st-logo-repo')">manage logos ↗</button>
+    </div>
+
+    <!-- LOGO REPOSITORY SCREEN -->
+    <div class="step" id="st-logo-repo">
+      <div class="prog"><div class="pd on"></div><div class="pd"></div><div class="pd"></div></div>
+      <button class="bk" onclick="goTo('st-logo')">← back</button>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem">
+        <div class="lbl" style="margin-bottom:0">logo repository</div>
+        <button class="btn" style="width:auto;padding:8px 16px;font-size:10px" onclick="document.getElementById('logo-file-input').click()">+ add logo</button>
+      </div>
+      <input type="file" id="logo-file-input" accept="image/*" multiple style="display:none" onchange="addLogoToRepo(event)"/>
+      <div id="logo-repo-uploading" style="display:none;font-size:11px;color:var(--tx3);text-align:center;padding:.75rem">uploading + removing background...</div>
+      <div id="logo-repo-grid" class="logo-grid"></div>
+      <div id="logo-repo-empty" style="text-align:center;padding:3rem 1rem;color:var(--tx3);font-size:13px;display:none">
+        no logos yet — tap + add logo
+      </div>
+      <div style="margin-top:1.5rem;padding:12px 14px;background:var(--sf2);border-radius:var(--r);border:1px solid var(--bd)">
+        <div style="font-size:10px;letter-spacing:1px;color:var(--tx3);margin-bottom:6px;text-transform:uppercase;font-weight:500">tip</div>
+        <div style="font-size:12px;color:var(--tx2);line-height:1.6">Upload logos on any background — the app automatically removes the background to create a clean transparent version for overlaying.</div>
+      </div>
+    </div>
+
+    <!-- SUCCESS -->
+    <div class="step" id="st-success">
+      <div class="suc">
+        <div class="sm">✦</div>
+        <div class="st">live on instagram</div>
+        <div class="ss">@wearth_active</div>
+        <button class="btn" onclick="startOver()">create another post</button>
+      </div>
+    </div>
+
+  </div>
+  <div class="foot" id="foot">
+    <button class="btn" id="mbtn" onclick="mainAct()" disabled>generate images</button>
+    <button class="btn-g" id="rbtn" style="display:none" onclick="genImages()">regenerate images</button>
+  </div>
+</div>
+
+<script>
+const PW='wearth_insta123';
+const FAL='c9d35e47-26a0-4a74-b24b-4075ecc4b1c0:cf04ed86e9925a8d27fc7f93b7cb7c19';
+const UNS='-Nb1r9vFe5Tz2IIRse00Nyfx9m4aVt-aTqm36ITrkEk';
+const HOOK='https://hook.eu1.make.com/h3ebzbkj633q6qrokwxeosywe5qu8bw4';
+
+let src='fal', selCap=null, composedUrl=null, cur='st-mood';
+let uploadedImageUrl=null, uploadedImageB64=null, uploadedContentType=null;
+let draftTimer=null, draftOpen=false, lastDraft='';
+let pendingImageUrl=null, isVideoPost=false;
+let selectedLogoKey=null, selectedLogoUrl=null;
+let pendingWithOverlay=false;
+let logoRepoCache=null;
+let libraryPhotos=[]; // {url, key} — loaded from /api/library
+let selectedLibraryUrl=null;
+
+// ── AUTH ──
+function login(){
+  const v=document.getElementById('pwd').value;
+  if(v===PW){localStorage.setItem('wa','1');activate()}
+  else{const e=document.getElementById('lerr');e.textContent='incorrect password';setTimeout(()=>e.textContent='',2000)}
+}
+function logout(){localStorage.removeItem('wa');document.getElementById('s-app').classList.remove('active');document.getElementById('s-login').classList.add('active');document.getElementById('pwd').value=''}
+function activate(){document.getElementById('s-login').classList.remove('active');document.getElementById('s-app').classList.add('active');loadLibrary().then(()=>{if(src==='library')renderLibrarySuggest();});loadLogos();}
+window.addEventListener('load',()=>{if(localStorage.getItem('wa'))activate()});
+
+// ── MOOD ──
+function checkMood(){
+  const has=!!document.getElementById('mood').value.trim();
+  const mb=document.getElementById('mbtn');
+  if(src==='mine') mb.disabled=!(has&&uploadedImageB64);
+  else if(src==='library') mb.disabled=!(has&&selectedLibraryUrl);
+  else mb.disabled=!has;
+}
+function setM(m){document.getElementById('mood').value=m;checkMood()}
+
+// ── SOURCE TABS ──
+function setSrc(s){
+  src=s;
+  ['fal','unsplash','both','mine','library'].forEach((x,i)=>document.getElementById(['sf','su','sb','sm','sl'][i]).classList.toggle('on',x===s));
+  document.getElementById('upload-area').style.display=s==='mine'?'block':'none';
+  document.getElementById('library-suggest').style.display=s==='library'?'block':'none';
+  document.getElementById('mbtn').textContent=s==='mine'?'use my photo':s==='library'?'use library photo':'generate images';
+  if(s==='library') renderLibrarySuggest();
+  checkMood();
+}
+
+// ── FILE UPLOAD ──
+function handleFileSelect(e){
+  const file=e.target.files[0];
+  if(!file)return;
+  uploadedContentType=file.type||'image/jpeg';
+  const reader=new FileReader();
+  reader.onload=ev=>{
+    const dataUrl=ev.target.result;
+    const prev=document.getElementById('upload-preview');
+    prev.src=dataUrl;prev.style.display='block';
+    document.getElementById('upload-zone').classList.add('has-img');
+    uploadedImageB64=dataUrl.split(',')[1];
+    uploadedImageUrl=null;
+    checkMood();
+  };
+  reader.readAsDataURL(file);
+}
+
+async function uploadMyImage(){
+  if(uploadedImageUrl) return uploadedImageUrl;
+  const resp=await fetch('/api/upload-image',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({image_b64:uploadedImageB64,content_type:uploadedContentType})
+  });
+  const data=await resp.json();
+  if(data.error) throw new Error(data.error);
+  uploadedImageUrl=data.url;
+  // Update pendingImageUrl to the real URL now that we have it
+  pendingImageUrl=uploadedImageUrl;
+  return uploadedImageUrl;
+}
+
+// ── DRAFT / REPHRASE ──
+function toggleDraft(){
+  draftOpen=!draftOpen;
+  document.getElementById('draft-body').style.display=draftOpen?'block':'none';
+  document.querySelector('.draft-hdr .tog').textContent=draftOpen?'− collapse':'+ expand';
+}
+
+function onDraftInput(){
+  clearTimeout(draftTimer);
+  const val=document.getElementById('draft-input').value.trim();
+  if(val.length<20){document.getElementById('rephrased-result').style.display='none';return}
+  document.getElementById('draft-hint').style.display='none';
+  draftTimer=setTimeout(()=>rephraseDraft(val),1200);
+}
+
+async function rephraseDraft(draft){
+  if(draft===lastDraft)return;
+  lastDraft=draft;
+  document.getElementById('rephrasing-indicator').style.display='block';
+  document.getElementById('rephrased-result').style.display='none';
+  try{
+    const resp=await fetch('/api/rephrase',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({draft})});
+    const data=await resp.json();
+    if(data.rephrased){
+      document.getElementById('rephrased-text').textContent=data.rephrased;
+      document.getElementById('rephrased-result').style.display='block';
+    }
+  }catch(e){}
+  document.getElementById('rephrasing-indicator').style.display='none';
+}
+
+async function useRephrased(){
+  const text=document.getElementById('rephrased-text').textContent;
+  if(!text)return;
+  const mood=document.getElementById('mood').value.trim()||'clean minimal activewear';
+  let imageUrl='';
+  if(src==='mine'&&uploadedImageB64){
+    try{imageUrl=await uploadMyImage();}catch(e){alert('Upload failed: '+e.message);return}
+  } else {
+    try{
+      const r=await fetch('https://fal.run/fal-ai/flux/dev',{
+        method:'POST',headers:{'Authorization':`Key ${FAL}`,'Content-Type':'application/json'},
+        body:JSON.stringify({prompt:`WEARTH_ACTIVE activewear, ${mood}, natural light, minimalist`,loras:[{path:WEARTH_LORA,scale:1.0}],image_size:'portrait_4_3',num_inference_steps:20,num_images:1})
+      });
+      const d=await r.json();imageUrl=d.images?.[0]?.url||'';
+    }catch(e){}
+  }
+  selCap=null;composedUrl=null;isVideoPost=false;
+  pendingImageUrl=imageUrl;
+  goTo('st-captions');
+  document.getElementById('cload').style.display='block';
+  document.getElementById('caption-content').style.display='none';
+  document.getElementById('cerr').style.display='none';
+  updateFoot();
+  try{
+    const resp=await fetch('/api/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mood,image_url:imageUrl,skip_composite:true})});
+    const data=await resp.json();
+    if(data.error)throw new Error(data.error);
+    composedUrl=imageUrl;
+    showMediaPreview(imageUrl,false);
+    document.getElementById('cload').style.display='none';
+    document.getElementById('caption-content').style.display='block';
+    const allCaps=[text,...(data.captions||[]).slice(0,2)];
+    renderCaptions(allCaps,['your words, wearth voice','option 2','option 3']);
+  }catch(e){
+    document.getElementById('cload').style.display='none';
+    document.getElementById('cerr').style.display='block';
+    document.getElementById('cerr').textContent='error: '+e.message;
+  }
+}
+
+// ── NAVIGATION ──
+function goTo(id){
+  document.querySelectorAll('.step').forEach(s=>s.classList.remove('on'));
+  document.getElementById(id).classList.add('on');
+  cur=id;document.getElementById('abody').scrollTop=0;updateFoot();
+}
+
+function updateFoot(){
+  const mb=document.getElementById('mbtn'),rb=document.getElementById('rbtn');
+  if(cur==='st-mood'){
+    mb.style.display='block';rb.style.display='none';
+    mb.textContent=src==='mine'?'use my photo':'generate images';
+    if(src==='mine') mb.disabled=!uploadedImageB64||!document.getElementById('mood').value.trim();
+    else mb.disabled=!document.getElementById('mood').value.trim();
+  } else if(cur==='st-logo'){
+    mb.style.display='block';rb.style.display='none';
+    mb.textContent='continue →';mb.disabled=false;
+  } else if(cur==='st-logo-repo'){
+    mb.style.display='none';rb.style.display='none';
+  } else if(cur==='st-overlay'||cur==='st-kling'){
+    mb.style.display='none';rb.style.display='none';
+  } else if(cur==='st-images'){
+    mb.style.display='none';rb.style.display='block';
+  } else if(cur==='st-captions'){
+    mb.style.display='block';rb.style.display='none';
+    mb.textContent='post to instagram';mb.disabled=!selCap;
+  } else {
+    mb.style.display='none';rb.style.display='none';
+  }
+}
+
+function mainAct(){
+  if(cur==='st-mood') genImages();
+  else if(cur==='st-logo') proceedFromLogoPicker();
+  else if(cur==='st-captions') postNow();
+}
+
+// ── HELPERS ──
+function showMediaPreview(url, isVideo){
+  const el=document.getElementById('media-preview');
+  el.innerHTML=isVideo
+    ? `<video src="${url}" autoplay loop muted playsinline controls></video>`
+    : `<img src="${url}"/>`;
+}
+
+function renderCaptions(captions, labels){
+  const list=document.getElementById('clist');list.innerHTML='';
+  captions.forEach((cap,i)=>{
+    const d=document.createElement('div');d.className='cc';
+    d.innerHTML=`<div class="cn">${labels?labels[i]||'option '+(i+1):'option '+(i+1)}</div>${cap}`;
+    d.onclick=()=>{selCap=cap;document.querySelectorAll('.cc').forEach((c,j)=>c.classList.toggle('sel',j===i));updateFoot()};
+    list.appendChild(d);
+  });
+}
+
+// ── IMAGE GENERATION ──
+async function genImages(){
+  const mood=document.getElementById('mood').value.trim();
+  if(!mood)return;
+  selCap=null;composedUrl=null;isVideoPost=false;
+
+  if(src==='mine'){
+    if(!uploadedImageB64){alert('Please upload a photo first');return}
+    pendingImageUrl='data:'+uploadedContentType+';base64,'+uploadedImageB64;
+    document.getElementById('overlay-choice').style.display='none';
+    goTo('st-overlay');
+    return;
+  }
+
+  if(src==='library'){
+    if(!selectedLibraryUrl){alert('Please select a photo from your library');return}
+    pendingImageUrl=selectedLibraryUrl;
+    document.getElementById('overlay-choice').style.display='none';
+    goTo('st-overlay');
+    return;
+  }
+
+  goTo('st-images');
+  document.getElementById('iload').style.display='flex';
+  document.getElementById('igrid').style.display='none';
+  document.getElementById('ierr').style.display='none';
+  try{
+    let urls=[];
+    if(src==='fal') urls=await getFal(mood,4);
+    else if(src==='unsplash') urls=await getUns(mood,4);
+    else{const[f,u]=await Promise.all([getFal(mood,2),getUns(mood,2)]);urls=[...f,...u]}
+    if(!urls.length)throw new Error('no images returned');
+    document.getElementById('iload').style.display='none';
+    const g=document.getElementById('igrid');g.innerHTML='';
+    urls.forEach((u,i)=>{
+      const d=document.createElement('div');d.className='ic';
+      const badge=src==='both'?(i<2?'ai':'photo'):src==='unsplash'?'photo':'ai';
+      d.innerHTML=`<img src="${u}" loading="lazy"/><div class="tk"><svg viewBox="0 0 11 11"><polyline points="1.5,5.5 4.5,8.5 9.5,2.5"/></svg></div><div class="ibadge">${badge}</div>`;
+      d.onclick=()=>pickImg(u,d);
+      g.appendChild(d);
+    });
+    g.style.display='grid';updateFoot();
+  }catch(e){
+    document.getElementById('iload').style.display='none';
+    document.getElementById('ierr').style.display='block';
+    document.getElementById('ierr').textContent='image generation failed — try real photos';
+    updateFoot();
+  }
+}
+
+const WEARTH_LORA='https://v3b.fal.media/files/b/0a97a9da/_4RkdHyXYmu5xRb2nMj8e_pytorch_lora_weights.safetensors';
+
+async function getFal(mood,n){
+  const prompt=`WEARTH_ACTIVE activewear clothing, ${mood}, WEARTH logo visible on chest, plant-based eucalyptus fabric, natural movement, soft natural light, high quality fashion photography`;
+  const res=await Promise.all(Array(n).fill(0).map(()=>
+    fetch('https://fal.run/fal-ai/flux-lora',{
+      method:'POST',headers:{'Authorization':`Key ${FAL}`,'Content-Type':'application/json'},
+      body:JSON.stringify({
+        prompt,
+        loras:[{path:WEARTH_LORA,scale:1.0}],
+        image_size:'portrait_4_3',
+        num_inference_steps:28,
+        guidance_scale:3.5,
+        num_images:1
+      })
+    }).then(r=>r.json())
+  ));
+  return res.map(r=>r.images?.[0]?.url).filter(Boolean);
+}
+
+async function getUns(mood,n){
+  const q=encodeURIComponent(mood.split(',')[0]+' activewear woman nature');
+  const r=await fetch(`https://api.unsplash.com/search/photos?query=${q}&per_page=${n}&orientation=portrait&client_id=${UNS}`);
+  const d=await r.json();
+  return(d.results||[]).map(p=>p.urls.regular);
+}
+
+async function pickImg(url,el){
+  document.querySelectorAll('.ic').forEach(c=>c.classList.remove('sel'));
+  el.classList.add('sel');
+  pendingImageUrl=url;
+  document.getElementById('overlay-choice').style.display='none';
+  goTo('st-overlay');
+}
+
+// ── STILL / MOVING ──
+function chooseMotion(moving){
+  if(moving){
+    startKling();
+  } else {
+    document.getElementById('overlay-choice').style.display='block';
+  }
+}
+
+async function startKling(){
+  goTo('st-kling');
+  const mood=document.getElementById('mood').value.trim();
+  try{
+    // Step 1: Submit — returns request_id instantly, no timeout risk
+    document.getElementById('kling-status').textContent='submitting to Kling AI...';
+    const submitResp=await fetch('/api/kling/submit',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({image_url:pendingImageUrl,mood})
+    });
+    const submitData=await submitResp.json();
+    if(submitData.error)throw new Error(submitData.error);
+    const requestId=submitData.request_id;
+
+    // Step 2: Poll every 5s from frontend (bypasses Railway 30s timeout)
+    let videoUrl='';
+    for(let i=0;i<60;i++){
+      await new Promise(r=>setTimeout(r,5000));
+      const mins=Math.ceil((i+1)*5/60);
+      document.getElementById('kling-status').textContent=`generating... ~${mins} min`;
+      const pollResp=await fetch('/api/kling/status',{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({request_id:requestId})
+      });
+      const pollData=await pollResp.json();
+      if(pollData.error)throw new Error(pollData.error);
+      if(pollData.status==='COMPLETED'){videoUrl=pollData.video_url;break;}
+      if(pollData.status==='FAILED'||pollData.status==='ERROR')throw new Error('Kling job failed');
+    }
+    if(!videoUrl)throw new Error('Timed out after 5 minutes');
+
+    // Step 3: Show captions with video preview
+    isVideoPost=true;composedUrl=videoUrl;
+    goTo('st-captions');
+    document.getElementById('cload').style.display='block';
+    document.getElementById('caption-content').style.display='none';
+    document.getElementById('cerr').style.display='none';
+    updateFoot();
+    await generateCaptions(videoUrl,mood,true);
+  }catch(e){
+    goTo('st-overlay');
+    document.getElementById('overlay-choice').style.display='none';
+    alert('Video failed: '+e.message+'. Try still image instead.');
+  }
+}
+
+async function proceedWithOverlay(withOverlay){
+  pendingWithOverlay=withOverlay;
+  // Go to logo picker before captions
+  await showLogoPicker();
+}
+
+async function showLogoPicker(){
+  goTo('st-logo');
+  document.getElementById('logo-loading').style.display='block';
+  document.getElementById('logo-picker-grid').innerHTML='';
+  const logos=await loadLogos();
+  renderLogoPicker(logos);
+  document.getElementById('logo-loading').style.display='none';
+}
+
+function renderLogoPicker(logos){
+  const grid=document.getElementById('logo-picker-grid');
+  grid.innerHTML='';
+  // "no logo" option first
+  const none=document.createElement('div');
+  none.className='logo-none-card'+(selectedLogoKey===null?' sel':'');
+  none.innerHTML='<div style="font-size:20px">✕</div><div style="font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:1px">no logo</div>';
+  none.onclick=()=>{selectedLogoKey=null;selectedLogoUrl=null;document.querySelectorAll('.logo-card,.logo-none-card').forEach(c=>c.classList.remove('sel'));none.classList.add('sel')};
+  grid.appendChild(none);
+  logos.forEach(l=>{
+    const d=document.createElement('div');
+    d.className='logo-card'+(selectedLogoKey===l.key?' sel':'');
+    d.innerHTML=`<img src="${l.clean_url||l.url}"/><div class="logo-name">${l.name}</div><button class="logo-del" onclick="event.stopPropagation();deleteLogoFromRepo('${l.key}')">×</button>`;
+    d.onclick=()=>{
+      selectedLogoKey=l.key;selectedLogoUrl=l.clean_url||l.url;
+      document.querySelectorAll('.logo-card,.logo-none-card').forEach(c=>c.classList.remove('sel'));
+      d.classList.add('sel');
+    };
+    grid.appendChild(d);
+  });
+}
+
+// ── CENTRAL CAPTION GENERATOR ──
+async function generateCaptions(mediaUrl, mood, isVideo, withOverlay=false, logoUrl=null){
+  try{
+    let finalUrl=mediaUrl;
+    if(mediaUrl.startsWith('data:')&&uploadedImageB64){
+      try{finalUrl=await uploadMyImage();}catch(e){finalUrl=mediaUrl;}
+    }
+    const resp=await fetch('/api/generate',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({mood, image_url:finalUrl, skip_composite: !withOverlay, logo_url: logoUrl||''})
+    });
+    const data=await resp.json();
+    if(data.error)throw new Error(data.error);
+    composedUrl = withOverlay ? data.image_url : finalUrl;
+    showMediaPreview(composedUrl, isVideo);
+    document.getElementById('cload').style.display='none';
+    document.getElementById('caption-content').style.display='block';
+    renderCaptions(data.captions||[data.caption||'']);
+  }catch(e){
+    document.getElementById('cload').style.display='none';
+    document.getElementById('cerr').style.display='block';
+    document.getElementById('cerr').textContent='error: '+e.message;
+  }
+}
+
+// ── POST ──
+async function postNow(){
+  if(!composedUrl||!selCap)return;
+  const mb=document.getElementById('mbtn');
+  mb.disabled=true;mb.textContent='posting...';
+  try{
+    const payload=isVideoPost
+      ?{video_url:composedUrl,caption:selCap,media_type:'video'}
+      :{image_url:composedUrl,caption:selCap,media_type:'image'};
+    await fetch(HOOK,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    goTo('st-success');
+  }catch(e){
+    mb.textContent='failed — try again';mb.disabled=false;
+  }
+}
+
+// ── LIBRARY ──
+async function loadLibrary(){
+  try{
+    const r=await fetch('/api/library');
+    const data=await r.json();
+    libraryPhotos=data.photos||[];
+  }catch(e){libraryPhotos=[];}
+}
+
+async function addToLibrary(e){
+  const files=Array.from(e.target.files);
+  if(!files.length)return;
+  document.getElementById('lib-uploading').style.display='block';
+  for(const file of files){
+    try{
+      const b64=await new Promise((res,rej)=>{
+        const r=new FileReader();
+        r.onload=ev=>res(ev.target.result.split(',')[1]);
+        r.onerror=rej;
+        r.readAsDataURL(file);
+      });
+      const resp=await fetch('/api/library/add',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({image_b64:b64,content_type:file.type||'image/jpeg',name:file.name})
+      });
+      const data=await resp.json();
+      if(data.url) libraryPhotos.unshift({url:data.url,key:data.key,name:file.name});
+    }catch(err){console.error(err);}
+  }
+  document.getElementById('lib-uploading').style.display='none';
+  e.target.value='';
+  renderLibraryGrid();
+}
+
+async function deleteFromLibrary(key,idx){
+  if(!confirm('Remove this photo from library?'))return;
+  try{
+    await fetch('/api/library/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key})});
+    libraryPhotos.splice(idx,1);
+    if(selectedLibraryUrl===libraryPhotos[idx]?.url) selectedLibraryUrl=null;
+    renderLibraryGrid();
+    renderLibrarySuggest();
+  }catch(e){}
+}
+
+function renderLibraryGrid(){
+  const grid=document.getElementById('lib-grid');
+  const empty=document.getElementById('lib-empty');
+  grid.innerHTML='';
+  if(!libraryPhotos.length){empty.style.display='block';return;}
+  empty.style.display='none';
+  libraryPhotos.forEach((p,i)=>{
+    const d=document.createElement('div');d.className='ic';
+    d.innerHTML=`<img src="${p.url}" loading="lazy"/>
+      <div class="tk"><svg viewBox="0 0 11 11"><polyline points="1.5,5.5 4.5,8.5 9.5,2.5"/></svg></div>
+      <button class="lib-del" onclick="event.stopPropagation();deleteFromLibrary('${p.key}',${i})">×</button>`;
+    d.onclick=()=>{
+      selectedLibraryUrl=p.url;
+      document.querySelectorAll('#lib-grid .ic').forEach((c,j)=>c.classList.toggle('sel',j===i));
+      // go back to mood with this selected
+      goTo('st-mood');
+      setSrc('library');
+      checkMood();
+    };
+    grid.appendChild(d);
+  });
+}
+
+function renderLibrarySuggest(){
+  const wrap=document.getElementById('lib-suggest-wrap');
+  if(!libraryPhotos.length){
+    wrap.innerHTML=`<div style="font-size:12px;color:var(--tx3);padding:.5rem 0 .75rem">library is empty — <span style="color:var(--ac);cursor:pointer" onclick="goTo('st-library')">add photos</span></div>`;
+    selectedLibraryUrl=null;checkMood();return;
+  }
+  // Auto-suggest: pick based on mood keywords, fallback to most recent
+  const mood=document.getElementById('mood').value.toLowerCase();
+  let suggested=libraryPhotos[0];
+  // Simple keyword matching on file names if available
+  if(mood){
+    const match=libraryPhotos.find(p=>(p.name||'').toLowerCase().split(/[\s_-]/).some(w=>mood.includes(w)));
+    if(match) suggested=match;
+  }
+  if(!selectedLibraryUrl) selectedLibraryUrl=suggested.url;
+  wrap.innerHTML=`
+    <div class="lib-suggest-label">suggested from your library — tap to change</div>
+    <img class="lib-suggest-img" src="${selectedLibraryUrl}" onclick="goTo('st-library')" />`;
+  checkMood();
+}
+
+// ── LOGO REPO ──
+async function loadLogos(){
+  if(logoRepoCache) return logoRepoCache;
+  try{
+    const r=await fetch('/api/logos');
+    const data=await r.json();
+    logoRepoCache=data.logos||[];
+  }catch(e){logoRepoCache=[];}
+  return logoRepoCache;
+}
+
+async function addLogoToRepo(e){
+  const files=Array.from(e.target.files);
+  if(!files.length)return;
+  document.getElementById('logo-repo-uploading').style.display='block';
+  for(const file of files){
+    try{
+      const b64=await new Promise((res,rej)=>{
+        const r=new FileReader();
+        r.onload=ev=>res(ev.target.result.split(',')[1]);
+        r.onerror=rej;r.readAsDataURL(file);
+      });
+      const resp=await fetch('/api/logos/add',{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({image_b64:b64,content_type:file.type||'image/png',name:file.name.replace(/[.][^.]+$/,'')})
+      });
+      const data=await resp.json();
+      if(data.error) throw new Error(data.error);
+      logoRepoCache=null; // invalidate cache
+    }catch(err){alert('Upload failed: '+err.message);}
+  }
+  document.getElementById('logo-repo-uploading').style.display='none';
+  e.target.value='';
+  const logos=await loadLogos();
+  renderLogoRepoGrid(logos);
+}
+
+async function renderLogoRepoGrid(logos){
+  const grid=document.getElementById('logo-repo-grid');
+  const empty=document.getElementById('logo-repo-empty');
+  grid.innerHTML='';
+  if(!logos.length){empty.style.display='block';return;}
+  empty.style.display='none';
+  logos.forEach((l,i)=>{
+    const d=document.createElement('div');d.className='logo-card';
+    d.innerHTML=`<img src="${l.clean_url||l.url}"/><div class="logo-name">${l.name}</div><button class="logo-del" onclick="event.stopPropagation();deleteLogoFromRepo('${l.key}')">×</button>`;
+    grid.appendChild(d);
+  });
+}
+
+async function deleteLogoFromRepo(key){
+  if(!confirm('Remove this logo?'))return;
+  await fetch('/api/logos/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key})});
+  logoRepoCache=null;
+  const logos=await loadLogos();
+  renderLogoRepoGrid(logos);
+  renderLogoPicker(logos);
+}
+
+async function proceedFromLogoPicker(){
+  // Called when Shai taps continue from logo picker
+  const mood=document.getElementById('mood').value.trim();
+  selCap=null;isVideoPost=false;
+  goTo('st-captions');
+  document.getElementById('cload').style.display='block';
+  document.getElementById('caption-content').style.display='none';
+  document.getElementById('cerr').style.display='none';
+  updateFoot();
+  await generateCaptions(pendingImageUrl, mood, false, pendingWithOverlay, selectedLogoUrl);
+}
+
+function startOver(){
+  selCap=null;composedUrl=null;uploadedImageUrl=null;uploadedImageB64=null;
+  isVideoPost=false;pendingImageUrl=null;lastDraft='';selectedLibraryUrl=null;selectedLogoKey=null;selectedLogoUrl=null;logoRepoCache=null;
+  document.getElementById('mood').value='';
+  document.getElementById('upload-preview').src='';
+  document.getElementById('upload-preview').style.display='none';
+  document.getElementById('upload-zone').classList.remove('has-img');
+  document.getElementById('draft-input').value='';
+  document.getElementById('rephrased-result').style.display='none';
+  document.getElementById('overlay-choice').style.display='none';
+  document.getElementById('media-preview').innerHTML='';
+  goTo('st-mood');updateFoot();
+}
+</script>
+</body>
+</html>
+
+
+========================================================================
+### FILE: meta_publish_test.ps1
+========================================================================
+
+$ErrorActionPreference = "Stop"
+
+$url = "https://web-production-448c1.up.railway.app/api/meta-advantage/publish"
+$payload = @{
+    variant_id   = "A"
+    headline     = "Plant-based. No polyester."
+    primary_text = "Activewear that breathes better in Indian heat."
+    image_url    = "https://drive.google.com/uc?export=view&id=1grctlty9fwk5nCy4Jqu-URSpKnX1Xx77"
+    cta          = "Shop Now"
+    daily_budget = 200
+}
+
+while ($true) {
+    try {
+        $response = Invoke-RestMethod `
+            -Method Post `
+            -Uri $url `
+            -ContentType "application/json" `
+            -Body ($payload | ConvertTo-Json -Depth 5)
+
+        if ($null -ne $response -and $response.ok -eq $true) {
+            Write-Host "SUCCESS" -ForegroundColor Green
+            Write-Host ("campaign_id: {0}" -f $response.campaign_id)
+            Write-Host ("adset_id: {0}" -f $response.adset_id)
+            Write-Host ("ad_id: {0}" -f $response.ad_id)
+            break
+        }
+
+        $errorMessage = $null
+        if ($null -ne $response.error) {
+            $errorMessage = [string]$response.error
+        } else {
+            $errorMessage = "Unknown error returned from API."
+        }
+
+        Write-Host ("ERROR: {0}" -f $errorMessage) -ForegroundColor Red
+
+        $clipboardText = "Fix this error in app.py: $errorMessage"
+        Set-Clipboard -Value $clipboardText
+        Write-Host "Copied fix prompt to clipboard."
+    }
+    catch {
+        $cleanError = $_.Exception.Message
+
+        # Try to extract cleaner server-side message if available.
+        if ($_.ErrorDetails -and $_.ErrorDetails.Message) {
+            try {
+                $serverPayload = $_.ErrorDetails.Message | ConvertFrom-Json
+                if ($serverPayload.error) {
+                    $cleanError = [string]$serverPayload.error
+                } else {
+                    $cleanError = [string]$_.ErrorDetails.Message
+                }
+            }
+            catch {
+                $cleanError = [string]$_.ErrorDetails.Message
+            }
+        }
+
+        Write-Host ("ERROR: {0}" -f $cleanError) -ForegroundColor Red
+
+        $clipboardText = "Fix this error in app.py: $cleanError"
+        Set-Clipboard -Value $clipboardText
+        Write-Host "Copied fix prompt to clipboard."
+    }
+
+    Write-Host "Retrying in 90 seconds..."
+    Start-Sleep -Seconds 90
+}
+$ErrorActionPreference = "Stop"
+
+$endpoint = "https://web-production-448c1.up.railway.app/api/meta-advantage/publish"
+$payload = @{
+    variant_id   = "A"
+    headline     = "Plant-based. No polyester."
+    primary_text = "Activewear that breathes better in Indian heat."
+    image_url    = "https://drive.google.com/uc?export=view&id=1grctlty9fwk5nCy4Jqu-URSpKnX1Xx77"
+    cta          = "Shop Now"
+    daily_budget = 200
+}
+
+function Get-CleanErrorMessage {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$ResponseObject
+    )
+
+    if ($null -eq $ResponseObject) {
+        return "Unknown error: empty response."
+    }
+
+    if ($ResponseObject.error) {
+        return [string]$ResponseObject.error
+    }
+
+    if ($ResponseObject.message) {
+        return [string]$ResponseObject.message
+    }
+
+    return ($ResponseObject | ConvertTo-Json -Depth 10 -Compress)
+}
+
+while ($true) {
+    try {
+        $bodyJson = $payload | ConvertTo-Json -Depth 10 -Compress
+        Write-Host "Calling $endpoint ..." -ForegroundColor Cyan
+
+        $response = Invoke-RestMethod -Method Post -Uri $endpoint -ContentType "application/json" -Body $bodyJson
+
+        $hasCampaignId = -not [string]::IsNullOrWhiteSpace([string]$response.campaign_id)
+        if (($response.ok -eq $true) -or $hasCampaignId) {
+            Write-Host "SUCCESS" -ForegroundColor Green
+            Write-Host ("campaign_id: {0}" -f $response.campaign_id)
+            Write-Host ("adset_id:    {0}" -f $response.adset_id)
+            Write-Host ("ad_id:       {0}" -f $response.ad_id)
+            Write-Host "NOTE: Delete duplicate test campaigns named 'WEARTH Meta A 177...' manually in Meta Ads Manager." -ForegroundColor Yellow
+            break
+        }
+
+        $errorMsg = Get-CleanErrorMessage -ResponseObject $response
+        Write-Host ("ERROR: {0}" -f $errorMsg) -ForegroundColor Red
+
+        $cursorMsg = "Fix this error in app.py: $errorMsg"
+        $cursorMsg | Set-Clipboard
+        Write-Host "Copied fix request to clipboard for Cursor AI." -ForegroundColor Yellow
+    }
+    catch {
+        $errorMsg = $_.Exception.Message
+
+        if ($_.ErrorDetails -and $_.ErrorDetails.Message) {
+            try {
+                $parsed = $_.ErrorDetails.Message | ConvertFrom-Json
+                $errorMsg = Get-CleanErrorMessage -ResponseObject $parsed
+            }
+            catch {
+                $errorMsg = $_.ErrorDetails.Message
+            }
+        }
+
+        Write-Host ("ERROR: {0}" -f $errorMsg) -ForegroundColor Red
+        $cursorMsg = "Fix this error in app.py: $errorMsg"
+        $cursorMsg | Set-Clipboard
+        Write-Host "Copied fix request to clipboard for Cursor AI." -ForegroundColor Yellow
+    }
+
+    Write-Host "Retrying in 90 seconds..." -ForegroundColor DarkYellow
+    Start-Sleep -Seconds 90
+}
+
+
+========================================================================
+### FILE: wearth_diagnose.ps1
+========================================================================
+
+$BASE = "https://web-production-448c1.up.railway.app"
+$PASS = @(); $FAIL = @(); $DETAILS = @()
+
+function Test-Endpoint {
+    param([string]$Name, [string]$Method="GET", [string]$Path, [hashtable]$Body=$null, [string]$ExpectKey="")
+    $url = "$BASE$Path"
+    try {
+        if ($Method -eq "POST") {
+            $resp = Invoke-WebRequest -Uri $url -Method POST -ContentType "application/json" -Body ($Body | ConvertTo-Json -Depth 5) -UseBasicParsing -TimeoutSec 30
+        } else {
+            $resp = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 30
+        }
+        $parsed = $resp.Content | ConvertFrom-Json -ErrorAction SilentlyContinue
+        if ($ExpectKey -and -not $parsed.$ExpectKey) {
+            $script:FAIL += $Name
+            $script:DETAILS += "  FAIL  $Name - missing key '$ExpectKey'"
+            $script:DETAILS += "        Response: $($resp.Content.Substring(0,[Math]::Min(200,$resp.Content.Length)))"
+        } else {
+            $script:PASS += $Name
+            $script:DETAILS += "  PASS  $Name"
+        }
+    } catch {
+        $script:FAIL += $Name
+        $script:DETAILS += "  FAIL  $Name - $($_.Exception.Message)"
+        try {
+            $s = $_.Exception.Response.GetResponseStream()
+            $r = New-Object System.IO.StreamReader($s)
+            $b = $r.ReadToEnd()
+            $script:DETAILS += "        Body: $($b.Substring(0,[Math]::Min(300,$b.Length)))"
+        } catch {}
+    }
+}
+
+Write-Host ""
+Write-Host "==== WEARTH DIAGNOSTIC $(Get-Date -Format 'HH:mm') ====" -ForegroundColor Cyan
+Write-Host ""
+
+Test-Endpoint -Name "Health"       -Path "/health"              -ExpectKey "status"
+Test-Endpoint -Name "SEO Status"   -Path "/seo-status"          -ExpectKey "published"
+Test-Endpoint -Name "Garments"     -Path "/api/garments"
+Test-Endpoint -Name "Library"      -Path "/api/library"         -ExpectKey "photos"
+Test-Endpoint -Name "Drive Videos" -Path "/api/drive/videos"    -ExpectKey "videos"
+Test-Endpoint -Name "Meta Dry Run" -Method "POST" -Path "/api/meta-advantage/publish-test" -Body @{variant_id="DIAG";headline="Move in comfort.";primary_text="Plant-based activewear.";image_url="https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=800";cta="Shop Now";daily_budget=200} -ExpectKey "ok"
+
+Write-Host ""
+foreach ($line in $DETAILS) {
+    if ($line -match "PASS") { Write-Host $line -ForegroundColor Green }
+    elseif ($line -match "FAIL") { Write-Host $line -ForegroundColor Red }
+    else { Write-Host $line -ForegroundColor DarkGray }
+}
+
+Write-Host ""
+Write-Host "PASSED: $($PASS.Count)  FAILED: $($FAIL.Count)" -ForegroundColor White
+
+if ($FAIL.Count -gt 0) {
+    $prompt = "WEARTH Flask app failures. FAILED: $($FAIL -join ', '). DETAILS: $(($DETAILS | Where-Object {$_ -match 'FAIL|Body|Response'}) -join ' | '). Find root cause in app.py and fix without breaking working endpoints."
+    $prompt | Set-Clipboard
+    Write-Host ""
+    Write-Host "Fix prompt copied to clipboard - paste into Cursor." -ForegroundColor Yellow
+}
