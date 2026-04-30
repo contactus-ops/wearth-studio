@@ -1185,15 +1185,7 @@ def publish_meta_advantage_variant():
         daily_budget_paise = daily_budget_rupees * 100
         timestamp = int(time.time())
         base_name = f'WEARTH Meta {variant_id} {timestamp}'
-
-        interest_names = ['fitness', 'yoga', 'sustainable fashion', 'activewear', 'wellness']
-        interests, warnings = _meta_interest_ids(interest_names)
-        if not interests:
-            return jsonify({
-                'error': 'Unable to resolve Meta targeting interests',
-                'requested_interests': interest_names,
-                'warnings': warnings
-            }), 500
+        warnings = []
 
         image_resp = requests.get(image_url, timeout=60)
         if image_resp.status_code != 200:
@@ -1239,10 +1231,7 @@ def publish_meta_advantage_variant():
             'age_min': 25,
             'age_max': 40,
             'geo_locations': {'countries': ['IN']},
-            'interests': interests,
-            'targeting_automation': {
-                'advantage_audience': 0
-            },
+            'targeting_automation': {'advantage_audience': 1},
             'publisher_platforms': ['facebook', 'instagram'],
             'facebook_positions': ['feed'],
             'instagram_positions': ['stream', 'story']
@@ -1382,15 +1371,7 @@ def publish_meta_advantage_video():
         daily_budget_paise = daily_budget_rupees * 100
         timestamp = int(time.time())
         base_name = f'WEARTH Video Meta {variant_id} {timestamp}'
-
-        interest_names = ['fitness', 'yoga', 'sustainable fashion', 'activewear', 'wellness']
-        interests, warnings = _meta_interest_ids(interest_names)
-        if not interests:
-            return jsonify({
-                'error': 'Unable to resolve Meta targeting interests',
-                'requested_interests': interest_names,
-                'warnings': warnings
-            }), 500
+        warnings = []
 
         download_url = _resolve_video_download_url(video_url)
         video_resp = requests.get(download_url, timeout=120, allow_redirects=True)
@@ -1421,8 +1402,7 @@ def publish_meta_advantage_video():
             'age_min': 25,
             'age_max': 40,
             'geo_locations': {'countries': ['IN']},
-            'interests': interests,
-            'targeting_automation': {'advantage_audience': 0},
+            'targeting_automation': {'advantage_audience': 1},
             'publisher_platforms': ['facebook', 'instagram'],
             'facebook_positions': ['feed'],
             'instagram_positions': ['stream', 'story']
