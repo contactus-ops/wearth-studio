@@ -974,12 +974,87 @@ def _extract_preview_url(preview_payload: dict, ad_id: str) -> str:
     return ''
 
 
-def _resolve_video_download_url(video_url: str) -> str:
-    """Convert Drive links to direct-download URL if needed."""
+def _resolve_video_download_url(video_url: str) -> tuple:
+    """Download video bytes from URL, handling Google Drive large file confirmations."""
     file_id = _extract_drive_file_id(video_url)
     if file_id:
-        return _drive_file_download_url(file_id)
-    return video_url
+        download_url = _drive_file_download_url(file_id)
+    else:
+        download_url = video_url
+    
+    resp = requests.get(download_url, timeout=120, allow_redirects=True)
+    
+    # Handle Google Drive virus scan confirmation page
+    content_type = resp.headers.get('Content-Type', '')
+    if 'text/html' in content_type:
+        # Extract confirm token from HTML
+        confirm_match = re.search(r'confirm=([0-9A-Za-z_\-]+)', resp.text)
+        if confirm_match:
+            confirm_token = confirm_match.group(1)
+            confirmed_url = f'https://drive.google.com/uc?export=download&id={file_id}&confirm={confirm_token}'
+            resp = requests.get(confirmed_url, timeout=120, allow_redirects=True)
+        else:
+            # Try uuid confirm pattern
+            uuid_match = re.search(r'uuid=([0-9A-Za-z_\-]+)', resp.text)
+            if uuid_match:
+                uuid_token = uuid_match.group(1)
+                confirmed_url = f'https://drive.google.com/uc?export=download&id={file_id}&confirm=t&uuid={uuid_token}'
+                resp = requests.get(confirmed_url, timeout=120, allow_redirects=True)
+    
+    return resp.content, resp.headers.get('Content-Type', 'video/mp4')
+
+
+def _compress_video_if_needed(video_bytes: bytes, threshold_mb: int = 30) -> bytes:
+    """Compress video to H.264 720p 6Mbps if larger than threshold."""
+    import tempfile, os, subprocess
+    
+    size_mb = len(video_bytes) / (1024 * 1024)
+    if size_mb <= threshold_mb:
+        return video_bytes
+    
+    print(f'Video is {size_mb:.1f}MB, compressing to optimise for Meta...')
+    
+    input_tmp = None
+    output_tmp = None
+    try:
+        # Write input to temp file
+        with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as f:
+            f.write(video_bytes)
+            input_tmp = f.name
+        
+        output_tmp = input_tmp.replace('.mp4', '_compressed.mp4')
+        
+        # Run ffmpeg compression
+        cmd = [
+            'ffmpeg', '-i', input_tmp,
+            '-vcodec', 'libx264',
+            '-vf', 'scale=-2:720',
+            '-r', '30',
+            '-b:v', '6M',
+            '-b:a', '128k',
+            '-movflags', '+faststart',
+            '-y', output_tmp
+        ]
+        result = subprocess.run(cmd, capture_output=True, timeout=300)
+        
+        if result.returncode == 0:
+            with open(output_tmp, 'rb') as f:
+                compressed = f.read()
+            compressed_mb = len(compressed) / (1024 * 1024)
+            print(f'Compressed to {compressed_mb:.1f}MB')
+            return compressed
+        else:
+            print(f'FFmpeg compression failed: {result.stderr.decode()}, using original')
+            return video_bytes
+            
+    except Exception as e:
+        print(f'Compression error: {e}, using original')
+        return video_bytes
+    finally:
+        if input_tmp and os.path.exists(input_tmp):
+            os.remove(input_tmp)
+        if output_tmp and os.path.exists(output_tmp):
+            os.remove(output_tmp)
 
 
 def _upload_meta_video(video_bytes: bytes, file_name: str, content_type: str) -> str:
@@ -1373,16 +1448,15 @@ def publish_meta_advantage_video():
         base_name = f'WEARTH Video Meta {variant_id} {timestamp}'
         warnings = []
 
-        download_url = _resolve_video_download_url(video_url)
-        video_resp = requests.get(download_url, timeout=120, allow_redirects=True)
-        if video_resp.status_code != 200:
+        video_bytes, content_type = _resolve_video_download_url(video_url)
+        if not video_bytes:
             return jsonify({
-                'error': f'Failed to download video from video_url ({video_resp.status_code})',
+                'error': 'Failed to download video from video_url',
                 'video_url': video_url
             }), 400
 
-        content_type = video_resp.headers.get('Content-Type', 'video/mp4')
-        video_id = _upload_meta_video(video_resp.content, f'wearth_{variant_id}_{timestamp}.mp4', content_type)
+        video_bytes = _compress_video_if_needed(video_bytes, threshold_mb=30)
+        video_id = _upload_meta_video(video_bytes, f'wearth_{variant_id}_{timestamp}.mp4', 'video/mp4')
         _wait_for_meta_video_ready(video_id)
 
         campaign = _meta_request(
