@@ -10,6 +10,9 @@ import shutil
 from urllib.parse import urlparse, parse_qs
 from io import BytesIO
 import base64 as b64mod
+import sys
+import subprocess
+import tempfile
 
 app = Flask(__name__)
 
@@ -746,15 +749,31 @@ def _parse_drive_video_publish_payload(data: dict):
     daily_budget = int(data.get('daily_budget', 200) or 200)
     if not headline or not primary_text:
         raise ValueError('headline and primary_text are required')
-    return drive_file_id, variant_id, headline, primary_text, cta, daily_budget
+    ac = data.get('auto_captions', False)
+    if isinstance(ac, str):
+        ac = str(ac).strip().lower() in ('1', 'true', 'yes', 'on')
+    else:
+        ac = bool(ac)
+    return drive_file_id, variant_id, headline, primary_text, cta, daily_budget, ac
 
 
-def _run_drive_video_meta_pipeline(drive_file_id: str, variant_id: str, headline: str, primary_text: str, cta: str, daily_budget: int) -> dict:
+def _run_drive_video_meta_pipeline(
+    drive_file_id: str,
+    variant_id: str,
+    headline: str,
+    primary_text: str,
+    cta: str,
+    daily_budget: int,
+    auto_captions: bool = False,
+) -> dict:
     """Download from Drive, compress, upload to Meta, create paused campaign/ad."""
     video_bytes, _ = _download_drive_video_via_api(drive_file_id)
     if not video_bytes:
         raise Exception(f'Drive download returned empty file for {drive_file_id}')
     video_bytes_local = _compress_video_if_needed(video_bytes, threshold_mb=30)
+    video_bytes_local, cap_meta = _maybe_burn_auto_captions(
+        video_bytes_local, headline, primary_text, auto_captions
+    )
     video_id = _upload_meta_video(video_bytes_local, f'wearth_drive_{drive_file_id}_{int(time.time())}.mp4', 'video/mp4')
     _wait_for_meta_video_ready(video_id)
     publish_result = _create_meta_video_ad_from_video_id(
@@ -770,6 +789,7 @@ def _run_drive_video_meta_pipeline(drive_file_id: str, variant_id: str, headline
         'drive_file_id': drive_file_id,
         'video_id': video_id,
         'publish_result': publish_result,
+        'caption_processing': cap_meta,
     }
 
 
@@ -1077,10 +1097,239 @@ def _resolve_video_download_url(video_url: str) -> tuple:
     return resp.content, resp.headers.get('Content-Type', 'text/html')
 
 
+def _resolve_ffmpeg_bin() -> str:
+    """Return path to ffmpeg binary, or ''."""
+    b = shutil.which('ffmpeg')
+    if b:
+        return b
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe() or ''
+    except Exception:
+        return ''
+
+
+def _resolve_ffprobe_bin() -> str:
+    """Return path to ffprobe binary, or ''."""
+    b = shutil.which('ffprobe')
+    if b:
+        return b
+    ffmpeg = _resolve_ffmpeg_bin()
+    if not ffmpeg:
+        return ''
+    d = os.path.dirname(ffmpeg)
+    name = 'ffprobe.exe' if sys.platform == 'win32' else 'ffprobe'
+    candidate = os.path.join(d, name)
+    return candidate if os.path.isfile(candidate) else ''
+
+
+def _ffprobe_json(path: str) -> dict:
+    """Run ffprobe and return parsed JSON, or {} on failure."""
+    ffprobe = _resolve_ffprobe_bin()
+    if not ffprobe:
+        return {}
+    try:
+        r = subprocess.run(
+            [
+                ffprobe, '-v', 'error', '-print_format', 'json',
+                '-show_format', '-show_streams', path
+            ],
+            capture_output=True,
+            timeout=60,
+            text=True,
+        )
+        if r.returncode != 0 or not r.stdout:
+            return {}
+        return json.loads(r.stdout)
+    except Exception:
+        return {}
+
+
+def _video_file_has_subtitle_stream(path: str) -> bool:
+    """True if container reports at least one subtitle stream (not burned-in pixels)."""
+    data = _ffprobe_json(path)
+    for stream in data.get('streams') or []:
+        if (stream.get('codec_type') or '').lower() == 'subtitle':
+            return True
+    return False
+
+
+def _ffprobe_video_dimensions_and_duration(path: str) -> tuple:
+    """Returns (width, height, duration_sec) with sensible defaults."""
+    data = _ffprobe_json(path)
+    w, h, dur = 1280, 720, 30.0
+    for stream in data.get('streams') or []:
+        if (stream.get('codec_type') or '').lower() == 'video':
+            try:
+                w = int(stream.get('width') or w)
+                h = int(stream.get('height') or h)
+            except (TypeError, ValueError):
+                pass
+            d = stream.get('duration')
+            if d:
+                try:
+                    dur = float(d)
+                except (TypeError, ValueError):
+                    pass
+            break
+    fmt = data.get('format') or {}
+    if fmt.get('duration'):
+        try:
+            dur = float(fmt['duration'])
+        except (TypeError, ValueError):
+            pass
+    dur = max(3.0, min(dur, 600.0))
+    return w, h, dur
+
+
+def _ass_escape(text: str) -> str:
+    """Escape user text for ASS dialogue lines."""
+    if not text:
+        return ''
+    t = text.replace('\\', '\\\\').replace('{', '\\{').replace('}', '\\}')
+    return t.replace('\n', '\\N').replace('\r', '')
+
+
+def _headline_to_highlighted_ass_dialogue(headline: str) -> str:
+    """Last word in yellow (BGR &H00FFFF), rest white (&HFFFFFF)."""
+    parts = (headline or '').strip().split()
+    if not parts:
+        return ''
+    if len(parts) == 1:
+        return '{\\c&H00FFFF&}' + _ass_escape(parts[0])
+    lead = ' '.join(parts[:-1])
+    last = parts[-1]
+    return '{\\c&HFFFFFF&}' + _ass_escape(lead) + ' {\\c&H00FFFF&}' + _ass_escape(last)
+
+
+def _wrap_primary_for_ass(primary_text: str, max_len: int = 46, max_lines: int = 2) -> str:
+    """Break primary_text into short ASS lines."""
+    words = (primary_text or '').split()
+    if not words:
+        return ''
+    lines = []
+    cur = []
+    cur_len = 0
+    for w in words:
+        add = len(w) + (1 if cur else 0)
+        if cur_len + add > max_len and cur:
+            lines.append(' '.join(cur))
+            cur = [w]
+            cur_len = len(w)
+            if len(lines) >= max_lines:
+                break
+        else:
+            cur.append(w)
+            cur_len += add
+    if cur and len(lines) < max_lines:
+        lines.append(' '.join(cur))
+    if len(lines) > max_lines:
+        lines = lines[:max_lines]
+    return '\\N'.join('{\\c&HFFFFFF&}' + _ass_escape(line) for line in lines)
+
+
+def _write_auto_caption_ass(
+    ass_path: str,
+    headline: str,
+    primary_text: str,
+    width: int,
+    height: int,
+    duration_sec: float,
+) -> None:
+    """Write a minimal ASS with lower-third headline + primary lines."""
+    head_line = _headline_to_highlighted_ass_dialogue(headline)
+    body = _wrap_primary_for_ass(primary_text)
+    dialogue = head_line + ('\\N' + body if body else '')
+    end_h = int(duration_sec // 3600)
+    end_m = int((duration_sec % 3600) // 60)
+    end_s = duration_sec % 60
+    end_ts = f'{end_h}:{end_m:02d}:{end_s:05.2f}'
+    # Large outline for readability on varied backgrounds
+    ass = (
+        '[Script Info]\nScriptType: v4.00+\nPlayResX: %d\nPlayResY: %d\nScaledBorderAndShadow: yes\n\n'
+        '[V4+ Styles]\n'
+        'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, '
+        'Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, '
+        'Alignment, MarginL, MarginR, MarginV, Encoding\n'
+        'Style: Default,Arial Black,52,&H00FFFFFF,&H000000FF,&H80000000,&H80000000,-1,0,0,0,100,100,0,0,'
+        '1,4,2,2,60,60,90,1\n\n'
+        '[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n'
+    ) % (width, height)
+    ass += f'Dialogue: 0,0:00:00.00,{end_ts},Default,,0,0,0,,{dialogue}\n'
+    with open(ass_path, 'w', encoding='utf-8-sig') as f:
+        f.write(ass)
+
+
+def _maybe_burn_auto_captions(
+    video_bytes: bytes,
+    headline: str,
+    primary_text: str,
+    auto_captions: bool,
+) -> tuple:
+    """
+    If auto_captions is True and ffprobe finds no embedded subtitle streams, burn a simple
+    lower-third (headline with last word in yellow + primary text). Burned-in styled
+    captions without a subtitle track cannot be detected; we only skip when a subtitle
+    stream exists. Returns (video_bytes, meta_dict).
+    """
+    meta: dict = {'auto_captions_requested': bool(auto_captions)}
+    if not auto_captions:
+        return video_bytes, meta
+
+    ffmpeg = _resolve_ffmpeg_bin()
+    ffprobe = _resolve_ffprobe_bin()
+    if not ffmpeg or not ffprobe:
+        meta['auto_captions_action'] = 'skipped_no_ffprobe'
+        return video_bytes, meta
+
+    work = tempfile.mkdtemp(prefix='wearth_cap_')
+    inp = os.path.join(work, 'in.mp4')
+    outp = os.path.join(work, 'out.mp4')
+    assp = os.path.join(work, 'cap.ass')
+    try:
+        with open(inp, 'wb') as f:
+            f.write(video_bytes)
+        if _video_file_has_subtitle_stream(inp):
+            meta['auto_captions_action'] = 'skipped_embedded_subtitle_tracks_present'
+            return video_bytes, meta
+
+        w, h, dur = _ffprobe_video_dimensions_and_duration(inp)
+        _write_auto_caption_ass(assp, headline, primary_text, w, h, dur)
+        cmd = [
+            ffmpeg, '-y', '-i', 'in.mp4',
+            '-vf', 'subtitles=cap.ass',
+            '-c:v', 'libx264', '-preset', 'fast', '-crf', '20',
+            '-c:a', 'copy', '-movflags', '+faststart',
+            'out.mp4',
+        ]
+        r = subprocess.run(cmd, cwd=work, capture_output=True, timeout=600)
+        if r.returncode != 0 or not os.path.isfile(outp):
+            err = (r.stderr or b'').decode('utf-8', errors='replace')[:400]
+            print(f'Auto-caption burn failed: {err}')
+            meta['auto_captions_action'] = 'burn_failed_used_original'
+            return video_bytes, meta
+        with open(outp, 'rb') as f:
+            out_bytes = f.read()
+        meta['auto_captions_action'] = 'burned_lower_third'
+        meta['auto_captions_bytes_in'] = len(video_bytes)
+        meta['auto_captions_bytes_out'] = len(out_bytes)
+        return out_bytes, meta
+    except Exception as e:
+        print(f'Auto-caption error: {e}')
+        meta['auto_captions_action'] = 'error_used_original'
+        meta['auto_captions_error'] = str(e)
+        return video_bytes, meta
+    finally:
+        try:
+            shutil.rmtree(work, ignore_errors=True)
+        except Exception:
+            pass
+
+
 def _compress_video_if_needed(video_bytes: bytes, threshold_mb: int = 30) -> bytes:
     """Compress video to H.264 720p 6Mbps if larger than threshold."""
-    import tempfile, os, subprocess
-    
+    import os
+
     size_mb = len(video_bytes) / (1024 * 1024)
     if size_mb <= threshold_mb:
         return video_bytes
@@ -1096,15 +1345,8 @@ def _compress_video_if_needed(video_bytes: bytes, threshold_mb: int = 30) -> byt
             input_tmp = f.name
         
         output_tmp = input_tmp.replace('.mp4', '_compressed.mp4')
-        
-        # Resolve ffmpeg binary (system ffmpeg first, bundled imageio-ffmpeg fallback)
-        ffmpeg_bin = shutil.which('ffmpeg')
-        if not ffmpeg_bin:
-            try:
-                import imageio_ffmpeg
-                ffmpeg_bin = imageio_ffmpeg.get_ffmpeg_exe()
-            except Exception:
-                ffmpeg_bin = None
+
+        ffmpeg_bin = _resolve_ffmpeg_bin()
         if not ffmpeg_bin:
             print('FFmpeg binary not found, using original')
             return video_bytes
@@ -1767,11 +2009,16 @@ def publish_meta_advantage_video_from_drive():
     """
     Fully automated flow:
     Google Drive file -> bytes -> optional compression -> Meta advideo -> paused campaign/ad.
+
+    Optional JSON: auto_captions (bool, default false). When true, if ffprobe finds no embedded
+    subtitle stream, burns a lower-third from headline (last word yellow) + primary_text.
     """
     try:
         data = request.json or {}
         try:
-            drive_file_id, variant_id, headline, primary_text, cta, daily_budget = _parse_drive_video_publish_payload(data)
+            drive_file_id, variant_id, headline, primary_text, cta, daily_budget, auto_captions = (
+                _parse_drive_video_publish_payload(data)
+            )
         except ValueError as e:
             return jsonify({'error': str(e)}), 400
 
@@ -1783,7 +2030,7 @@ def publish_meta_advantage_video_from_drive():
 
         if not run_async:
             result = _run_drive_video_meta_pipeline(
-                drive_file_id, variant_id, headline, primary_text, cta, daily_budget
+                drive_file_id, variant_id, headline, primary_text, cta, daily_budget, auto_captions
             )
             return jsonify({'ok': True, 'status': 'complete', **result})
 
@@ -1798,7 +2045,7 @@ def publish_meta_advantage_video_from_drive():
         def run_job():
             try:
                 result = _run_drive_video_meta_pipeline(
-                    drive_file_id, variant_id, headline, primary_text, cta, daily_budget
+                    drive_file_id, variant_id, headline, primary_text, cta, daily_budget, auto_captions
                 )
                 _drive_video_jobs[job_id] = {
                     'status': 'complete',
@@ -1836,11 +2083,14 @@ def publish_meta_advantage_video_async():
     """
     Same payload as publish-video-from-drive; always runs in a background thread and returns job_id.
     Poll GET /api/meta-advantage/job-status/<job_id>.
+    Supports auto_captions like publish-video-from-drive.
     """
     try:
         data = request.json or {}
         try:
-            drive_file_id, variant_id, headline, primary_text, cta, daily_budget = _parse_drive_video_publish_payload(data)
+            drive_file_id, variant_id, headline, primary_text, cta, daily_budget, auto_captions = (
+                _parse_drive_video_publish_payload(data)
+            )
         except ValueError as e:
             return jsonify({'error': str(e)}), 400
 
@@ -1854,7 +2104,7 @@ def publish_meta_advantage_video_async():
         def run_job():
             try:
                 result = _run_drive_video_meta_pipeline(
-                    drive_file_id, variant_id, headline, primary_text, cta, daily_budget
+                    drive_file_id, variant_id, headline, primary_text, cta, daily_budget, auto_captions
                 )
                 _drive_video_jobs[job_id] = {
                     'status': 'complete',
