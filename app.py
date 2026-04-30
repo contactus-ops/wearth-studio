@@ -1734,6 +1734,38 @@ def publish_meta_advantage_video_from_drive():
         if not headline or not primary_text:
             return jsonify({'error': 'headline and primary_text are required'}), 400
 
+        run_async = data.get('async', True)
+        if isinstance(run_async, str):
+            run_async = run_async.lower() != 'false'
+        else:
+            run_async = bool(run_async)
+
+        def execute_pipeline() -> dict:
+            video_bytes, _ = _download_drive_video_via_api(drive_file_id)
+            if not video_bytes:
+                raise Exception(f'Drive download returned empty file for {drive_file_id}')
+            video_bytes_local = _compress_video_if_needed(video_bytes, threshold_mb=30)
+            video_id = _upload_meta_video(video_bytes_local, f'wearth_drive_{drive_file_id}_{int(time.time())}.mp4', 'video/mp4')
+            _wait_for_meta_video_ready(video_id)
+            publish_result = _create_meta_video_ad_from_video_id(
+                video_id=video_id,
+                variant_id=variant_id,
+                headline=headline,
+                primary_text=primary_text,
+                cta=cta,
+                daily_budget_rupees=daily_budget
+            )
+            return {
+                'mode': 'drive_to_fal_to_meta',
+                'drive_file_id': drive_file_id,
+                'video_id': video_id,
+                'publish_result': publish_result
+            }
+
+        if not run_async:
+            result = execute_pipeline()
+            return jsonify({'ok': True, 'status': 'complete', **result})
+
         # Avoid Gunicorn timeout by running heavy pipeline in background.
         job_id = str(int(time.time() * 1000))
         _drive_video_jobs[job_id] = {
@@ -1744,26 +1776,10 @@ def publish_meta_advantage_video_from_drive():
 
         def run_job():
             try:
-                video_bytes, _ = _download_drive_video_via_api(drive_file_id)
-                if not video_bytes:
-                    raise Exception(f'Drive download returned empty file for {drive_file_id}')
-                video_bytes_local = _compress_video_if_needed(video_bytes, threshold_mb=30)
-                video_id = _upload_meta_video(video_bytes_local, f'wearth_drive_{drive_file_id}_{int(time.time())}.mp4', 'video/mp4')
-                _wait_for_meta_video_ready(video_id)
-                publish_result = _create_meta_video_ad_from_video_id(
-                    video_id=video_id,
-                    variant_id=variant_id,
-                    headline=headline,
-                    primary_text=primary_text,
-                    cta=cta,
-                    daily_budget_rupees=daily_budget
-                )
+                result = execute_pipeline()
                 _drive_video_jobs[job_id] = {
                     'status': 'complete',
-                    'mode': 'drive_to_fal_to_meta',
-                    'drive_file_id': drive_file_id,
-                    'video_id': video_id,
-                    'publish_result': publish_result
+                    **result
                 }
             except Exception as e:
                 _drive_video_jobs[job_id] = {
