@@ -977,33 +977,56 @@ def _extract_preview_url(preview_payload: dict, ad_id: str) -> str:
 
 
 def _resolve_video_download_url(video_url: str) -> tuple:
-    """Download video bytes from URL, handling Google Drive large file confirmations."""
+    """Download video bytes from URL, handling Google Drive confirmation flow robustly."""
     file_id = _extract_drive_file_id(video_url)
     if file_id:
         download_url = _drive_file_download_url(file_id)
     else:
         download_url = video_url
-    
-    resp = requests.get(download_url, timeout=120, allow_redirects=True)
-    
-    # Handle Google Drive virus scan confirmation page
-    content_type = resp.headers.get('Content-Type', '')
-    if 'text/html' in content_type:
-        # Extract confirm token from HTML
-        confirm_match = re.search(r'confirm=([0-9A-Za-z_\-]+)', resp.text)
-        if confirm_match:
-            confirm_token = confirm_match.group(1)
-            confirmed_url = f'https://drive.google.com/uc?export=download&id={file_id}&confirm={confirm_token}'
-            resp = requests.get(confirmed_url, timeout=120, allow_redirects=True)
-        else:
-            # Try uuid confirm pattern
-            uuid_match = re.search(r'uuid=([0-9A-Za-z_\-]+)', resp.text)
-            if uuid_match:
-                uuid_token = uuid_match.group(1)
-                confirmed_url = f'https://drive.google.com/uc?export=download&id={file_id}&confirm=t&uuid={uuid_token}'
-                resp = requests.get(confirmed_url, timeout=120, allow_redirects=True)
-    
-    return resp.content, resp.headers.get('Content-Type', 'video/mp4')
+
+    session = requests.Session()
+    resp = session.get(download_url, timeout=120, allow_redirects=True)
+    content_type = (resp.headers.get('Content-Type') or '').lower()
+    if 'text/html' not in content_type:
+        return resp.content, resp.headers.get('Content-Type', 'video/mp4')
+
+    html = resp.text or ''
+
+    # 1) Cookie-based confirm token (most reliable on Drive warning pages)
+    confirm_token = ''
+    for key, value in session.cookies.items():
+        if key.startswith('download_warning'):
+            confirm_token = value
+            break
+    if confirm_token and file_id:
+        confirmed_url = f'https://drive.google.com/uc?export=download&id={file_id}&confirm={confirm_token}'
+        resp2 = session.get(confirmed_url, timeout=120, allow_redirects=True)
+        ct2 = (resp2.headers.get('Content-Type') or '').lower()
+        if 'text/html' not in ct2:
+            return resp2.content, resp2.headers.get('Content-Type', 'video/mp4')
+
+    # 2) confirm= token in HTML
+    confirm_match = re.search(r'confirm=([0-9A-Za-z_-]+)', html)
+    if confirm_match and file_id:
+        confirmed_url = f'https://drive.google.com/uc?export=download&id={file_id}&confirm={confirm_match.group(1)}'
+        resp3 = session.get(confirmed_url, timeout=120, allow_redirects=True)
+        ct3 = (resp3.headers.get('Content-Type') or '').lower()
+        if 'text/html' not in ct3:
+            return resp3.content, resp3.headers.get('Content-Type', 'video/mp4')
+
+    # 3) Download form action fallback
+    form_match = re.search(r'<form[^>]+id="download-form"[^>]+action="([^"]+)"', html)
+    if form_match:
+        action = form_match.group(1).replace('&amp;', '&')
+        if action.startswith('/'):
+            action = f'https://drive.google.com{action}'
+        resp4 = session.get(action, timeout=120, allow_redirects=True)
+        ct4 = (resp4.headers.get('Content-Type') or '').lower()
+        if 'text/html' not in ct4:
+            return resp4.content, resp4.headers.get('Content-Type', 'video/mp4')
+
+    # Still HTML: return raw bytes for debug endpoint visibility
+    return resp.content, resp.headers.get('Content-Type', 'text/html')
 
 
 def _compress_video_if_needed(video_bytes: bytes, threshold_mb: int = 30) -> bytes:
