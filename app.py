@@ -6,6 +6,7 @@ import time
 import traceback
 import random
 import re
+import shutil
 from urllib.parse import urlparse, parse_qs
 from io import BytesIO
 import base64 as b64mod
@@ -1053,9 +1054,21 @@ def _compress_video_if_needed(video_bytes: bytes, threshold_mb: int = 30) -> byt
         
         output_tmp = input_tmp.replace('.mp4', '_compressed.mp4')
         
+        # Resolve ffmpeg binary (system ffmpeg first, bundled imageio-ffmpeg fallback)
+        ffmpeg_bin = shutil.which('ffmpeg')
+        if not ffmpeg_bin:
+            try:
+                import imageio_ffmpeg
+                ffmpeg_bin = imageio_ffmpeg.get_ffmpeg_exe()
+            except Exception:
+                ffmpeg_bin = None
+        if not ffmpeg_bin:
+            print('FFmpeg binary not found, using original')
+            return video_bytes
+
         # Run ffmpeg compression
         cmd = [
-            'ffmpeg', '-i', input_tmp,
+            ffmpeg_bin, '-i', input_tmp,
             '-vcodec', 'libx264',
             '-vf', 'scale=-2:720',
             '-r', '30',
