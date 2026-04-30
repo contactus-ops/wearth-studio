@@ -1014,13 +1014,16 @@ def _resolve_video_download_url(video_url: str) -> tuple:
         if 'text/html' not in ct3:
             return resp3.content, resp3.headers.get('Content-Type', 'video/mp4')
 
-    # 3) Download form action fallback
+    # 3) Download form action fallback (Drive warning page with hidden inputs)
     form_match = re.search(r'<form[^>]+id="download-form"[^>]+action="([^"]+)"', html)
     if form_match:
         action = form_match.group(1).replace('&amp;', '&')
         if action.startswith('/'):
             action = f'https://drive.google.com{action}'
-        resp4 = session.get(action, timeout=120, allow_redirects=True)
+        params = {}
+        for key, value in re.findall(r'<input[^>]+name="([^"]+)"[^>]+value="([^"]*)"', html):
+            params[key] = value
+        resp4 = session.get(action, params=params, timeout=120, allow_redirects=True)
         ct4 = (resp4.headers.get('Content-Type') or '').lower()
         if 'text/html' not in ct4:
             return resp4.content, resp4.headers.get('Content-Type', 'video/mp4')
