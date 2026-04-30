@@ -711,6 +711,8 @@ META_VIDEO_COPY_PROMPT = (
     "{\"variants\": [{...}]}\n"
 )
 
+_last_video_debug = {}
+
 
 def _extract_drive_file_id(url: str) -> str:
     """Extract file id from common Google Drive URL formats."""
@@ -1057,6 +1059,14 @@ def _compress_video_if_needed(video_bytes: bytes, threshold_mb: int = 30) -> byt
             os.remove(output_tmp)
 
 
+def _is_valid_mp4(video_bytes: bytes) -> bool:
+    """Basic MP4 signature check via common box headers."""
+    if not video_bytes or len(video_bytes) < 12:
+        return False
+    header = video_bytes[:64]
+    return (b'ftyp' in header) or (b'moov' in header)
+
+
 def _upload_meta_video(video_bytes: bytes, file_name: str, content_type: str) -> str:
     """Upload video to Meta and return video_id."""
     upload = _meta_request(
@@ -1154,6 +1164,39 @@ def generate_meta_advantage_creatives():
             'images': images
         })
 
+    except Exception as e:
+        return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
+
+
+@app.route('/api/debug/last-video', methods=['GET'])
+def debug_last_video():
+    """Return metadata for the latest video bytes handled by publish-video/download-test."""
+    return jsonify({'ok': True, 'last_video': _last_video_debug})
+
+
+@app.route('/api/debug/download-test', methods=['GET'])
+def debug_download_test():
+    """
+    Download video via current resolver and return byte-level debug info.
+    Accepts optional query param: video_url
+    """
+    try:
+        video_url = (
+            request.args.get('video_url', '').strip()
+            or 'https://drive.google.com/uc?export=download&id=1i3NheWQhJx6_8UJThGq3UQmmFewQC85_'
+        )
+        video_bytes, content_type = _resolve_video_download_url(video_url)
+        first_200 = video_bytes[:200] if video_bytes else b''
+        result = {
+            'ok': True,
+            'video_url': video_url,
+            'content_type': content_type,
+            'size_bytes': len(video_bytes or b''),
+            'first_200_bytes_hex': first_200.hex(),
+            'is_valid_mp4': _is_valid_mp4(video_bytes or b'')
+        }
+        _last_video_debug.update(result)
+        return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
 
@@ -1456,6 +1499,16 @@ def publish_meta_advantage_video():
             }), 400
 
         video_bytes = _compress_video_if_needed(video_bytes, threshold_mb=30)
+        with open('/tmp/test_video.mp4', 'wb') as f:
+            f.write(video_bytes)
+        _last_video_debug.update({
+            'video_url': video_url,
+            'content_type': content_type,
+            'size_bytes': len(video_bytes),
+            'first_200_bytes_hex': video_bytes[:200].hex(),
+            'is_valid_mp4': _is_valid_mp4(video_bytes),
+            'saved_path': '/tmp/test_video.mp4'
+        })
         video_id = _upload_meta_video(video_bytes, f'wearth_{variant_id}_{timestamp}.mp4', 'video/mp4')
         _wait_for_meta_video_ready(video_id)
 
