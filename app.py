@@ -1161,6 +1161,104 @@ def _publish_video_via_existing_endpoint(payload: dict) -> dict:
     return raw
 
 
+def _create_meta_video_ad_from_video_id(video_id: str, variant_id: str, headline: str, primary_text: str, cta: str, daily_budget_rupees: int) -> dict:
+    """Create campaign, adset, creative, and ad for an already-uploaded Meta video."""
+    if not META_PIXEL_ID:
+        raise Exception('META_PIXEL_ID not set')
+    cta_button = _normalize_cta_button(cta)
+    daily_budget_paise = daily_budget_rupees * 100
+    timestamp = int(time.time())
+    base_name = f'WEARTH Video Meta {variant_id} {timestamp}'
+    warnings = []
+
+    campaign = _meta_request(
+        'POST',
+        _meta_account_path('campaigns'),
+        data={
+            'name': f'{base_name} Campaign',
+            'objective': 'OUTCOME_SALES',
+            'status': 'PAUSED',
+            'is_adset_budget_sharing_enabled': 'false',
+            'special_ad_categories': json.dumps([])
+        }
+    )
+    campaign_id = campaign.get('id', '')
+
+    targeting = {
+        'age_min': 25,
+        'age_max': 40,
+        'geo_locations': {'countries': ['IN']},
+        'targeting_automation': {'advantage_audience': 1},
+        'publisher_platforms': ['facebook', 'instagram'],
+        'facebook_positions': ['feed'],
+        'instagram_positions': ['stream', 'story']
+    }
+
+    adset = _meta_request(
+        'POST',
+        _meta_account_path('adsets'),
+        data={
+            'name': f'{base_name} Ad Set',
+            'campaign_id': campaign_id,
+            'status': 'PAUSED',
+            'daily_budget': str(daily_budget_paise),
+            'bid_strategy': 'LOWEST_COST_WITHOUT_CAP',
+            'billing_event': 'IMPRESSIONS',
+            'optimization_goal': 'OFFSITE_CONVERSIONS',
+            'targeting_automation': json.dumps({'advantage_audience': 0}),
+            'promoted_object': json.dumps({
+                'pixel_id': META_PIXEL_ID,
+                'custom_event_type': 'PURCHASE'
+            }),
+            'targeting': json.dumps(targeting)
+        }
+    )
+    adset_id = adset.get('id', '')
+
+    creative = _meta_request(
+        'POST',
+        _meta_account_path('adcreatives'),
+        data={
+            'name': f'{base_name} Creative',
+            'object_story_spec': json.dumps({
+                'page_id': META_PAGE_ID,
+                'video_data': {
+                    'video_id': video_id,
+                    'message': primary_text,
+                    'title': headline,
+                    'call_to_action': {
+                        'type': cta_button,
+                        'value': {'link': 'https://wearthactive.com'}
+                    }
+                }
+            })
+        }
+    )
+    creative_id = creative.get('id', '')
+
+    ad = _meta_request(
+        'POST',
+        _meta_account_path('ads'),
+        data={
+            'name': f'{base_name} Ad',
+            'adset_id': adset_id,
+            'status': 'PAUSED',
+            'creative': json.dumps({'creative_id': creative_id})
+        }
+    )
+    ad_id = ad.get('id', '')
+
+    return {
+        'ok': True,
+        'campaign_id': campaign_id,
+        'adset_id': adset_id,
+        'ad_id': ad_id,
+        'video_id': video_id,
+        'status': 'PAUSED',
+        'warnings': warnings
+    }
+
+
 def _upload_meta_video(video_bytes: bytes, file_name: str, content_type: str) -> str:
     """Upload video to Meta and return video_id."""
     upload = _meta_request(
@@ -1579,11 +1677,7 @@ def publish_meta_advantage_video():
         if daily_budget_rupees <= 0:
             return jsonify({'error': 'daily_budget must be greater than 0'}), 400
 
-        cta_button = _normalize_cta_button(cta)
-        daily_budget_paise = daily_budget_rupees * 100
         timestamp = int(time.time())
-        base_name = f'WEARTH Video Meta {variant_id} {timestamp}'
-        warnings = []
 
         video_bytes, content_type = _resolve_video_download_url(video_url)
         if not video_bytes:
@@ -1605,93 +1699,14 @@ def publish_meta_advantage_video():
         })
         video_id = _upload_meta_video(video_bytes, f'wearth_{variant_id}_{timestamp}.mp4', 'video/mp4')
         _wait_for_meta_video_ready(video_id)
-
-        campaign = _meta_request(
-            'POST',
-            _meta_account_path('campaigns'),
-            data={
-                'name': f'{base_name} Campaign',
-                'objective': 'OUTCOME_SALES',
-                'status': 'PAUSED',
-                'is_adset_budget_sharing_enabled': 'false',
-                'special_ad_categories': json.dumps([])
-            }
-        )
-        campaign_id = campaign.get('id', '')
-
-        targeting = {
-            'age_min': 25,
-            'age_max': 40,
-            'geo_locations': {'countries': ['IN']},
-            'targeting_automation': {'advantage_audience': 1},
-            'publisher_platforms': ['facebook', 'instagram'],
-            'facebook_positions': ['feed'],
-            'instagram_positions': ['stream', 'story']
-        }
-
-        adset = _meta_request(
-            'POST',
-            _meta_account_path('adsets'),
-            data={
-                'name': f'{base_name} Ad Set',
-                'campaign_id': campaign_id,
-                'status': 'PAUSED',
-                'daily_budget': str(daily_budget_paise),
-                'bid_strategy': 'LOWEST_COST_WITHOUT_CAP',
-                'billing_event': 'IMPRESSIONS',
-                'optimization_goal': 'OFFSITE_CONVERSIONS',
-                'targeting_automation': json.dumps({'advantage_audience': 0}),
-                'promoted_object': json.dumps({
-                    'pixel_id': META_PIXEL_ID,
-                    'custom_event_type': 'PURCHASE'
-                }),
-                'targeting': json.dumps(targeting)
-            }
-        )
-        adset_id = adset.get('id', '')
-
-        creative = _meta_request(
-            'POST',
-            _meta_account_path('adcreatives'),
-            data={
-                'name': f'{base_name} Creative',
-                'object_story_spec': json.dumps({
-                    'page_id': META_PAGE_ID,
-                    'video_data': {
-                        'video_id': video_id,
-                        'message': primary_text,
-                        'title': headline,
-                        'call_to_action': {
-                            'type': cta_button,
-                            'value': {'link': 'https://wearthactive.com'}
-                        }
-                    }
-                })
-            }
-        )
-        creative_id = creative.get('id', '')
-
-        ad = _meta_request(
-            'POST',
-            _meta_account_path('ads'),
-            data={
-                'name': f'{base_name} Ad',
-                'adset_id': adset_id,
-                'status': 'PAUSED',
-                'creative': json.dumps({'creative_id': creative_id})
-            }
-        )
-        ad_id = ad.get('id', '')
-
-        return jsonify({
-            'ok': True,
-            'campaign_id': campaign_id,
-            'adset_id': adset_id,
-            'ad_id': ad_id,
-            'video_id': video_id,
-            'status': 'PAUSED',
-            'warnings': warnings
-        })
+        return jsonify(_create_meta_video_ad_from_video_id(
+            video_id=video_id,
+            variant_id=variant_id,
+            headline=headline,
+            primary_text=primary_text,
+            cta=cta,
+            daily_budget_rupees=daily_budget_rupees
+        ))
     except Exception as e:
         return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
 
@@ -1733,25 +1748,21 @@ def publish_meta_advantage_video_from_drive():
                 if not video_bytes:
                     raise Exception(f'Drive download returned empty file for {drive_file_id}')
                 video_bytes_local = _compress_video_if_needed(video_bytes, threshold_mb=30)
-                fal_url = _upload_bytes_to_fal_storage(
-                    video_bytes_local,
-                    f'wearth_drive_{drive_file_id}_{int(time.time())}.mp4',
-                    'video/mp4'
+                video_id = _upload_meta_video(video_bytes_local, f'wearth_drive_{drive_file_id}_{int(time.time())}.mp4', 'video/mp4')
+                _wait_for_meta_video_ready(video_id)
+                publish_result = _create_meta_video_ad_from_video_id(
+                    video_id=video_id,
+                    variant_id=variant_id,
+                    headline=headline,
+                    primary_text=primary_text,
+                    cta=cta,
+                    daily_budget_rupees=daily_budget
                 )
-                publish_payload = {
-                    'variant_id': variant_id,
-                    'video_url': fal_url,
-                    'headline': headline,
-                    'primary_text': primary_text,
-                    'cta': cta,
-                    'daily_budget': daily_budget
-                }
-                publish_result = _publish_video_via_existing_endpoint(publish_payload)
                 _drive_video_jobs[job_id] = {
                     'status': 'complete',
                     'mode': 'drive_to_fal_to_meta',
                     'drive_file_id': drive_file_id,
-                    'fal_video_url': fal_url,
+                    'video_id': video_id,
                     'publish_result': publish_result
                 }
             except Exception as e:
@@ -1816,11 +1827,8 @@ def auto_ab_video_from_drive():
         if not video_bytes:
             return jsonify({'error': 'Drive download returned empty file', 'drive_file_id': drive_file_id}), 400
         video_bytes = _compress_video_if_needed(video_bytes, threshold_mb=30)
-        fal_url = _upload_bytes_to_fal_storage(
-            video_bytes,
-            f'wearth_ab_{drive_file_id}_{int(time.time())}.mp4',
-            'video/mp4'
-        )
+        video_id = _upload_meta_video(video_bytes, f'wearth_ab_{drive_file_id}_{int(time.time())}.mp4', 'video/mp4')
+        _wait_for_meta_video_ready(video_id)
 
         prompt = META_VIDEO_COPY_PROMPT.replace('VIDEO_CONTEXT_PLACEHOLDER', video_context)
         generated = _call_claude_json(prompt, max_tokens=2200)
@@ -1833,7 +1841,6 @@ def auto_ab_video_from_drive():
         for i, variant in enumerate(variants):
             payload = {
                 'variant_id': str(variant.get('variant_id', chr(65 + i))),
-                'video_url': fal_url,
                 'headline': str(variant.get('headline', '')).strip(),
                 'primary_text': str(variant.get('primary_text', '')).strip(),
                 'cta': str(variant.get('cta', 'Shop Now')).strip() or 'Shop Now',
@@ -1843,7 +1850,14 @@ def auto_ab_video_from_drive():
                 results.append({'ok': False, 'variant': payload['variant_id'], 'error': 'Missing headline or primary_text'})
                 continue
             try:
-                publish_result = _publish_video_via_existing_endpoint(payload)
+                publish_result = _create_meta_video_ad_from_video_id(
+                    video_id=video_id,
+                    variant_id=payload['variant_id'],
+                    headline=payload['headline'],
+                    primary_text=payload['primary_text'],
+                    cta=payload['cta'],
+                    daily_budget_rupees=payload['daily_budget']
+                )
                 results.append({
                     'ok': True,
                     'variant': payload['variant_id'],
@@ -1859,7 +1873,7 @@ def auto_ab_video_from_drive():
             'ok': success_count > 0,
             'mode': 'auto_ab_video_from_drive',
             'drive_file_id': drive_file_id,
-            'fal_video_url': fal_url,
+            'video_id': video_id,
             'variants_generated': len(variants),
             'variants_published': success_count,
             'daily_budget_total': total_daily_budget,
