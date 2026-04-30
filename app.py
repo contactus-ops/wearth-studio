@@ -1280,7 +1280,7 @@ def _wait_for_meta_video_ready(video_id: str, timeout_seconds: int = 300) -> dic
         info = _meta_request(
             'GET',
             f'{video_id}',
-            params={'fields': 'id,status,processing_progress'}
+            params={'fields': 'id,status'}
         )
         last_payload = info
         status_obj = info.get('status', {}) or {}
