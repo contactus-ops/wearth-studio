@@ -271,6 +271,47 @@ def _fetch_all_klaviyo_profiles() -> list:
     return all_profiles
 
 
+def _klaviyo_profile_by_id(profile_id: str) -> dict:
+    if not profile_id:
+        return {}
+    return _klaviyo_api_get(f'https://a.klaviyo.com/api/profiles/{profile_id}/')
+
+
+def _klaviyo_first_placed_order_event_payload() -> dict:
+    """
+    Best-effort retrieval of a placed-order event payload.
+    Tries the user-requested filter literal first, then resolves metric id.
+    """
+    # As requested by user (literal metric_id filter value)
+    payload = _klaviyo_api_get(
+        'https://a.klaviyo.com/api/events/',
+        params={'filter': 'equals(metric_id,"PLACED_ORDER")', 'page[size]': 1}
+    )
+    if isinstance(payload, dict) and payload.get('data'):
+        return payload
+
+    # Fallback: discover placed-order metric id, then fetch events by that id.
+    metrics = _klaviyo_api_get(
+        'https://a.klaviyo.com/api/metrics/',
+        params={'filter': 'contains(name,"Placed Order")', 'page[size]': 20}
+    )
+    metric_id = ''
+    for m in metrics.get('data', []) if isinstance(metrics, dict) else []:
+        attrs = m.get('attributes', {}) if isinstance(m, dict) else {}
+        name = str(attrs.get('name') or '').strip().lower()
+        if 'placed order' in name:
+            metric_id = str(m.get('id') or '').strip()
+            if metric_id:
+                break
+    if not metric_id:
+        return payload
+
+    return _klaviyo_api_get(
+        'https://a.klaviyo.com/api/events/',
+        params={'filter': f'equals(metric_id,"{metric_id}")', 'page[size]': 1}
+    )
+
+
 def _score_klaviyo_profile(profile: dict) -> dict:
     attrs = profile.get('attributes', {}) if isinstance(profile, dict) else {}
     flat = _flatten_key_values(attrs)
@@ -2616,6 +2657,54 @@ def klaviyo_hot_profiles():
             'top_200': top_200,
             'segment_filters': _build_segment_filter_text(top_200),
             'score_breakdown': breakdown
+        })
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e), 'trace': traceback.format_exc()}), 500
+
+
+@app.route('/api/klaviyo/profile-schema', methods=['GET'])
+def klaviyo_profile_schema():
+    """
+    Return full raw JSON structures from Klaviyo to map account-specific fields:
+    - 3 random raw profiles from /api/profiles/
+    - first placed-order event + associated raw profile (if available)
+    """
+    try:
+        if not KLAVIYO_PRIVATE_KEY:
+            return jsonify({'ok': False, 'error': 'KLAVIYO_PRIVATE_KEY not set'}), 500
+
+        profiles = _fetch_all_klaviyo_profiles()
+        sample_size = min(3, len(profiles))
+        random_profiles = random.sample(profiles, sample_size) if sample_size > 0 else []
+
+        event_payload = _klaviyo_first_placed_order_event_payload()
+        first_event = None
+        if isinstance(event_payload, dict):
+            data = event_payload.get('data', [])
+            if isinstance(data, list) and data:
+                first_event = data[0]
+
+        placed_order_profile_id = None
+        placed_order_profile_raw = {}
+        if isinstance(first_event, dict):
+            rel = first_event.get('relationships', {})
+            prof_rel = rel.get('profile', {}) if isinstance(rel, dict) else {}
+            prof_data = prof_rel.get('data', {}) if isinstance(prof_rel, dict) else {}
+            placed_order_profile_id = str(prof_data.get('id') or '').strip() or None
+            if placed_order_profile_id:
+                try:
+                    placed_order_profile_raw = _klaviyo_profile_by_id(placed_order_profile_id)
+                except Exception as pe:
+                    placed_order_profile_raw = {'error': str(pe)}
+
+        return jsonify({
+            'ok': True,
+            'profiles_fetched': len(profiles),
+            'random_profiles_raw': random_profiles,  # complete profile objects
+            'placed_order_event_raw': first_event,   # complete event object
+            'placed_order_profile_id': placed_order_profile_id,
+            'placed_order_profile_raw': placed_order_profile_raw,  # complete profile object
+            'events_query_raw': event_payload
         })
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e), 'trace': traceback.format_exc()}), 500
