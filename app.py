@@ -228,6 +228,147 @@ def _has_any_signal(flat_pairs, key_substrings):
     return False
 
 
+def _flatten_klaviyo_attributes(attrs: dict) -> list:
+    """Flatten profile attributes; subscriptions/predictive_analytics stay nested."""
+    if not isinstance(attrs, dict):
+        return []
+    return _flatten_key_values(attrs)
+
+
+def _max_numeric_from_flat(flat_pairs, key_substrings) -> float:
+    """Max numeric value among keys whose path contains any substring."""
+    best = 0.0
+    for key, value in flat_pairs:
+        if not any(sub in key for sub in key_substrings):
+            continue
+        try:
+            if isinstance(value, bool):
+                if value:
+                    best = max(best, 1.0)
+            elif isinstance(value, (int, float)):
+                best = max(best, float(value))
+            elif isinstance(value, str):
+                s = value.strip().replace(',', '')
+                if s:
+                    best = max(best, float(s))
+        except (TypeError, ValueError):
+            continue
+    return best
+
+
+def _best_open_datetime(flat_pairs, attrs):
+    """Resolve last email open time from common Klaviyo / Shopify property keys."""
+    dt = _first_recent_date(
+        flat_pairs,
+        [
+            '$last_open',
+            'last_open',
+            'last_open_date',
+            'last_email_open',
+            'email_last_open',
+            'opens_last',
+            'unique_open',
+            'last_opened',
+        ],
+    )
+    if dt:
+        return dt
+    # Klaviyo sometimes nests under properties only — scan values that parse as dates
+    for key, value in flat_pairs:
+        if 'open' not in key:
+            continue
+        parsed = _dt_parse(value)
+        if parsed:
+            return parsed
+    return None
+
+
+def _best_click_datetime(flat_pairs):
+    return _first_recent_date(
+        flat_pairs,
+        [
+            '$last_click',
+            'last_click',
+            'last_click_date',
+            'email_last_click',
+            'clicked_email',
+            'last_clicked',
+        ],
+    )
+
+
+def _best_site_activity_datetime(attrs, flat_pairs):
+    """Prefer native Klaviyo profile timestamps, then fuzzy property matches."""
+    for cand in ('last_event_date', 'updated'):
+        dt = _dt_parse(attrs.get(cand))
+        if dt:
+            return dt
+    return _first_recent_date(
+        flat_pairs,
+        [
+            'last_active',
+            'last_seen',
+            'last_visit',
+            'active_on_site',
+            'site_activity',
+            'viewed_product',
+            'page_view',
+        ],
+    )
+
+
+def _placed_order_signal(flat_pairs, attrs: dict) -> bool:
+    if _max_numeric_from_flat(
+        flat_pairs,
+        ['historic_clv', 'average_order', 'total_ordered', 'order_count', 'orders_count',
+         'number_of_orders', 'placed_order', 'lifetime_value', 'total_spent', 'shopify'],
+    ) > 0:
+        return True
+    pa = attrs.get('predictive_analytics') if isinstance(attrs.get('predictive_analytics'), dict) else {}
+    try:
+        for hk in ('historic_clv', 'historic_clv_currency'):
+            v = pa.get(hk)
+            if v is not None and float(v) > 0:
+                return True
+    except (TypeError, ValueError):
+        pass
+    return _has_any_signal(
+        flat_pairs,
+        ['placed_order', 'ordered', 'purchase', 'checkout_complete', 'fulfilled'],
+    )
+
+
+def _cart_signal(flat_pairs) -> bool:
+    if _max_numeric_from_flat(flat_pairs, ['cart', 'checkout', 'added_to_cart']) > 0:
+        return True
+    return _has_any_signal(
+        flat_pairs,
+        ['added_to_cart', 'add_to_cart', 'started_checkout', 'checkout_started', 'cart_abandon'],
+    )
+
+
+def _opened_email_signal(last_open_dt, flat_pairs) -> bool:
+    if last_open_dt:
+        return True
+    if _max_numeric_from_flat(
+        flat_pairs,
+        ['$opens', 'unique_open', 'total_open', 'opens_count', 'email_open', 'received_email'],
+    ) > 0:
+        return True
+    return False
+
+
+def _clicked_email_signal(last_click_dt, flat_pairs) -> bool:
+    if last_click_dt:
+        return True
+    if _max_numeric_from_flat(
+        flat_pairs,
+        ['$clicks', 'unique_click', 'total_click', 'clicks_count', 'email_click'],
+    ) > 0:
+        return True
+    return False
+
+
 def _klaviyo_api_get(url: str, params=None, max_retries: int = 5) -> dict:
     if not KLAVIYO_PRIVATE_KEY:
         raise Exception('KLAVIYO_PRIVATE_KEY not set')
@@ -258,7 +399,10 @@ def _fetch_all_klaviyo_profiles() -> list:
     """Page through /api/profiles/ until exhausted. Adds a small delay per page."""
     all_profiles = []
     next_url = 'https://a.klaviyo.com/api/profiles/'
-    params = {'page[size]': 100}
+    params = {
+        'page[size]': 100,
+        'additional-fields[profile]': 'predictive_analytics',
+    }
     while next_url:
         payload = _klaviyo_api_get(next_url, params=params)
         params = None  # next_url already contains cursor params
@@ -274,7 +418,10 @@ def _fetch_all_klaviyo_profiles() -> list:
 def _klaviyo_profile_by_id(profile_id: str) -> dict:
     if not profile_id:
         return {}
-    return _klaviyo_api_get(f'https://a.klaviyo.com/api/profiles/{profile_id}/')
+    return _klaviyo_api_get(
+        f'https://a.klaviyo.com/api/profiles/{profile_id}/',
+        params={'additional-fields[profile]': 'predictive_analytics'},
+    )
 
 
 def _klaviyo_first_placed_order_event_payload() -> dict:
@@ -313,26 +460,66 @@ def _klaviyo_first_placed_order_event_payload() -> dict:
 
 
 def _score_klaviyo_profile(profile: dict) -> dict:
+    """
+    Score using Klaviyo v3 profile shape: native fields, properties, subscriptions,
+    and optional predictive_analytics (request additional-fields on list/get).
+    """
     attrs = profile.get('attributes', {}) if isinstance(profile, dict) else {}
-    flat = _flatten_key_values(attrs)
+    flat = _flatten_klaviyo_attributes(attrs)
 
     created_dt = _dt_parse(attrs.get('created'))
-    last_open_dt = _first_recent_date(flat, ['last_open', 'opened_email', 'email_open', '$last_open'])
-    last_active_dt = _first_recent_date(flat, ['last_active', 'last_seen', 'last_visit', 'site_activ', 'web_activ'])
-    subscribed_dt = _first_recent_date(flat, ['subscribed', 'consented_at', 'opted_in', 'signup', 'joined'])
+    last_open_dt = _best_open_datetime(flat, attrs)
+    last_click_dt = _best_click_datetime(flat)
+    last_active_dt = _best_site_activity_datetime(attrs, flat)
+
+    subscribed_dt = _first_recent_date(
+        flat,
+        [
+            'consent_timestamp',
+            'consent',
+            'subscribed',
+            'date_consent',
+            'opted_in',
+            'accepts_marketing',
+            'signup',
+            'joined',
+            'subscribed_at',
+        ],
+    )
     if not subscribed_dt:
         subscribed_dt = created_dt
 
-    added_to_cart = _has_any_signal(flat, ['added_to_cart', 'add_to_cart', 'started_checkout', 'checkout_started'])
-    placed_order = _has_any_signal(flat, ['placed_order', 'order_count', 'number_of_orders', 'total_orders', 'historic_clv'])
-    clicked_ever = _has_any_signal(flat, ['clicked_email', 'email_click', 'click_count', '$last_click', 'last_click'])
-    opened_ever = _has_any_signal(flat, ['opened_email', 'email_open', 'open_count', '$last_open', 'last_open'])
+    added_to_cart = _cart_signal(flat)
+    placed_order = _placed_order_signal(flat, attrs)
+    opened_ever = _opened_email_signal(last_open_dt, flat)
+    clicked_ever = _clicked_email_signal(last_click_dt, flat)
+
     opened_last_30 = _is_recent(last_open_dt, 30)
     opened_last_90 = _is_recent(last_open_dt, 90)
     active_last_30 = _is_recent(last_active_dt, 30)
     subscribed_last_60 = _is_recent(subscribed_dt, 60)
     created_over_90 = bool(created_dt and created_dt <= (datetime.now(timezone.utc) - timedelta(days=90)))
-    never_opened_any = not opened_ever
+
+    # Do not treat "missing engagement data" as never opened — only explicit zero open metrics.
+    open_max = _max_numeric_from_flat(
+        flat,
+        ['$opens', 'opens', 'unique_open', 'total_open', 'email_open', 'received_email', 'recipients'],
+    )
+    has_open_metric_keys = any(
+        any(
+            s in k
+            for s in [
+                '$opens',
+                'unique_open',
+                'email_open',
+                'total_open',
+                'open_rate',
+            ]
+        )
+        for k, _ in flat
+    )
+    explicit_zero_opens = has_open_metric_keys and open_max <= 0 and not last_open_dt
+    never_opened_any = bool(explicit_zero_opens and not opened_ever)
 
     score = 0
     if added_to_cart:
@@ -362,6 +549,7 @@ def _score_klaviyo_profile(profile: dict) -> dict:
     key_signals = {
         'added_to_cart_ever': added_to_cart,
         'placed_order_ever': placed_order,
+        'opened_email_ever': opened_ever,
         'opened_email_last_30d': opened_last_30,
         'clicked_email_ever': clicked_ever,
         'active_on_site_last_30d': active_last_30,
@@ -370,8 +558,9 @@ def _score_klaviyo_profile(profile: dict) -> dict:
         'never_opened_any_email': never_opened_any,
         'created_more_than_90d_ago': created_over_90,
         'last_open_at': last_open_dt.isoformat() if last_open_dt else None,
+        'last_click_at': last_click_dt.isoformat() if last_click_dt else None,
         'last_active_at': last_active_dt.isoformat() if last_active_dt else None,
-        'subscribed_at': subscribed_dt.isoformat() if subscribed_dt else None
+        'subscribed_at': subscribed_dt.isoformat() if subscribed_dt else None,
     }
 
     return {
