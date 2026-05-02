@@ -3224,6 +3224,88 @@ def klaviyo_active_count():
         return jsonify({'ok': False, 'error': str(e), 'trace': traceback.format_exc()}), 500
 
 
+@app.route('/api/klaviyo/test-signup', methods=['POST'])
+def klaviyo_test_signup():
+    """
+    Subscribe a profile to email marketing and add them to KLAVIYO_ACTIVE_LIST_ID (welcome / test list).
+    JSON: email (required), first_name (optional).
+    """
+    try:
+        if not KLAVIYO_PRIVATE_KEY:
+            return jsonify({'ok': False, 'error': 'KLAVIYO_PRIVATE_KEY not set'}), 500
+        list_id = str(KLAVIYO_ACTIVE_LIST_ID or '').strip()
+        if not list_id:
+            return jsonify({'ok': False, 'error': 'KLAVIYO_ACTIVE_LIST_ID not set'}), 400
+        data = request.get_json(silent=True) or {}
+        email = str(data.get('email') or '').strip()
+        first_name = str(data.get('first_name') or '').strip()
+        if not email:
+            return jsonify({'ok': False, 'error': 'email required'}), 400
+
+        prof_attrs = {
+            'email': email,
+            'subscriptions': {
+                'email': {
+                    'marketing': {'consent': 'SUBSCRIBED'},
+                },
+            },
+        }
+        if first_name:
+            prof_attrs['first_name'] = first_name
+
+        body = {
+            'data': {
+                'type': 'profile-subscription-bulk-create-job',
+                'attributes': {
+                    'custom_source': 'wearth-studio-test-signup',
+                    'profiles': {
+                        'data': [
+                            {
+                                'type': 'profile',
+                                'attributes': prof_attrs,
+                            }
+                        ],
+                    },
+                },
+                'relationships': {
+                    'list': {
+                        'data': {
+                            'type': 'list',
+                            'id': list_id,
+                        },
+                    },
+                },
+            },
+        }
+        r = _klaviyo_api_post_json(
+            'https://a.klaviyo.com/api/profile-subscription-bulk-create-jobs/',
+            body,
+        )
+        try:
+            jd = r.json()
+        except Exception:
+            jd = None
+        if r.status_code in (200, 201, 202):
+            return jsonify({
+                'ok': True,
+                'list_id': list_id,
+                'email': email,
+                'http_status': r.status_code,
+                'subscription_bulk_job_id': (jd.get('data') or {}).get('id') if isinstance(jd, dict) else None,
+                'klaviyo_response': jd,
+            })
+        return jsonify({
+            'ok': False,
+            'list_id': list_id,
+            'email': email,
+            'http_status': r.status_code,
+            'error': r.text[:2000],
+            'klaviyo_response': jd,
+        }), 502
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e), 'trace': traceback.format_exc()}), 500
+
+
 @app.route('/api/shopify/broadcast-preview/<key>')
 def shopify_broadcast_preview(key):
     entry = _shopify_broadcast_preview_cache.get(key)
