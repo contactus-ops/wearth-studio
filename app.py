@@ -33,6 +33,8 @@ APP_BASE_URL = os.environ.get('APP_BASE_URL', 'https://web-production-448c1.up.r
 KLAVIYO_PRIVATE_KEY = os.environ.get('KLAVIYO_PRIVATE_KEY', '')
 # Audience whose members should STAY active (not suppressed). Use a list OR segment id from Klaviyo UI URL.
 KLAVIYO_ACTIVE_LIST_ID = os.environ.get('KLAVIYO_ACTIVE_LIST_ID', '')
+# Optional: list used for marketing subscribe + welcome flows. If unset, KLAVIYO_ACTIVE_LIST_ID is used.
+KLAVIYO_EMAIL_LIST_ID = os.environ.get('KLAVIYO_EMAIL_LIST_ID', '')
 KLAVIYO_ACTIVE_SEGMENT_ID = os.environ.get('KLAVIYO_ACTIVE_SEGMENT_ID', '')
 SHOPIFY_TOKEN = os.environ.get('SHOPIFY_TOKEN', '')
 SHOPIFY_STORE = os.environ.get('SHOPIFY_STORE', '')
@@ -430,6 +432,31 @@ def _klaviyo_api_post_json(url: str, json_body: dict, max_retries: int = 5):
         return resp
 
 
+def _klaviyo_api_patch_json(url: str, json_body: dict, max_retries: int = 5):
+    """PATCH JSON:API body to Klaviyo; returns requests.Response."""
+    if not KLAVIYO_PRIVATE_KEY:
+        raise Exception('KLAVIYO_PRIVATE_KEY not set')
+    headers = {
+        'Authorization': f'Klaviyo-API-Key {KLAVIYO_PRIVATE_KEY}',
+        'Accept': 'application/json',
+        'Content-Type': 'application/vnd.api+json',
+        'revision': '2024-10-15',
+    }
+    retries = 0
+    while True:
+        resp = requests.patch(url, headers=headers, json=json_body, timeout=60)
+        if resp.status_code == 429 and retries < max_retries:
+            wait_sec = 1.0 + retries
+            try:
+                wait_sec = max(wait_sec, float(resp.headers.get('Retry-After', '0') or 0))
+            except Exception:
+                pass
+            time.sleep(min(wait_sec, 15.0))
+            retries += 1
+            continue
+        return resp
+
+
 def _klaviyo_api_get(url: str, params=None, max_retries: int = 5) -> dict:
     if not KLAVIYO_PRIVATE_KEY:
         raise Exception('KLAVIYO_PRIVATE_KEY not set')
@@ -454,6 +481,20 @@ def _klaviyo_api_get(url: str, params=None, max_retries: int = 5) -> dict:
             txt = resp.text[:800]
             raise Exception(f'Klaviyo API {resp.status_code}: {txt}')
         return resp.json()
+
+
+def _klaviyo_profile_id_by_email(email: str) -> str:
+    em = (email or '').strip().lower()
+    if not em:
+        return ''
+    j = _klaviyo_api_get(
+        'https://a.klaviyo.com/api/profiles/',
+        params={'filter': f'equals(email,"{em}")', 'page[size]': 1},
+    )
+    rows = j.get('data') or []
+    if isinstance(rows, list) and rows:
+        return str(rows[0].get('id') or '').strip()
+    return ''
 
 
 def _fetch_all_klaviyo_profiles(include_predictive: bool = True) -> list:
@@ -3227,15 +3268,23 @@ def klaviyo_active_count():
 @app.route('/api/klaviyo/test-signup', methods=['POST'])
 def klaviyo_test_signup():
     """
-    Subscribe a profile to email marketing and add them to KLAVIYO_ACTIVE_LIST_ID (welcome / test list).
-    JSON: email (required), first_name (optional).
+    Subscribe on the email list and ensure membership on the active list.
+
+    Env: KLAVIYO_PRIVATE_KEY. KLAVIYO_EMAIL_LIST_ID (optional) = list for bulk subscribe;
+         KLAVIYO_ACTIVE_LIST_ID = active list (if different from email list, profile is added via list API).
+
+    JSON: email (required), first_name (optional; applied via PATCH — not allowed on subscription bulk profile).
     """
     try:
         if not KLAVIYO_PRIVATE_KEY:
             return jsonify({'ok': False, 'error': 'KLAVIYO_PRIVATE_KEY not set'}), 500
-        list_id = str(KLAVIYO_ACTIVE_LIST_ID or '').strip()
-        if not list_id:
-            return jsonify({'ok': False, 'error': 'KLAVIYO_ACTIVE_LIST_ID not set'}), 400
+        active_list = str(KLAVIYO_ACTIVE_LIST_ID or '').strip()
+        email_list = str(KLAVIYO_EMAIL_LIST_ID or '').strip() or active_list
+        if not email_list:
+            return jsonify({
+                'ok': False,
+                'error': 'Set KLAVIYO_ACTIVE_LIST_ID or KLAVIYO_EMAIL_LIST_ID',
+            }), 400
         data = request.get_json(silent=True) or {}
         email = str(data.get('email') or '').strip()
         first_name = str(data.get('first_name') or '').strip()
@@ -3250,8 +3299,6 @@ def klaviyo_test_signup():
                 },
             },
         }
-        if first_name:
-            prof_attrs['first_name'] = first_name
 
         body = {
             'data': {
@@ -3271,7 +3318,7 @@ def klaviyo_test_signup():
                     'list': {
                         'data': {
                             'type': 'list',
-                            'id': list_id,
+                            'id': email_list,
                         },
                     },
                 },
@@ -3285,23 +3332,78 @@ def klaviyo_test_signup():
             jd = r.json()
         except Exception:
             jd = None
-        if r.status_code in (200, 201, 202):
+        if r.status_code not in (200, 201, 202):
             return jsonify({
-                'ok': True,
-                'list_id': list_id,
+                'ok': False,
+                'email_list_id': email_list,
+                'active_list_id': active_list or None,
                 'email': email,
                 'http_status': r.status_code,
-                'subscription_bulk_job_id': (jd.get('data') or {}).get('id') if isinstance(jd, dict) else None,
+                'error': r.text[:2000],
                 'klaviyo_response': jd,
-            })
-        return jsonify({
-            'ok': False,
-            'list_id': list_id,
+            }), 502
+
+        out = {
+            'ok': True,
             'email': email,
+            'email_list_id': email_list,
+            'active_list_id': active_list or None,
             'http_status': r.status_code,
-            'error': r.text[:2000],
-            'klaviyo_response': jd,
-        }), 502
+            'subscription_bulk_job_id': (jd.get('data') or {}).get('id') if isinstance(jd, dict) else None,
+            'klaviyo_subscribe_response': jd,
+            'profile_id': None,
+            'first_name_updated': False,
+            'added_to_active_list': False,
+            'active_list_add_http': None,
+        }
+
+        profile_id = ''
+        for _ in range(6):
+            time.sleep(0.35)
+            profile_id = _klaviyo_profile_id_by_email(email)
+            if profile_id:
+                break
+        out['profile_id'] = profile_id or None
+
+        if first_name and profile_id:
+            patch_body = {
+                'data': {
+                    'type': 'profile',
+                    'id': profile_id,
+                    'attributes': {'first_name': first_name},
+                }
+            }
+            pr = _klaviyo_api_patch_json(
+                f'https://a.klaviyo.com/api/profiles/{profile_id}/',
+                patch_body,
+            )
+            out['first_name_updated'] = pr.status_code in (200, 204)
+            out['first_name_patch_http'] = pr.status_code
+            if pr.status_code not in (200, 204):
+                out['first_name_patch_error'] = pr.text[:500]
+
+        if active_list and profile_id and active_list != email_list:
+            rel_body = {'data': [{'type': 'profile', 'id': profile_id}]}
+            lr = _klaviyo_api_post_json(
+                f'https://a.klaviyo.com/api/lists/{active_list}/relationships/profiles/',
+                rel_body,
+            )
+            out['active_list_add_http'] = lr.status_code
+            out['added_to_active_list'] = lr.status_code in (200, 201, 204)
+            if lr.status_code not in (200, 201, 204):
+                try:
+                    out['active_list_add_error'] = lr.json()
+                except Exception:
+                    out['active_list_add_error'] = lr.text[:800]
+        elif active_list and active_list == email_list:
+            out['note'] = 'Email and active list are the same; subscribe job already adds to that list.'
+
+        if not profile_id:
+            out['warning'] = (
+                'Subscribe job accepted but profile id not found yet; retry test-signup or check Klaviyo.'
+            )
+
+        return jsonify(out)
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e), 'trace': traceback.format_exc()}), 500
 
