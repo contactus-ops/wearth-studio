@@ -30,6 +30,8 @@ META_GRAPH_VERSION = 'v22.0'
 META_GRAPH_BASE = f'https://graph.facebook.com/{META_GRAPH_VERSION}'
 APP_BASE_URL = os.environ.get('APP_BASE_URL', 'https://web-production-448c1.up.railway.app')
 KLAVIYO_PRIVATE_KEY = os.environ.get('KLAVIYO_PRIVATE_KEY', '')
+# Segment whose members should STAY active (not suppressed); everyone else can be bulk-suppressed.
+KLAVIYO_ACTIVE_SEGMENT_ID = os.environ.get('KLAVIYO_ACTIVE_SEGMENT_ID', '')
 
 FABRIC_PHRASES = [
     "made from eucalyptus fibres",
@@ -369,6 +371,31 @@ def _clicked_email_signal(last_click_dt, flat_pairs) -> bool:
     return False
 
 
+def _klaviyo_api_post_json(url: str, json_body: dict, max_retries: int = 5):
+    """POST JSON:API body to Klaviyo; returns requests.Response."""
+    if not KLAVIYO_PRIVATE_KEY:
+        raise Exception('KLAVIYO_PRIVATE_KEY not set')
+    headers = {
+        'Authorization': f'Klaviyo-API-Key {KLAVIYO_PRIVATE_KEY}',
+        'Accept': 'application/json',
+        'Content-Type': 'application/vnd.api+json',
+        'revision': '2024-10-15',
+    }
+    retries = 0
+    while True:
+        resp = requests.post(url, headers=headers, json=json_body, timeout=120)
+        if resp.status_code == 429 and retries < max_retries:
+            wait_sec = 1.0 + retries
+            try:
+                wait_sec = max(wait_sec, float(resp.headers.get('Retry-After', '0') or 0))
+            except Exception:
+                pass
+            time.sleep(min(wait_sec, 15.0))
+            retries += 1
+            continue
+        return resp
+
+
 def _klaviyo_api_get(url: str, params=None, max_retries: int = 5) -> dict:
     if not KLAVIYO_PRIVATE_KEY:
         raise Exception('KLAVIYO_PRIVATE_KEY not set')
@@ -395,14 +422,13 @@ def _klaviyo_api_get(url: str, params=None, max_retries: int = 5) -> dict:
         return resp.json()
 
 
-def _fetch_all_klaviyo_profiles() -> list:
+def _fetch_all_klaviyo_profiles(include_predictive: bool = True) -> list:
     """Page through /api/profiles/ until exhausted. Adds a small delay per page."""
     all_profiles = []
     next_url = 'https://a.klaviyo.com/api/profiles/'
-    params = {
-        'page[size]': 100,
-        'additional-fields[profile]': 'predictive_analytics',
-    }
+    params = {'page[size]': 100}
+    if include_predictive:
+        params['additional-fields[profile]'] = 'predictive_analytics'
     while next_url:
         payload = _klaviyo_api_get(next_url, params=params)
         params = None  # next_url already contains cursor params
@@ -413,6 +439,25 @@ def _fetch_all_klaviyo_profiles() -> list:
         next_url = links.get('next') if isinstance(links, dict) else None
         time.sleep(0.2)  # gentle pacing for rate limits
     return all_profiles
+
+
+def _fetch_segment_keep_emails(segment_id: str) -> set:
+    """All lowercase emails currently in the segment (profiles to keep unsuppressed)."""
+    keep = set()
+    next_url = f'https://a.klaviyo.com/api/segments/{segment_id}/profiles/'
+    params = {'page[size]': 100}
+    while next_url:
+        payload = _klaviyo_api_get(next_url, params=params)
+        params = None
+        for p in payload.get('data', []) or []:
+            attrs = p.get('attributes', {}) if isinstance(p, dict) else {}
+            em = str(attrs.get('email') or '').strip().lower()
+            if em:
+                keep.add(em)
+        links = payload.get('links', {}) if isinstance(payload, dict) else {}
+        next_url = links.get('next') if isinstance(links, dict) else None
+        time.sleep(0.15)
+    return keep
 
 
 def _klaviyo_profile_by_id(profile_id: str) -> dict:
@@ -2894,6 +2939,101 @@ def klaviyo_profile_schema():
             'placed_order_profile_id': placed_order_profile_id,
             'placed_order_profile_raw': placed_order_profile_raw,  # complete profile object
             'events_query_raw': event_payload
+        })
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e), 'trace': traceback.format_exc()}), 500
+
+
+@app.route('/api/klaviyo/suppress-cold', methods=['POST'])
+def klaviyo_suppress_cold():
+    """
+    Email suppression for profiles NOT in your Klaviyo segment (active ~232).
+
+    Members of `KLAVIYO_ACTIVE_SEGMENT_ID` (or JSON `segment_id`) are kept;
+    all other known profiles are submitted to Klaviyo bulk email suppression (max 100 emails/job).
+
+    Body JSON (optional): segment_id, dry_run (bool).
+    """
+    try:
+        if not KLAVIYO_PRIVATE_KEY:
+            return jsonify({'ok': False, 'error': 'KLAVIYO_PRIVATE_KEY not set'}), 500
+
+        payload_in = request.get_json(silent=True) or {}
+        segment_id = str(payload_in.get('segment_id') or '').strip() or str(KLAVIYO_ACTIVE_SEGMENT_ID or '').strip()
+        dry_raw = payload_in.get('dry_run', request.args.get('dry_run'))
+        if isinstance(dry_raw, str):
+            dry_run = dry_raw.strip().lower() in ('1', 'true', 'yes', 'on')
+        else:
+            dry_run = bool(dry_raw)
+
+        if not segment_id:
+            return jsonify({
+                'ok': False,
+                'error': 'segment_id required (JSON body) or set KLAVIYO_ACTIVE_SEGMENT_ID in Railway'
+            }), 400
+
+        keep_emails = _fetch_segment_keep_emails(segment_id)
+        all_profiles = _fetch_all_klaviyo_profiles(include_predictive=False)
+
+        cold_emails = []
+        seen_cold = set()
+        for p in all_profiles:
+            attrs = p.get('attributes', {}) if isinstance(p, dict) else {}
+            em = str(attrs.get('email') or '').strip().lower()
+            if not em or em in keep_emails:
+                continue
+            if em not in seen_cold:
+                seen_cold.add(em)
+                cold_emails.append(em)
+
+        job_ids = []
+        errors = []
+        suppressed_submitted = 0
+
+        if not dry_run and cold_emails:
+            for i in range(0, len(cold_emails), 100):
+                batch = cold_emails[i:i + 100]
+                body = {
+                    'data': {
+                        'type': 'profile-suppression-bulk-create-job',
+                        'attributes': {
+                            'profiles': {
+                                'data': [
+                                    {'type': 'profile', 'attributes': {'email': e}}
+                                    for e in batch
+                                ]
+                            }
+                        }
+                    }
+                }
+                r = _klaviyo_api_post_json(
+                    'https://a.klaviyo.com/api/profile-suppression-bulk-create-jobs/',
+                    body,
+                )
+                if r.status_code in (200, 202):
+                    suppressed_submitted += len(batch)
+                    try:
+                        jd = r.json()
+                        jid = jd.get('data', {}).get('id')
+                        if jid:
+                            job_ids.append(jid)
+                    except Exception:
+                        pass
+                else:
+                    errors.append(f'batch {i // 100 + 1}: HTTP {r.status_code} {r.text[:500]}')
+                time.sleep(0.25)
+
+        return jsonify({
+            'ok': True,
+            'dry_run': dry_run,
+            'segment_id': segment_id,
+            'total_profiles': len(all_profiles),
+            'keep_in_segment_count': len(keep_emails),
+            'cold_to_suppress_count': len(cold_emails),
+            'profiles_submitted_to_suppression_jobs': suppressed_submitted if not dry_run else 0,
+            'bulk_job_ids': job_ids,
+            'errors': errors,
+            'note': 'dry_run=true only counts; set dry_run=false to create suppression jobs. Klaviyo scopes: profiles:write, subscriptions:write.'
         })
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e), 'trace': traceback.format_exc()}), 500
