@@ -2976,11 +2976,25 @@ def _klaviyo_resolve_keep_emails():
 def _klaviyo_suppress_cold_run(dry_run: bool):
     """
     Email suppression: keep everyone on the configured Klaviyo list or segment; suppress all other profile emails.
+
+    JSON body suppress_all=true suppresses every profile that has an email (no keep list). Use only when intended.
     """
     if not KLAVIYO_PRIVATE_KEY:
         return jsonify({'ok': False, 'error': 'KLAVIYO_PRIVATE_KEY not set'}), 500
 
-    keep_emails, audience_type, audience_id = _klaviyo_resolve_keep_emails()
+    payload_in = request.get_json(silent=True) or {}
+    sa_raw = payload_in.get('suppress_all')
+    if isinstance(sa_raw, str):
+        suppress_all = sa_raw.strip().lower() in ('1', 'true', 'yes', 'on')
+    else:
+        suppress_all = bool(sa_raw)
+
+    if suppress_all:
+        keep_emails = set()
+        audience_type = 'suppress_all'
+        audience_id = ''
+    else:
+        keep_emails, audience_type, audience_id = _klaviyo_resolve_keep_emails()
     all_profiles = _fetch_all_klaviyo_profiles(include_predictive=False)
 
     cold_emails = []
@@ -3034,6 +3048,7 @@ def _klaviyo_suppress_cold_run(dry_run: bool):
     return jsonify({
         'ok': True,
         'dry_run': dry_run,
+        'suppress_all': suppress_all,
         'audience_type': audience_type,
         'audience_id': audience_id,
         'total_profiles': len(all_profiles),
@@ -3042,7 +3057,11 @@ def _klaviyo_suppress_cold_run(dry_run: bool):
         'profiles_submitted_to_suppression_jobs': suppressed_submitted if not dry_run else 0,
         'bulk_job_ids': job_ids,
         'errors': errors,
-        'note': 'Use POST /api/klaviyo/suppress-cold-dry-run to count only; POST /api/klaviyo/suppress-cold to run. Scopes: profiles:write, subscriptions:write, lists:read or segments:read.'
+        'note': (
+            'suppress_all:true in JSON suppresses every profile email (no keep list). '
+            'Otherwise set list/segment. Dry-run: POST /api/klaviyo/suppress-cold-dry-run. '
+            'Scopes: profiles:write, subscriptions:write; lists:read or segments:read when not suppress_all.'
+        ),
     })
 
 
@@ -3062,8 +3081,8 @@ def klaviyo_suppress_cold():
     """
     Bulk-suppress cold profiles (everyone not on the keep list/segment).
 
-    Optional JSON: list_id (for klaviyo.com/list/XXX/) or segment_id.
-    Env: KLAVIYO_ACTIVE_LIST_ID or KLAVIYO_ACTIVE_SEGMENT_ID.
+    Optional JSON: list_id, segment_id, or suppress_all (true = suppress every profile email).
+    Env: KLAVIYO_ACTIVE_LIST_ID or KLAVIYO_ACTIVE_SEGMENT_ID (ignored when suppress_all is true).
     """
     try:
         return _klaviyo_suppress_cold_run(dry_run=False)
