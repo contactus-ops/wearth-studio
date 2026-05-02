@@ -30,7 +30,8 @@ META_GRAPH_VERSION = 'v22.0'
 META_GRAPH_BASE = f'https://graph.facebook.com/{META_GRAPH_VERSION}'
 APP_BASE_URL = os.environ.get('APP_BASE_URL', 'https://web-production-448c1.up.railway.app')
 KLAVIYO_PRIVATE_KEY = os.environ.get('KLAVIYO_PRIVATE_KEY', '')
-# Segment whose members should STAY active (not suppressed); everyone else can be bulk-suppressed.
+# Audience whose members should STAY active (not suppressed). Use a list OR segment id from Klaviyo UI URL.
+KLAVIYO_ACTIVE_LIST_ID = os.environ.get('KLAVIYO_ACTIVE_LIST_ID', '')
 KLAVIYO_ACTIVE_SEGMENT_ID = os.environ.get('KLAVIYO_ACTIVE_SEGMENT_ID', '')
 
 FABRIC_PHRASES = [
@@ -441,10 +442,10 @@ def _fetch_all_klaviyo_profiles(include_predictive: bool = True) -> list:
     return all_profiles
 
 
-def _fetch_segment_keep_emails(segment_id: str) -> set:
-    """All lowercase emails currently in the segment (profiles to keep unsuppressed)."""
+def _fetch_paged_profile_emails(resource_url: str) -> set:
+    """Collect lowercase emails from any Klaviyo paginated /profiles/ style URL."""
     keep = set()
-    next_url = f'https://a.klaviyo.com/api/segments/{segment_id}/profiles/'
+    next_url = resource_url
     params = {'page[size]': 100}
     while next_url:
         payload = _klaviyo_api_get(next_url, params=params)
@@ -458,6 +459,16 @@ def _fetch_segment_keep_emails(segment_id: str) -> set:
         next_url = links.get('next') if isinstance(links, dict) else None
         time.sleep(0.15)
     return keep
+
+
+def _fetch_segment_keep_emails(segment_id: str) -> set:
+    """All lowercase emails currently in the segment (profiles to keep unsuppressed)."""
+    return _fetch_paged_profile_emails(f'https://a.klaviyo.com/api/segments/{segment_id}/profiles/')
+
+
+def _fetch_list_keep_emails(list_id: str) -> set:
+    """All lowercase emails on the Klaviyo list (profiles to keep unsuppressed)."""
+    return _fetch_paged_profile_emails(f'https://a.klaviyo.com/api/lists/{list_id}/profiles/')
 
 
 def _klaviyo_profile_by_id(profile_id: str) -> dict:
@@ -2944,97 +2955,120 @@ def klaviyo_profile_schema():
         return jsonify({'ok': False, 'error': str(e), 'trace': traceback.format_exc()}), 500
 
 
-@app.route('/api/klaviyo/suppress-cold', methods=['POST'])
-def klaviyo_suppress_cold():
+def _klaviyo_resolve_keep_emails():
     """
-    Email suppression for profiles NOT in your Klaviyo segment (active ~232).
-
-    Members of `KLAVIYO_ACTIVE_SEGMENT_ID` (or JSON `segment_id`) are kept;
-    all other known profiles are submitted to Klaviyo bulk email suppression (max 100 emails/job).
-
-    Body JSON (optional): segment_id, dry_run (bool).
+    Returns (keep_emails_set, audience_type, audience_id).
+    Prefers JSON body list_id / segment_id, then KLAVIYO_ACTIVE_LIST_ID, then KLAVIYO_ACTIVE_SEGMENT_ID.
     """
-    try:
-        if not KLAVIYO_PRIVATE_KEY:
-            return jsonify({'ok': False, 'error': 'KLAVIYO_PRIVATE_KEY not set'}), 500
+    payload_in = request.get_json(silent=True) or {}
+    list_id = str(payload_in.get('list_id') or '').strip() or str(KLAVIYO_ACTIVE_LIST_ID or '').strip()
+    segment_id = str(payload_in.get('segment_id') or '').strip() or str(KLAVIYO_ACTIVE_SEGMENT_ID or '').strip()
+    if list_id:
+        return _fetch_list_keep_emails(list_id), 'list', list_id
+    if segment_id:
+        return _fetch_segment_keep_emails(segment_id), 'segment', segment_id
+    raise ValueError(
+        'Set KLAVIYO_ACTIVE_LIST_ID or KLAVIYO_ACTIVE_SEGMENT_ID in Railway, '
+        'or POST JSON {"list_id":"..."} or {"segment_id":"..."} (e.g. list id from klaviyo.com/list/XXX/)'
+    )
 
-        payload_in = request.get_json(silent=True) or {}
-        segment_id = str(payload_in.get('segment_id') or '').strip() or str(KLAVIYO_ACTIVE_SEGMENT_ID or '').strip()
-        dry_raw = payload_in.get('dry_run', request.args.get('dry_run'))
-        if isinstance(dry_raw, str):
-            dry_run = dry_raw.strip().lower() in ('1', 'true', 'yes', 'on')
-        else:
-            dry_run = bool(dry_raw)
 
-        if not segment_id:
-            return jsonify({
-                'ok': False,
-                'error': 'segment_id required (JSON body) or set KLAVIYO_ACTIVE_SEGMENT_ID in Railway'
-            }), 400
+def _klaviyo_suppress_cold_run(dry_run: bool):
+    """
+    Email suppression: keep everyone on the configured Klaviyo list or segment; suppress all other profile emails.
+    """
+    if not KLAVIYO_PRIVATE_KEY:
+        return jsonify({'ok': False, 'error': 'KLAVIYO_PRIVATE_KEY not set'}), 500
 
-        keep_emails = _fetch_segment_keep_emails(segment_id)
-        all_profiles = _fetch_all_klaviyo_profiles(include_predictive=False)
+    keep_emails, audience_type, audience_id = _klaviyo_resolve_keep_emails()
+    all_profiles = _fetch_all_klaviyo_profiles(include_predictive=False)
 
-        cold_emails = []
-        seen_cold = set()
-        for p in all_profiles:
-            attrs = p.get('attributes', {}) if isinstance(p, dict) else {}
-            em = str(attrs.get('email') or '').strip().lower()
-            if not em or em in keep_emails:
-                continue
-            if em not in seen_cold:
-                seen_cold.add(em)
-                cold_emails.append(em)
+    cold_emails = []
+    seen_cold = set()
+    for p in all_profiles:
+        attrs = p.get('attributes', {}) if isinstance(p, dict) else {}
+        em = str(attrs.get('email') or '').strip().lower()
+        if not em or em in keep_emails:
+            continue
+        if em not in seen_cold:
+            seen_cold.add(em)
+            cold_emails.append(em)
 
-        job_ids = []
-        errors = []
-        suppressed_submitted = 0
+    job_ids = []
+    errors = []
+    suppressed_submitted = 0
 
-        if not dry_run and cold_emails:
-            for i in range(0, len(cold_emails), 100):
-                batch = cold_emails[i:i + 100]
-                body = {
-                    'data': {
-                        'type': 'profile-suppression-bulk-create-job',
-                        'attributes': {
-                            'profiles': {
-                                'data': [
-                                    {'type': 'profile', 'attributes': {'email': e}}
-                                    for e in batch
-                                ]
-                            }
+    if not dry_run and cold_emails:
+        for i in range(0, len(cold_emails), 100):
+            batch = cold_emails[i:i + 100]
+            body = {
+                'data': {
+                    'type': 'profile-suppression-bulk-create-job',
+                    'attributes': {
+                        'profiles': {
+                            'data': [
+                                {'type': 'profile', 'attributes': {'email': e}}
+                                for e in batch
+                            ]
                         }
                     }
                 }
-                r = _klaviyo_api_post_json(
-                    'https://a.klaviyo.com/api/profile-suppression-bulk-create-jobs/',
-                    body,
-                )
-                if r.status_code in (200, 202):
-                    suppressed_submitted += len(batch)
-                    try:
-                        jd = r.json()
-                        jid = jd.get('data', {}).get('id')
-                        if jid:
-                            job_ids.append(jid)
-                    except Exception:
-                        pass
-                else:
-                    errors.append(f'batch {i // 100 + 1}: HTTP {r.status_code} {r.text[:500]}')
-                time.sleep(0.25)
+            }
+            r = _klaviyo_api_post_json(
+                'https://a.klaviyo.com/api/profile-suppression-bulk-create-jobs/',
+                body,
+            )
+            if r.status_code in (200, 202):
+                suppressed_submitted += len(batch)
+                try:
+                    jd = r.json()
+                    jid = jd.get('data', {}).get('id')
+                    if jid:
+                        job_ids.append(jid)
+                except Exception:
+                    pass
+            else:
+                errors.append(f'batch {i // 100 + 1}: HTTP {r.status_code} {r.text[:500]}')
+            time.sleep(0.25)
 
-        return jsonify({
-            'ok': True,
-            'dry_run': dry_run,
-            'segment_id': segment_id,
-            'total_profiles': len(all_profiles),
-            'keep_in_segment_count': len(keep_emails),
-            'cold_to_suppress_count': len(cold_emails),
-            'profiles_submitted_to_suppression_jobs': suppressed_submitted if not dry_run else 0,
-            'bulk_job_ids': job_ids,
-            'errors': errors,
-            'note': 'dry_run=true only counts; set dry_run=false to create suppression jobs. Klaviyo scopes: profiles:write, subscriptions:write.'
-        })
+    return jsonify({
+        'ok': True,
+        'dry_run': dry_run,
+        'audience_type': audience_type,
+        'audience_id': audience_id,
+        'total_profiles': len(all_profiles),
+        'keep_in_audience_count': len(keep_emails),
+        'cold_to_suppress_count': len(cold_emails),
+        'profiles_submitted_to_suppression_jobs': suppressed_submitted if not dry_run else 0,
+        'bulk_job_ids': job_ids,
+        'errors': errors,
+        'note': 'Use POST /api/klaviyo/suppress-cold-dry-run to count only; POST /api/klaviyo/suppress-cold to run. Scopes: profiles:write, subscriptions:write, lists:read or segments:read.'
+    })
+
+
+@app.route('/api/klaviyo/suppress-cold-dry-run', methods=['POST'])
+def klaviyo_suppress_cold_dry_run():
+    """Count keep vs cold only; does not create suppression jobs."""
+    try:
+        return _klaviyo_suppress_cold_run(dry_run=True)
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e), 'trace': traceback.format_exc()}), 500
+
+
+@app.route('/api/klaviyo/suppress-cold', methods=['POST'])
+def klaviyo_suppress_cold():
+    """
+    Bulk-suppress cold profiles (everyone not on the keep list/segment).
+
+    Optional JSON: list_id (for klaviyo.com/list/XXX/) or segment_id.
+    Env: KLAVIYO_ACTIVE_LIST_ID or KLAVIYO_ACTIVE_SEGMENT_ID.
+    """
+    try:
+        return _klaviyo_suppress_cold_run(dry_run=False)
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e), 'trace': traceback.format_exc()}), 500
 
