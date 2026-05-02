@@ -1,4 +1,4 @@
-from flask import Flask, send_file, request, jsonify
+from flask import Flask, send_file, request, jsonify, Response
 import os
 import requests
 import json
@@ -6,6 +6,7 @@ import time
 import traceback
 import random
 import re
+import secrets
 import shutil
 from urllib.parse import urlparse, parse_qs
 from io import BytesIO
@@ -33,6 +34,12 @@ KLAVIYO_PRIVATE_KEY = os.environ.get('KLAVIYO_PRIVATE_KEY', '')
 # Audience whose members should STAY active (not suppressed). Use a list OR segment id from Klaviyo UI URL.
 KLAVIYO_ACTIVE_LIST_ID = os.environ.get('KLAVIYO_ACTIVE_LIST_ID', '')
 KLAVIYO_ACTIVE_SEGMENT_ID = os.environ.get('KLAVIYO_ACTIVE_SEGMENT_ID', '')
+SHOPIFY_TOKEN = os.environ.get('SHOPIFY_TOKEN', '')
+SHOPIFY_STORE = os.environ.get('SHOPIFY_STORE', '')
+SHOPIFY_API_VERSION = os.environ.get('SHOPIFY_API_VERSION', '2024-10')
+
+# Ephemeral HTML for Shopify external marketing activity remoteUrl (short-lived keys).
+_shopify_broadcast_preview_cache = {}
 
 FABRIC_PHRASES = [
     "made from eucalyptus fibres",
@@ -368,6 +375,32 @@ def _clicked_email_signal(last_click_dt, flat_pairs) -> bool:
         flat_pairs,
         ['$clicks', 'unique_click', 'total_click', 'clicks_count', 'email_click'],
     ) > 0:
+        return True
+    return False
+
+
+def _klaviyo_profile_is_hot(profile: dict) -> bool:
+    """
+    HOT if any: placed order ever, cart ever, opened email ever, clicked email ever,
+    site activity in last 30 days, or profile created within last 55 days.
+    """
+    attrs = profile.get('attributes', {}) if isinstance(profile, dict) else {}
+    flat = _flatten_klaviyo_attributes(attrs)
+    created_dt = _dt_parse(attrs.get('created'))
+    if created_dt and _is_recent(created_dt, 55):
+        return True
+    if _placed_order_signal(flat, attrs):
+        return True
+    if _cart_signal(flat):
+        return True
+    last_open_dt = _best_open_datetime(flat, attrs)
+    if _opened_email_signal(last_open_dt, flat):
+        return True
+    last_click_dt = _best_click_datetime(flat)
+    if _clicked_email_signal(last_click_dt, flat):
+        return True
+    last_active_dt = _best_site_activity_datetime(attrs, flat)
+    if _is_recent(last_active_dt, 30):
         return True
     return False
 
@@ -2975,9 +3008,11 @@ def _klaviyo_resolve_keep_emails():
 
 def _klaviyo_suppress_cold_run(dry_run: bool):
     """
-    Email suppression: keep everyone on the configured Klaviyo list or segment; suppress all other profile emails.
+    Email suppression with smart cold detection (default): suppress only if not on keep list/segment
+    AND profile is not HOT (see _klaviyo_profile_is_hot).
 
-    JSON body suppress_all=true suppresses every profile that has an email (no keep list). Use only when intended.
+    JSON: suppress_all=true → suppress every profile email. legacy_segment_cold_only=true → old behavior
+    (not in keep list only, no engagement filter).
     """
     if not KLAVIYO_PRIVATE_KEY:
         return jsonify({'ok': False, 'error': 'KLAVIYO_PRIVATE_KEY not set'}), 500
@@ -2989,23 +3024,42 @@ def _klaviyo_suppress_cold_run(dry_run: bool):
     else:
         suppress_all = bool(sa_raw)
 
+    leg_raw = payload_in.get('legacy_segment_cold_only')
+    if isinstance(leg_raw, str):
+        legacy_cold_only = leg_raw.strip().lower() in ('1', 'true', 'yes', 'on')
+    else:
+        legacy_cold_only = bool(leg_raw)
+
     if suppress_all:
         keep_emails = set()
         audience_type = 'suppress_all'
         audience_id = ''
     else:
         keep_emails, audience_type, audience_id = _klaviyo_resolve_keep_emails()
-    all_profiles = _fetch_all_klaviyo_profiles(include_predictive=False)
+
+    use_smart = not suppress_all and not legacy_cold_only
+    all_profiles = _fetch_all_klaviyo_profiles(include_predictive=use_smart)
 
     cold_emails = []
-    seen_cold = set()
+    seen_cold_email = set()
+    hot_protected_emails = set()
     for p in all_profiles:
         attrs = p.get('attributes', {}) if isinstance(p, dict) else {}
         em = str(attrs.get('email') or '').strip().lower()
-        if not em or em in keep_emails:
+        if not em:
             continue
-        if em not in seen_cold:
-            seen_cold.add(em)
+        if suppress_all:
+            if em not in seen_cold_email:
+                seen_cold_email.add(em)
+                cold_emails.append(em)
+            continue
+        if em in keep_emails:
+            continue
+        if use_smart and _klaviyo_profile_is_hot(p):
+            hot_protected_emails.add(em)
+            continue
+        if em not in seen_cold_email:
+            seen_cold_email.add(em)
             cold_emails.append(em)
 
     job_ids = []
@@ -3049,6 +3103,9 @@ def _klaviyo_suppress_cold_run(dry_run: bool):
         'ok': True,
         'dry_run': dry_run,
         'suppress_all': suppress_all,
+        'legacy_segment_cold_only': legacy_cold_only,
+        'smart_cold_detection': use_smart,
+        'hot_profiles_protected_count': len(hot_protected_emails),
         'audience_type': audience_type,
         'audience_id': audience_id,
         'total_profiles': len(all_profiles),
@@ -3058,9 +3115,9 @@ def _klaviyo_suppress_cold_run(dry_run: bool):
         'bulk_job_ids': job_ids,
         'errors': errors,
         'note': (
-            'suppress_all:true in JSON suppresses every profile email (no keep list). '
-            'Otherwise set list/segment. Dry-run: POST /api/klaviyo/suppress-cold-dry-run. '
-            'Scopes: profiles:write, subscriptions:write; lists:read or segments:read when not suppress_all.'
+            'Default: suppress only true-cold (not on keep list and no HOT signals: order/cart/opens/clicks/'
+            'site-30d/new-55d). suppress_all bypasses. legacy_segment_cold_only uses list/segment only. '
+            'Dry-run: POST /api/klaviyo/suppress-cold-dry-run.'
         ),
     })
 
@@ -3079,9 +3136,9 @@ def klaviyo_suppress_cold_dry_run():
 @app.route('/api/klaviyo/suppress-cold', methods=['POST'])
 def klaviyo_suppress_cold():
     """
-    Bulk-suppress cold profiles (everyone not on the keep list/segment).
+    Bulk-suppress cold profiles: default = not on keep list/segment AND smart-cold (no HOT signals).
 
-    Optional JSON: list_id, segment_id, or suppress_all (true = suppress every profile email).
+    Optional JSON: list_id, segment_id, suppress_all, legacy_segment_cold_only.
     Env: KLAVIYO_ACTIVE_LIST_ID or KLAVIYO_ACTIVE_SEGMENT_ID (ignored when suppress_all is true).
     """
     try:
@@ -3090,6 +3147,244 @@ def klaviyo_suppress_cold():
         return jsonify({'ok': False, 'error': str(e)}), 400
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e), 'trace': traceback.format_exc()}), 500
+
+
+def _shopify_admin_host() -> str:
+    s = (SHOPIFY_STORE or '').strip().lower().replace('https://', '').replace('http://', '').strip('/')
+    if not s:
+        return ''
+    if s.endswith('.myshopify.com'):
+        return s
+    if '.myshopify.com' not in s and re.match(r'^[a-z0-9][a-z0-9-]*$', s):
+        return f'{s}.myshopify.com'
+    return s
+
+
+def _shopify_graphql(query: str, variables=None):
+    host = _shopify_admin_host()
+    if not host or not (SHOPIFY_TOKEN or '').strip():
+        return 0, {}
+    url = f'https://{host}/admin/api/{SHOPIFY_API_VERSION}/graphql.json'
+    r = requests.post(
+        url,
+        headers={
+            'Content-Type': 'application/json',
+            'X-Shopify-Access-Token': SHOPIFY_TOKEN.strip(),
+        },
+        json={'query': query, 'variables': variables or {}},
+        timeout=90,
+    )
+    try:
+        return r.status_code, r.json()
+    except Exception:
+        return r.status_code, {}
+
+
+@app.route('/api/klaviyo/active-count', methods=['GET'])
+def klaviyo_active_count():
+    """One Klaviyo GET: profile_count on a list or segment (query or env ids)."""
+    try:
+        if not KLAVIYO_PRIVATE_KEY:
+            return jsonify({'ok': False, 'error': 'KLAVIYO_PRIVATE_KEY not set'}), 500
+        list_id = request.args.get('list_id', '').strip() or str(KLAVIYO_ACTIVE_LIST_ID or '').strip()
+        segment_id = request.args.get('segment_id', '').strip() or str(KLAVIYO_ACTIVE_SEGMENT_ID or '').strip()
+        if list_id:
+            j = _klaviyo_api_get(
+                f'https://a.klaviyo.com/api/lists/{list_id}/',
+                params={'additional-fields[list]': 'profile_count'},
+            )
+            attrs = (j.get('data') or {}).get('attributes') or {}
+            cnt = attrs.get('profile_count')
+            return jsonify({
+                'ok': True,
+                'active_profile_count': cnt,
+                'source': 'list',
+                'resource_id': list_id,
+                'note': 'Single Klaviyo GET: list profile_count (member count for that list).',
+            })
+        if segment_id:
+            j = _klaviyo_api_get(
+                f'https://a.klaviyo.com/api/segments/{segment_id}/',
+                params={'additional-fields[segment]': 'profile_count'},
+            )
+            attrs = (j.get('data') or {}).get('attributes') or {}
+            cnt = attrs.get('profile_count')
+            return jsonify({
+                'ok': True,
+                'active_profile_count': cnt,
+                'source': 'segment',
+                'resource_id': segment_id,
+                'note': 'Single Klaviyo GET: segment profile_count (member count for that segment).',
+            })
+        return jsonify({
+            'ok': False,
+            'error': 'Pass ?list_id= or ?segment_id=, or set KLAVIYO_ACTIVE_LIST_ID / KLAVIYO_ACTIVE_SEGMENT_ID',
+        }), 400
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e), 'trace': traceback.format_exc()}), 500
+
+
+@app.route('/api/shopify/broadcast-preview/<key>')
+def shopify_broadcast_preview(key):
+    entry = _shopify_broadcast_preview_cache.get(key)
+    if not entry:
+        return 'Not found', 404
+    return Response(entry.get('body_html') or '', mimetype='text/html; charset=utf-8')
+
+
+@app.route('/api/shopify/broadcast', methods=['POST'])
+def shopify_broadcast():
+    """
+    Registers an EMAIL external marketing activity in Shopify (requires write_marketing_events).
+    subject, preview_text, body_html in JSON. HTML is served briefly at preview_url for proofing.
+    """
+    try:
+        if not (SHOPIFY_TOKEN or '').strip() or not (SHOPIFY_STORE or '').strip():
+            return jsonify({'ok': False, 'error': 'SHOPIFY_TOKEN and SHOPIFY_STORE required'}), 500
+        data = request.get_json(silent=True) or {}
+        subject = str(data.get('subject') or '').strip()
+        preview_text = str(data.get('preview_text') or '').strip()
+        body_html = str(data.get('body_html') or '')
+        if not subject or not body_html.strip():
+            return jsonify({'ok': False, 'error': 'subject and body_html required'}), 400
+
+        key = secrets.token_urlsafe(18)
+        _shopify_broadcast_preview_cache[key] = {'body_html': body_html, 'ts': time.time()}
+        while len(_shopify_broadcast_preview_cache) > 80:
+            k0 = next(iter(_shopify_broadcast_preview_cache))
+            _shopify_broadcast_preview_cache.pop(k0, None)
+
+        preview_url = f'{APP_BASE_URL.rstrip("/")}/api/shopify/broadcast-preview/{key}'
+
+        gql = '''
+mutation m($createInput: MarketingActivityCreateExternalInput!) {
+  marketingActivityCreateExternal(input: $createInput) {
+    marketingActivity { id }
+    userErrors { field message }
+  }
+}
+'''
+        utm_campaign = (preview_text or subject)[:200]
+        variables = {
+            'createInput': {
+                'remoteId': key[:64],
+                'title': subject[:250],
+                'remoteUrl': preview_url,
+                'remotePreviewImageUrl': 'https://cdn.shopify.com/shopifycloud/brochure/assets/logos/shopify-bag.png',
+                'status': 'ACTIVE',
+                'utm': {
+                    'source': 'wearth-broadcast',
+                    'medium': 'email',
+                    'campaign': utm_campaign,
+                },
+                'tactic': 'NEWSLETTER',
+                'marketingChannelType': 'EMAIL',
+            }
+        }
+        status, j = _shopify_graphql(gql, variables)
+        if status != 200:
+            return jsonify({'ok': False, 'error': f'Shopify HTTP {status}', 'body': str(j)[:1200]}), 502
+        err = j.get('errors')
+        if err:
+            return jsonify({'ok': False, 'error': 'GraphQL errors', 'graphql_errors': err}), 502
+        data_gql = (j.get('data') or {}).get('marketingActivityCreateExternal') or {}
+        ues = data_gql.get('userErrors') or []
+        if ues:
+            return jsonify({'ok': False, 'error': 'Shopify userErrors', 'user_errors': ues}), 400
+        ma = data_gql.get('marketingActivity') or {}
+        mid = ma.get('id')
+        return jsonify({
+            'ok': True,
+            'campaign_id': mid,
+            'status': 'ACTIVE',
+            'preview_url': preview_url,
+            'preview_text': preview_text,
+            'shop': _shopify_admin_host(),
+            'note': (
+                'Registers an EMAIL newsletter marketing activity in Shopify Admin. '
+                'Native Shopify Email delivery to all customers is not available via Admin API; '
+                'use preview_url for HTML review and finish sends in Shopify Email or your ESP.'
+            ),
+        })
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e), 'trace': traceback.format_exc()}), 500
+
+
+@app.route('/api/klaviyo/post-purchase', methods=['POST'])
+def klaviyo_post_purchase():
+    """Emit Klaviyo metric 'Post Purchase Follow Up' for flow triggers."""
+    try:
+        if not KLAVIYO_PRIVATE_KEY:
+            return jsonify({'ok': False, 'error': 'KLAVIYO_PRIVATE_KEY not set'}), 500
+        data = request.get_json(silent=True) or {}
+        email = str(data.get('email') or '').strip()
+        if not email:
+            return jsonify({'ok': False, 'error': 'email required'}), 400
+        first_name = str(data.get('first_name') or '').strip()
+        order_id = str(data.get('order_id') or '').strip()
+        product_name = str(data.get('product_name') or '').strip()
+        now_iso = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S+00:00')
+        prof_attrs = {'email': email}
+        if first_name:
+            prof_attrs['first_name'] = first_name
+        body = {
+            'data': {
+                'type': 'event',
+                'attributes': {
+                    'properties': {
+                        'order_id': order_id,
+                        'product_name': product_name,
+                    },
+                    'time': now_iso,
+                    'metric': {
+                        'data': {
+                            'type': 'metric',
+                            'attributes': {'name': 'Post Purchase Follow Up'},
+                        }
+                    },
+                    'profile': {
+                        'data': {
+                            'type': 'profile',
+                            'attributes': prof_attrs,
+                        }
+                    },
+                }
+            }
+        }
+        r = _klaviyo_api_post_json('https://a.klaviyo.com/api/events/', body)
+        if r.status_code not in (200, 201, 202):
+            return jsonify({'ok': False, 'error': f'Klaviyo HTTP {r.status_code}', 'detail': r.text[:800]}), 502
+        try:
+            jd = r.json()
+        except Exception:
+            jd = {}
+        eid = None
+        if isinstance(jd, dict):
+            eid = (jd.get('data') or {}).get('id')
+        return jsonify({
+            'ok': True,
+            'event_id': eid,
+            'metric_name': 'Post Purchase Follow Up',
+            'status': 'accepted',
+        })
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e), 'trace': traceback.format_exc()}), 500
+
+
+@app.route('/api/n8n/workflows-status', methods=['GET'])
+def n8n_workflows_status():
+    return jsonify({
+        'ok': True,
+        'summary': 'Recommended automations and current build status',
+        'workflows': [
+            {'name': 'SEO engine', 'recommended': True, 'build_status': 'live'},
+            {'name': 'Instagram automation', 'recommended': True, 'build_status': 'live'},
+            {'name': 'video ad automation', 'recommended': True, 'build_status': 'not built'},
+            {'name': 'performance loop', 'recommended': True, 'build_status': 'not built'},
+            {'name': 'daily laundry', 'recommended': True, 'build_status': 'not built'},
+            {'name': 'post purchase flow', 'recommended': True, 'build_status': 'not built'},
+        ],
+    })
 
 
 @app.route('/<path:path>')
