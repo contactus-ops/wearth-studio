@@ -1,3 +1,6 @@
-# Vite 8 + toolchain require Node 20.19+ (Nixpacks otherwise picks Node 18).
+# Vite 8 + ESLint 10 need Node 20.19+. Setting only NIXPACKS_NODE_VERSION was ignored (setup stayed nodejs_18).
+[phases.setup]
+nixPkgs = ["nodejs_22"]
+
 [variables]
 NIXPACKS_NODE_VERSION = "22"
