@@ -3949,7 +3949,8 @@ def klaviyo_active_count():
         segment_id = request.args.get('segment_id', '').strip() or str(KLAVIYO_ACTIVE_SEGMENT_ID or '').strip()
         cache_key = f'L:{list_id}' if list_id else (f'S:{segment_id}' if segment_id else '')
         now = time.time()
-        if cache_key:
+        bypass_cache = (request.args.get('bypass_cache') or '').strip().lower() in ('1', 'true', 'yes')
+        if cache_key and not bypass_cache:
             with _active_count_cache_lock:
                 hit = _active_count_cache.get(cache_key)
                 if hit and hit[0] > now:
