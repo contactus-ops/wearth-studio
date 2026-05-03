@@ -483,6 +483,27 @@ def _klaviyo_api_get(url: str, params=None, max_retries: int = 5) -> dict:
         return resp.json()
 
 
+def _klaviyo_collect_data_pages(url: str, params=None, max_pages: int = 200):
+    """Follow JSON:API links.next; returns merged list from data[] across pages."""
+    items = []
+    next_url = url
+    first_params = dict(params) if params else None
+    first = True
+    for _ in range(max_pages):
+        if not next_url:
+            break
+        payload = _klaviyo_api_get(next_url, params=first_params if first else None)
+        first = False
+        chunk = payload.get('data') or []
+        if isinstance(chunk, list):
+            items.extend(chunk)
+        nxt = (payload.get('links') or {}).get('next')
+        next_url = (str(nxt).strip() if nxt else '') or None
+        if next_url:
+            time.sleep(0.12)
+    return items
+
+
 def _klaviyo_profile_id_by_email(email: str) -> str:
     em = (email or '').strip().lower()
     if not em:
@@ -3263,6 +3284,127 @@ def klaviyo_active_count():
         }), 400
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e), 'trace': traceback.format_exc()}), 500
+
+
+@app.route('/api/klaviyo/diagnose', methods=['GET'])
+def klaviyo_diagnose():
+    """
+    Klaviyo account checks: sending domains, flow summaries, recent flow actions.
+    Uses KLAVIYO_PRIVATE_KEY. If GET /api/flow-actions/ is unavailable, flow actions
+    are aggregated from GET /api/flows/?include=flow-actions (deduped by id).
+    """
+    if not KLAVIYO_PRIVATE_KEY:
+        return jsonify({'ok': False, 'error': 'KLAVIYO_PRIVATE_KEY not set'}), 500
+
+    out = {'ok': True, 'sending_domains': None, 'flows': None, 'flow_actions': None}
+    all_ok = True
+
+    try:
+        sd = _klaviyo_collect_data_pages(
+            'https://a.klaviyo.com/api/sending-domains/',
+            params={'page[size]': 50},
+        )
+        out['sending_domains'] = {'ok': True, 'data': sd}
+    except Exception as e:
+        all_ok = False
+        out['sending_domains'] = {'ok': False, 'error': str(e)}
+
+    try:
+        flow_rows = _klaviyo_collect_data_pages(
+            'https://a.klaviyo.com/api/flows/',
+            params={'page[size]': 50},
+        )
+        summaries = []
+        for row in flow_rows:
+            if not isinstance(row, dict):
+                continue
+            attrs = row.get('attributes') or {}
+            tt = attrs.get('trigger_type')
+            summaries.append({
+                'id': str(row.get('id') or ''),
+                'name': attrs.get('name'),
+                'status': attrs.get('status'),
+                'trigger': ({'type': tt} if tt is not None else None),
+            })
+        out['flows'] = {'ok': True, 'flows': summaries}
+    except Exception as e:
+        all_ok = False
+        out['flows'] = {'ok': False, 'error': str(e)}
+
+    fa_payload = {'ok': False, 'data': [], 'source': None, 'note': None}
+    try:
+        fa_items = []
+        next_url = 'https://a.klaviyo.com/api/flow-actions/'
+        fa_params = {'page[size]': 50, 'sort': '-updated'}
+        first = True
+        for _ in range(10):
+            if not next_url or len(fa_items) >= 200:
+                break
+            payload = _klaviyo_api_get(next_url, params=fa_params if first else None)
+            first = False
+            chunk = payload.get('data') or []
+            if isinstance(chunk, list):
+                fa_items.extend(chunk)
+            nxt = (payload.get('links') or {}).get('next')
+            next_url = (str(nxt).strip() if nxt else '') or None
+            if next_url:
+                time.sleep(0.12)
+        fa_payload = {
+            'ok': True,
+            'data': fa_items[:200],
+            'source': 'flow-actions',
+            'note': 'GET /api/flow-actions/ sorted by -updated (capped).',
+        }
+    except Exception as e_global:
+        try:
+            by_id = {}
+            next_url = 'https://a.klaviyo.com/api/flows/'
+            inc_params = {'page[size]': 50, 'include': 'flow-actions'}
+            first = True
+            for _ in range(200):
+                if not next_url:
+                    break
+                payload = _klaviyo_api_get(next_url, params=inc_params if first else None)
+                first = False
+                for inc in payload.get('included') or []:
+                    if isinstance(inc, dict) and inc.get('type') == 'flow-action':
+                        by_id[str(inc.get('id') or '')] = inc
+                nxt = (payload.get('links') or {}).get('next')
+                next_url = (str(nxt).strip() if nxt else '') or None
+                if next_url:
+                    time.sleep(0.12)
+            merged = list(by_id.values())
+
+            def _fa_updated_key(x):
+                a = x.get('attributes') if isinstance(x, dict) else None
+                if not isinstance(a, dict):
+                    return ''
+                return str(a.get('updated') or a.get('created') or '')
+
+            merged.sort(key=_fa_updated_key, reverse=True)
+            fa_payload = {
+                'ok': True,
+                'data': merged[:200],
+                'source': 'flows_include_flow_actions',
+                'note': (
+                    'Global GET /api/flow-actions/ failed (%s); '
+                    'deduped flow-action objects from paginated /api/flows/?include=flow-actions.'
+                ) % str(e_global),
+            }
+        except Exception as e_fb:
+            all_ok = False
+            fa_payload = {
+                'ok': False,
+                'data': [],
+                'source': None,
+                'error': str(e_fb),
+                'note': 'Global flow-actions error: %s' % str(e_global),
+            }
+    out['flow_actions'] = fa_payload
+    if not fa_payload.get('ok'):
+        all_ok = False
+    out['ok'] = all_ok
+    return jsonify(out)
 
 
 @app.route('/api/klaviyo/test-signup', methods=['POST'])
