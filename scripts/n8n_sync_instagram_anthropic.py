@@ -92,9 +92,52 @@ def _load_n8n_api_key() -> str:
     return key
 
 
+# workflowSettings schema (public API) uses additionalProperties: false — strip unknown keys.
+_ALLOWED_WORKFLOW_SETTINGS_KEYS = frozenset(
+    {
+        "saveExecutionProgress",
+        "saveManualExecutions",
+        "saveDataErrorExecution",
+        "saveDataSuccessExecution",
+        "executionTimeout",
+        "errorWorkflow",
+        "timezone",
+        "executionOrder",
+        "callerPolicy",
+        "callerIds",
+        "timeSavedPerExecution",
+        "availableInMCP",
+        "sharedWorkflow",
+    }
+)
+
+
+def _sanitize_settings(s: Any) -> Dict[str, Any]:
+    if not isinstance(s, dict):
+        return {}
+    return {k: v for k, v in s.items() if k in _ALLOWED_WORKFLOW_SETTINGS_KEYS}
+
+
 def _prune_workflow_put(wf: Dict[str, Any]) -> Dict[str, Any]:
-    keep = ("name", "nodes", "connections", "settings", "staticData", "pinData")
-    return {k: wf[k] for k in keep if k in wf}
+    out: Dict[str, Any] = {}
+    for k in ("name", "nodes", "connections", "settings", "staticData", "pinData"):
+        if k not in wf:
+            continue
+        if k == "settings":
+            out[k] = _sanitize_settings(wf[k])
+        else:
+            out[k] = wf[k]
+    return out
+
+
+def _prune_minimal_put(wf: Dict[str, Any]) -> Dict[str, Any]:
+    """Required properties + sanitized settings (API rejects extra settings.* keys)."""
+    return {
+        "name": wf["name"],
+        "nodes": wf["nodes"],
+        "connections": wf["connections"],
+        "settings": _sanitize_settings(wf.get("settings")),
+    }
 
 
 def main() -> None:
@@ -174,9 +217,13 @@ def main() -> None:
             content_type="application/json",
         )
 
-    code, raw_put = _put(wf)
+    wf_send = dict(wf)
+    wf_send["settings"] = _sanitize_settings(wf_send.get("settings"))
+    code, raw_put = _put(wf_send)
     if code != 200:
         code, raw_put = _put(_prune_workflow_put(wf))
+    if code != 200:
+        code, raw_put = _put(_prune_minimal_put(wf))
     if code != 200:
         print(json.dumps({"step": "PUT workflow", "http": code, "body": raw_put[:8000]}))
         sys.exit(1)
