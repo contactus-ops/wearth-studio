@@ -12,7 +12,7 @@ Run: python wearth_meta_dual_adsets.py [--dry-run]
 
 POST /api/meta/weareth-dual-adsets-setup JSON:
   dry_run: true  → preflight only (interests with confidence, cities, seed count).
-  dry_run: false → internal preflight then LIVE if no critical_warnings and buyer seed ≥100.
+  dry_run: false → internal preflight then LIVE if no critical_warnings and buyer seed ≥ WEARTH_MIN_SEED (default 95).
   force_live: true → bypass seed gate (dangerous).
   skip_audiences: true → use WEARTH_LOOKALIKE_ID (no Shopify upload).
 """
@@ -39,7 +39,8 @@ MEN_CAMPAIGN_ID = os.environ.get("WEARTH_MEN_CAMPAIGN_ID", "120245108704880305")
 SOURCE_CREATIVE_AD_ID = os.environ.get("WEARTH_SOURCE_AD_ID", "120245108707140305")
 
 SHOPIFY_API_VERSION = os.environ.get("SHOPIFY_API_VERSION", "2024-10")
-MIN_SEED_BUYERS = int(os.environ.get("WEARTH_MIN_SEED", "100"))
+# Default 95: Shopify Customer.orders_count is often stale; order-derived unique emails (~97 here) are the real buyer set.
+MIN_SEED_BUYERS = int(os.environ.get("WEARTH_MIN_SEED", "95"))
 MAX_INTEREST_IDS = int(os.environ.get("WEARTH_MAX_INTERESTS", "38"))
 
 # Unified demo band: premium urban India 24–42 (north star: ingredient-conscious spenders).
@@ -457,19 +458,72 @@ def search_city(name: str, country: str) -> Optional[Dict[str, Any]]:
     return None
 
 
+def _email_from_shopify_order(o: Dict[str, Any]) -> str:
+    """Best-effort buyer email on an order (REST fields vary by theme/checkout)."""
+    cust = o.get("customer") or {}
+    bill = o.get("billing_address") or {}
+    ship = o.get("shipping_address") or {}
+    for raw in (
+        o.get("email"),
+        o.get("contact_email"),
+        cust.get("email"),
+        bill.get("email"),
+        ship.get("email"),
+    ):
+        em = (raw or "").strip().lower()
+        if em:
+            return em
+    return ""
+
+
 def shopify_customer_emails_with_orders() -> Tuple[List[str], Dict[str, Any]]:
-    """TARGET ROAS 4:1 AT ₹15K/MONTH SPEND — buyer seed for lookalike quality."""
+    """TARGET ROAS 4:1 AT ₹15K/MONTH SPEND — buyer seed for lookalike quality.
+
+    Prefer emails from **orders** (ground-truth purchasers). Shopify's Customer.orders_count
+    on GET customers.json is often stale, so customer-list-only counts undercount badly.
+    Union with customers where orders_count >= 1 for overlap coverage.
+    """
     store = (os.environ.get("SHOPIFY_STORE") or "").strip().lower()
     token = (os.environ.get("SHOPIFY_TOKEN") or "").strip()
-    meta: Dict[str, Any] = {"store": store, "pages": 0, "raw_customers": 0}
+    meta: Dict[str, Any] = {
+        "store": store,
+        "customer_pages": 0,
+        "order_pages": 0,
+        "raw_customers": 0,
+        "orders_scanned": 0,
+    }
     if not store or not token:
         raise RuntimeError("SHOPIFY_STORE and SHOPIFY_TOKEN required")
     host = store.replace("https://", "").replace("http://", "").strip("/")
-    emails: List[str] = []
-    url = f"https://{host}/admin/api/{SHOPIFY_API_VERSION}/customers.json?limit=250"
     headers = {"X-Shopify-Access-Token": token}
-    while url:
-        r = requests.get(url, headers=headers, timeout=90)
+
+    from_orders: set[str] = set()
+    ourl = f"https://{host}/admin/api/{SHOPIFY_API_VERSION}/orders.json?status=any&limit=250"
+    while ourl:
+        r = requests.get(ourl, headers=headers, timeout=90)
+        if r.status_code != 200:
+            raise RuntimeError(f"Shopify orders {r.status_code}: {r.text[:500]}")
+        data = r.json() or {}
+        for o in data.get("orders") or []:
+            meta["orders_scanned"] += 1
+            em = _email_from_shopify_order(o)
+            if em:
+                from_orders.add(em)
+        meta["order_pages"] += 1
+        link = r.headers.get("Link", "")
+        next_url = ""
+        for part in link.split(","):
+            if 'rel="next"' in part:
+                next_url = part.split(";")[0].strip().strip("<>")
+                break
+        ourl = next_url
+        if meta["order_pages"] > 250:
+            break
+
+    from_customers: set[str] = set()
+    curl = f"https://{host}/admin/api/{SHOPIFY_API_VERSION}/customers.json?limit=250"
+    while curl:
+        r = requests.get(curl, headers=headers, timeout=90)
         if r.status_code != 200:
             raise RuntimeError(f"Shopify customers {r.status_code}: {r.text[:500]}")
         data = r.json() or {}
@@ -478,20 +532,24 @@ def shopify_customer_emails_with_orders() -> Tuple[List[str], Dict[str, Any]]:
             em = (c.get("email") or "").strip().lower()
             oc = int(c.get("orders_count") or 0)
             if em and oc >= 1:
-                emails.append(em)
-        meta["pages"] += 1
+                from_customers.add(em)
+        meta["customer_pages"] += 1
         link = r.headers.get("Link", "")
         next_url = ""
         for part in link.split(","):
             if 'rel="next"' in part:
                 next_url = part.split(";")[0].strip().strip("<>")
                 break
-        url = next_url
-        if meta["pages"] > 200:
+        curl = next_url
+        if meta["customer_pages"] > 250:
             break
-    dedup = sorted(set(emails))
-    meta["unique_buyer_emails"] = len(dedup)
-    return dedup, meta
+
+    union = from_orders | from_customers
+    meta["unique_buyer_emails_from_orders"] = len(from_orders)
+    meta["unique_buyer_emails_from_customers_orders_ge_1"] = len(from_customers)
+    meta["unique_buyer_emails"] = len(union)
+    meta["pages"] = meta["customer_pages"]  # backward compat for logs
+    return sorted(union), meta
 
 
 def sha256_email(email: str) -> str:
@@ -725,7 +783,7 @@ def _compute_critical_warnings(
         cw.append("CRITICAL: Zero men's interests resolved — broaden queries or fix Meta token scopes.")
     if check_buyer_seed and not skip_audiences and buyer_count < MIN_SEED_BUYERS:
         cw.append(
-            f"CRITICAL: Buyer seed {buyer_count} < {MIN_SEED_BUYERS} — Meta lookalike requires ≥100 matched people."
+            f"CRITICAL: Buyer seed {buyer_count} < {MIN_SEED_BUYERS} — raise WEARTH_MIN_SEED or grow matched buyers."
         )
     return cw
 
