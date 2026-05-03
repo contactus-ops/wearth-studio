@@ -641,8 +641,10 @@ def build_base_targeting(
     cities: List[dict],
     interests: List[Dict[str, str]],
     lookalike_id: str,
+    advantage_audience: int = 0,
 ) -> Dict[str, Any]:
     # TARGET ROAS 4:1 AT ₹15K/MONTH SPEND — lookalike + affinity OR stack + premium placements.
+    # Meta requires advantage_audience (0|1) inside targeting.targeting_automation (not as a top-level ad set field).
     city_objs = [{"key": c["key"]} for c in cities if c.get("key")]
     interest_objs = [{"id": x["id"]} for x in interests if x.get("id")]
     t: Dict[str, Any] = {
@@ -656,6 +658,7 @@ def build_base_targeting(
         "instagram_positions": ["stream", "story", "reels"],
         "device_platforms": ["mobile"],
         "user_os": ["iOS", "Android"],
+        "targeting_automation": {"advantage_audience": int(advantage_audience)},
     }
     if interest_objs:
         t["flexible_spec"] = [{"interests": interest_objs}]
@@ -1000,6 +1003,7 @@ def run_weareth_dual_adset_pipeline(
         cities=cities,
         interests=int_w_objs,
         lookalike_id=lookalike_id,
+        advantage_audience=1,
     )
     tm = build_base_targeting(
         genders=[1],
@@ -1008,6 +1012,7 @@ def run_weareth_dual_adset_pipeline(
         cities=cities,
         interests=int_m_objs,
         lookalike_id=lookalike_id,
+        advantage_audience=0,
     )
 
     women_as = get_adset(WOMEN_ADSET_ID)
