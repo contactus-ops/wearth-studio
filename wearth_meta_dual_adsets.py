@@ -58,7 +58,8 @@ MASTER_FITNESS = [
 
 MASTER_WELLNESS = [
     "clean eating", "organic food", "nutrition", "Health food", "ayurveda",
-    "Meditation", "sleep", "Quantified Self", "Cryotherapy", "Pranayama",
+    # Meta has no adinterest for "Cryotherapy"/"Pranayama"; these labels index and match the same niches.
+    "Meditation", "sleep", "Quantified Self", "cold therapy", "breathing exercises",
 ]
 
 MASTER_PREMIUM_LIFESTYLE = [
@@ -139,16 +140,16 @@ INTEREST_FALLBACKS: Dict[str, List[str]] = {
         "wearable technology",
         "fitness tracking",
     ],
-    "cryotherapy": [
-        "cold therapy",
+    "cold therapy": [
+        "Cryotherapy",
         "ice bath",
         "cryo",
         "cold plunge",
         "cryo spa",
         "Wim Hof Method",
     ],
-    "pranayama": [
-        "breathing exercises",
+    "breathing exercises": [
+        "Pranayama",
         "yoga breathing",
         "breathwork",
         "meditation breathing",
@@ -255,13 +256,15 @@ def match_confidence(query: str, matched_name: str) -> Tuple[str, float]:
     m = (matched_name or "").lower().strip()
     if not m:
         return "low", 0.0
-    if q == "quantified self" and "quantif" in m:
-        return "medium", 0.68
-    if q == "cryotherapy" and any(
+    if q == "quantified self" and ("quantif" in m or "wearable" in m or "tracker" in m):
+        return "medium", 0.62
+    if q == "cold therapy" and any(
         x in m for x in ("cryo", "cold therapy", "ice bath", "cold plunge", "wim hof")
     ):
         return "medium", 0.62
-    if q == "pranayama" and any(x in m for x in ("pranayama", "breath", "yoga", "meditation")):
+    if q == "breathing exercises" and any(
+        x in m for x in ("pranayama", "breath", "yoga", "meditation")
+    ):
         return "medium", 0.62
     if q == m or q in m or m in q:
         return "high", 0.95
@@ -302,15 +305,6 @@ def resolve_interest_line(label: str) -> Dict[str, Any]:
     Scores top Meta results for every query variant and keeps the best match (not only the first API hit).
     """
     tries = [label] + INTEREST_FALLBACKS.get(label.lower().strip(), [])
-    # Meta index uses "cold therapy" more reliably than the product term "Cryotherapy".
-    if label.lower().strip() == "cryotherapy":
-        tries = ["cold therapy", "ice bath", label] + [
-            x for x in tries if x.lower() not in {"cold therapy", "ice bath", label.lower()}
-        ]
-    if label.lower().strip() == "pranayama":
-        tries = ["breathing exercises", "yoga breathing", "pranayama yoga", label] + [
-            x for x in tries if x.lower() not in {"breathing exercises", "yoga breathing", "pranayama yoga", label.lower()}
-        ]
     tried: List[str] = []
     best_pick: Optional[Dict[str, Any]] = None
     best_score = -1.0
