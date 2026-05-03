@@ -3286,29 +3286,185 @@ def klaviyo_active_count():
         return jsonify({'ok': False, 'error': str(e), 'trace': traceback.format_exc()}), 500
 
 
+def _klaviyo_collect_flow_actions_via_flows_include(max_pages: int = 200, cap: int = 200):
+    """Klaviyo does not allow GET /api/flow-actions/ as a collection; use flows?include=flow-actions."""
+    by_id = {}
+    next_url = 'https://a.klaviyo.com/api/flows/'
+    params = {'page[size]': 50, 'include': 'flow-actions'}
+    first = True
+    for _ in range(max_pages):
+        if not next_url:
+            break
+        payload = _klaviyo_api_get(next_url, params=params if first else None)
+        first = False
+        for inc in payload.get('included') or []:
+            if isinstance(inc, dict) and inc.get('type') == 'flow-action':
+                by_id[str(inc.get('id') or '')] = inc
+        nxt = (payload.get('links') or {}).get('next')
+        next_url = (str(nxt).strip() if nxt else '') or None
+        if next_url:
+            time.sleep(0.12)
+    merged = list(by_id.values())
+
+    def _fa_updated_key(x):
+        a = x.get('attributes') if isinstance(x, dict) else None
+        if not isinstance(a, dict):
+            return ''
+        return str(a.get('updated') or a.get('created') or '')
+
+    merged.sort(key=_fa_updated_key, reverse=True)
+    return merged[:cap]
+
+
 @app.route('/api/klaviyo/diagnose', methods=['GET'])
 def klaviyo_diagnose():
     """
-    Klaviyo account checks: sending domains, flow summaries, recent flow actions.
-    Uses KLAVIYO_PRIVATE_KEY. If GET /api/flow-actions/ is unavailable, flow actions
-    are aggregated from GET /api/flows/?include=flow-actions (deduped by id).
+    Klaviyo diagnostics for deliverability and welcome-email issues.
+
+    Includes: account sender summary, list opt-in + list-trigger flows (vs env list ids),
+    all flows summary, recent flow-actions (via flows include). Sending-domain DNS is
+    not available on Klaviyo REST; see sending_domains.note.
     """
     if not KLAVIYO_PRIVATE_KEY:
         return jsonify({'ok': False, 'error': 'KLAVIYO_PRIVATE_KEY not set'}), 500
 
-    out = {'ok': True, 'sending_domains': None, 'flows': None, 'flow_actions': None}
-    all_ok = True
+    active_list = str(KLAVIYO_ACTIVE_LIST_ID or '').strip()
+    email_list = str(KLAVIYO_EMAIL_LIST_ID or '').strip() or active_list
+    out = {
+        'ok': False,
+        'all_checks_ok': False,
+        'likely_blockers': [],
+        'welcome_email': {
+            'email_list_id': email_list or None,
+            'active_list_id': active_list or None,
+            'lists_same_as_test_signup': (not email_list) or (email_list == active_list) or (not active_list),
+        },
+        'sending_domains': {
+            'ok': None,
+            'skipped': True,
+            'note': (
+                'Klaviyo has no public GET for branded sending-domain DNS status. '
+                'Check Klaviyo → Settings → Domains; confirm dedicated sending domain, '
+                'SPF/DKIM, and that flows are not paused for deliverability holds.'
+            ),
+        },
+        'account': None,
+        'lists': None,
+        'flows': None,
+        'flow_actions': None,
+    }
+    blockers = []
 
     try:
-        sd = _klaviyo_collect_data_pages(
-            'https://a.klaviyo.com/api/sending-domains/',
-            params={'page[size]': 50},
+        acc_j = _klaviyo_api_get(
+            'https://a.klaviyo.com/api/accounts/',
+            params={
+                'fields[account]': [
+                    'test_account',
+                    'timezone',
+                    'locale',
+                    'public_api_key',
+                    'contact_information',
+                    'contact_information.default_sender_email',
+                    'contact_information.default_sender_name',
+                    'contact_information.organization_name',
+                ],
+            },
         )
-        out['sending_domains'] = {'ok': True, 'data': sd}
+        rows = acc_j.get('data') or []
+        acc_summary = None
+        if rows and isinstance(rows[0], dict):
+            a = (rows[0].get('attributes') or {})
+            ci = a.get('contact_information') or {}
+            acc_summary = {
+                'ok': True,
+                'id': str(rows[0].get('id') or ''),
+                'test_account': a.get('test_account'),
+                'timezone': a.get('timezone'),
+                'locale': a.get('locale'),
+                'public_api_key': a.get('public_api_key'),
+                'default_sender_email': ci.get('default_sender_email'),
+                'default_sender_name': ci.get('default_sender_name'),
+                'organization_name': ci.get('organization_name'),
+            }
+            if a.get('test_account') is True:
+                blockers.append(
+                    'Klaviyo account is flagged test_account=true in API (primarily UI); '
+                    'confirm you expect sends from this workspace.'
+                )
+        out['account'] = acc_summary or {'ok': False, 'error': 'No account data returned'}
     except Exception as e:
-        all_ok = False
-        out['sending_domains'] = {'ok': False, 'error': str(e)}
+        out['account'] = {'ok': False, 'error': str(e)}
 
+    list_payloads = {}
+    list_ids_try = []
+    for lid in (email_list, active_list):
+        if lid and lid not in list_ids_try:
+            list_ids_try.append(lid)
+    for lid in list_ids_try:
+        try:
+            list_payloads[lid] = _klaviyo_api_get(
+                f'https://a.klaviyo.com/api/lists/{lid}/',
+                params={
+                    'fields[list]': ['name', 'opt_in_process', 'updated'],
+                    'additional-fields[list]': 'profile_count',
+                    'include': 'flow-triggers',
+                },
+            )
+        except Exception as e:
+            list_payloads[lid] = {'_error': str(e)}
+            blockers.append('Could not read Klaviyo list %s: %s' % (lid, str(e)))
+
+    out['lists'] = list_payloads
+
+    if email_list and isinstance(list_payloads.get(email_list), dict) and '_error' not in list_payloads[email_list]:
+        root = list_payloads[email_list]
+        d = root.get('data') or {}
+        la = d.get('attributes') or {}
+        opt = la.get('opt_in_process')
+        if opt == 'double_opt_in':
+            blockers.append(
+                'Subscribe list uses double_opt_in: welcome / "Added to list" flows only run after '
+                'the subscriber completes the double opt-in email. If they never confirm, no welcome sends.'
+            )
+        trig_ids = set()
+        rel = (d.get('relationships') or {}).get('flow-triggers') or {}
+        for ref in (rel.get('data') or []):
+            if isinstance(ref, dict) and ref.get('type') == 'flow':
+                trig_ids.add(str(ref.get('id') or ''))
+        inc_flows = {}
+        for inc in root.get('included') or []:
+            if isinstance(inc, dict) and inc.get('type') == 'flow':
+                inc_flows[str(inc.get('id') or '')] = inc
+        trig_summaries = []
+        for fid in sorted(trig_ids):
+            row = inc_flows.get(fid)
+            if not row:
+                trig_summaries.append({'id': fid, 'name': None, 'status': None, 'trigger': None})
+                continue
+            fa = row.get('attributes') or {}
+            tt = fa.get('trigger_type')
+            trig_summaries.append({
+                'id': fid,
+                'name': fa.get('name'),
+                'status': fa.get('status'),
+                'trigger': ({'type': tt} if tt is not None else None),
+            })
+        out['welcome_email']['flows_triggered_by_subscribe_list'] = trig_summaries
+        for t in trig_summaries:
+            st = (t.get('status') or '').lower()
+            if st and st != 'live':
+                blockers.append(
+                    'Flow "%s" (%s) triggers on subscribe list but status is "%s" (not live) — it will not send automatically.'
+                    % (t.get('name') or '?', t.get('id'), t.get('status'))
+                )
+        if not trig_summaries:
+            blockers.append(
+                'No flow-triggers are attached to KLAVIYO_EMAIL_LIST_ID in Klaviyo. '
+                'Welcome flows must list this list as their trigger, or they never fire on API subscribe.'
+            )
+
+    flow_rows = []
     try:
         flow_rows = _klaviyo_collect_data_pages(
             'https://a.klaviyo.com/api/flows/',
@@ -3327,83 +3483,62 @@ def klaviyo_diagnose():
                 'trigger': ({'type': tt} if tt is not None else None),
             })
         out['flows'] = {'ok': True, 'flows': summaries}
+
+        trig_on_list = set()
+        ep = out['welcome_email'].get('flows_triggered_by_subscribe_list') or []
+        for t in ep:
+            if t.get('id'):
+                trig_on_list.add(str(t['id']))
+        for s in summaries:
+            nm = (s.get('name') or '').lower()
+            trig = (s.get('trigger') or {}).get('type')
+            if trig == 'Added to List' and s.get('status') == 'live' and 'welcome' in nm:
+                if s.get('id') and str(s['id']) not in trig_on_list:
+                    blockers.append(
+                        'Live list-triggered welcome-style flow "%s" (%s) is not among flow-triggers on '
+                        'KLAVIYO_EMAIL_LIST_ID — it may be wired to a different list than your app uses.'
+                        % (s.get('name'), s.get('id'))
+                    )
     except Exception as e:
-        all_ok = False
         out['flows'] = {'ok': False, 'error': str(e)}
+        blockers.append('Could not list flows: %s' % str(e))
 
     fa_payload = {'ok': False, 'data': [], 'source': None, 'note': None}
     try:
-        fa_items = []
-        next_url = 'https://a.klaviyo.com/api/flow-actions/'
-        fa_params = {'page[size]': 50, 'sort': '-updated'}
-        first = True
-        for _ in range(10):
-            if not next_url or len(fa_items) >= 200:
-                break
-            payload = _klaviyo_api_get(next_url, params=fa_params if first else None)
-            first = False
-            chunk = payload.get('data') or []
-            if isinstance(chunk, list):
-                fa_items.extend(chunk)
-            nxt = (payload.get('links') or {}).get('next')
-            next_url = (str(nxt).strip() if nxt else '') or None
-            if next_url:
-                time.sleep(0.12)
         fa_payload = {
             'ok': True,
-            'data': fa_items[:200],
-            'source': 'flow-actions',
-            'note': 'GET /api/flow-actions/ sorted by -updated (capped).',
+            'data': _klaviyo_collect_flow_actions_via_flows_include(),
+            'source': 'flows_include_flow_actions',
+            'note': 'Flow actions from paginated GET /api/flows/?include=flow-actions (global /api/flow-actions/ is not supported).',
         }
-    except Exception as e_global:
-        try:
-            by_id = {}
-            next_url = 'https://a.klaviyo.com/api/flows/'
-            inc_params = {'page[size]': 50, 'include': 'flow-actions'}
-            first = True
-            for _ in range(200):
-                if not next_url:
-                    break
-                payload = _klaviyo_api_get(next_url, params=inc_params if first else None)
-                first = False
-                for inc in payload.get('included') or []:
-                    if isinstance(inc, dict) and inc.get('type') == 'flow-action':
-                        by_id[str(inc.get('id') or '')] = inc
-                nxt = (payload.get('links') or {}).get('next')
-                next_url = (str(nxt).strip() if nxt else '') or None
-                if next_url:
-                    time.sleep(0.12)
-            merged = list(by_id.values())
-
-            def _fa_updated_key(x):
-                a = x.get('attributes') if isinstance(x, dict) else None
-                if not isinstance(a, dict):
-                    return ''
-                return str(a.get('updated') or a.get('created') or '')
-
-            merged.sort(key=_fa_updated_key, reverse=True)
-            fa_payload = {
-                'ok': True,
-                'data': merged[:200],
-                'source': 'flows_include_flow_actions',
-                'note': (
-                    'Global GET /api/flow-actions/ failed (%s); '
-                    'deduped flow-action objects from paginated /api/flows/?include=flow-actions.'
-                ) % str(e_global),
-            }
-        except Exception as e_fb:
-            all_ok = False
-            fa_payload = {
-                'ok': False,
-                'data': [],
-                'source': None,
-                'error': str(e_fb),
-                'note': 'Global flow-actions error: %s' % str(e_global),
-            }
+    except Exception as e:
+        fa_payload = {'ok': False, 'data': [], 'source': None, 'error': str(e)}
+        blockers.append('Could not load flow actions: %s' % str(e))
     out['flow_actions'] = fa_payload
-    if not fa_payload.get('ok'):
-        all_ok = False
-    out['ok'] = all_ok
+
+    if not email_list:
+        blockers.append(
+            'KLAVIYO_EMAIL_LIST_ID and KLAVIYO_ACTIVE_LIST_ID are unset: /api/klaviyo/test-signup cannot subscribe anyone to a list.'
+        )
+
+    out['ok'] = bool(out.get('flows') and out['flows'].get('ok'))
+    lists_ok = (
+        all(
+            isinstance(list_payloads.get(x), dict) and '_error' not in list_payloads.get(x, {})
+            for x in list_ids_try
+        )
+        if list_ids_try
+        else True
+    )
+    acct = out.get('account') or {}
+    out['all_checks_ok'] = (
+        bool(out.get('flows', {}).get('ok'))
+        and bool(fa_payload.get('ok'))
+        and lists_ok
+        and acct.get('ok') is True
+        and len(blockers) == 0
+    )
+    out['likely_blockers'] = list(dict.fromkeys(blockers))
     return jsonify(out)
 
 
