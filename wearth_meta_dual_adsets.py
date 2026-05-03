@@ -596,6 +596,8 @@ def _compute_critical_warnings(
     skip_audiences: bool,
     women_api_count: int,
     men_api_count: int,
+    *,
+    check_buyer_seed: bool = True,
 ) -> List[str]:
     # TARGET ROAS 4:1 AT ₹15K/MONTH SPEND — block live spend when seed/geo/affinity unusable.
     cw = []
@@ -605,7 +607,7 @@ def _compute_critical_warnings(
         cw.append("CRITICAL: Zero women's interests resolved — broaden queries or fix Meta token scopes.")
     if men_api_count < 1:
         cw.append("CRITICAL: Zero men's interests resolved — broaden queries or fix Meta token scopes.")
-    if not skip_audiences and buyer_count < MIN_SEED_BUYERS:
+    if check_buyer_seed and not skip_audiences and buyer_count < MIN_SEED_BUYERS:
         cw.append(
             f"CRITICAL: Buyer seed {buyer_count} < {MIN_SEED_BUYERS} — Meta lookalike requires ≥100 matched people."
         )
@@ -690,6 +692,7 @@ def run_weareth_dual_adset_pipeline(
         skip_audiences,
         len(int_w_objs),
         len(int_m_objs),
+        check_buyer_seed=(shopify_ok and not skip_audiences),
     )
     # Dry-run without Shopify should not block on seed — user is validating Meta mapping only.
     if dry_run and not skip_audiences and not shopify_ok:
