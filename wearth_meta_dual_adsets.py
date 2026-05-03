@@ -245,7 +245,8 @@ def search_interest_raw(q: str) -> List[Dict[str, Any]]:
         except Exception:
             pass
     out = meta_request("GET", "search", params=params)
-    return _interest_rows_only(list(out.get("data") or []))
+    # Global /search with type=adinterest returns interest entries; do not filter (types vary by Graph version).
+    return list(out.get("data") or [])
 
 
 def match_confidence(query: str, matched_name: str) -> Tuple[str, float]:
@@ -254,6 +255,14 @@ def match_confidence(query: str, matched_name: str) -> Tuple[str, float]:
     m = (matched_name or "").lower().strip()
     if not m:
         return "low", 0.0
+    if q == "quantified self" and "quantif" in m:
+        return "medium", 0.68
+    if q == "cryotherapy" and any(
+        x in m for x in ("cryo", "cold therapy", "ice bath", "cold plunge", "wim hof")
+    ):
+        return "medium", 0.62
+    if q == "pranayama" and any(x in m for x in ("pranayama", "breath", "yoga", "meditation")):
+        return "medium", 0.62
     if q == m or q in m or m in q:
         return "high", 0.95
     qt = set(re.split(r"[^\w]+", q)) - {"", "the", "and"}
@@ -293,6 +302,15 @@ def resolve_interest_line(label: str) -> Dict[str, Any]:
     Scores top Meta results for every query variant and keeps the best match (not only the first API hit).
     """
     tries = [label] + INTEREST_FALLBACKS.get(label.lower().strip(), [])
+    # Meta index uses "cold therapy" more reliably than the product term "Cryotherapy".
+    if label.lower().strip() == "cryotherapy":
+        tries = ["cold therapy", "ice bath", label] + [
+            x for x in tries if x.lower() not in {"cold therapy", "ice bath", label.lower()}
+        ]
+    if label.lower().strip() == "pranayama":
+        tries = ["breathing exercises", "yoga breathing", "pranayama yoga", label] + [
+            x for x in tries if x.lower() not in {"breathing exercises", "yoga breathing", "pranayama yoga", label.lower()}
+        ]
     tried: List[str] = []
     best_pick: Optional[Dict[str, Any]] = None
     best_score = -1.0
