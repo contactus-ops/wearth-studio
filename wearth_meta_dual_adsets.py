@@ -221,6 +221,17 @@ def act_path(tail: str) -> str:
     return f"{_env_act_id()}/{tail.lstrip('/')}"
 
 
+def _interest_rows_only(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """targetingsearch mixes behaviors/devices with interests — keep rows typed as interests only."""
+    out: List[Dict[str, Any]] = []
+    for pick in rows:
+        t = (pick.get("type") or "").strip().lower()
+        if t and t not in ("interests", "interest", "adinterest"):
+            continue
+        out.append(pick)
+    return out
+
+
 def search_interest_raw(q: str) -> List[Dict[str, Any]]:
     # TARGET ROAS 4:1 AT ₹15K/MONTH SPEND — account targetingsearch returns geo-valid interests; fall back to global /search.
     params = {"type": "adinterest", "q": q.strip(), "limit": 25}
@@ -228,13 +239,13 @@ def search_interest_raw(q: str) -> List[Dict[str, Any]]:
     if act:
         try:
             out = meta_request("GET", f"{act}/targetingsearch", params=params)
-            data = list(out.get("data") or [])
+            data = _interest_rows_only(list(out.get("data") or []))
             if data:
                 return data
         except Exception:
             pass
     out = meta_request("GET", "search", params=params)
-    return list(out.get("data") or [])
+    return _interest_rows_only(list(out.get("data") or []))
 
 
 def match_confidence(query: str, matched_name: str) -> Tuple[str, float]:
