@@ -660,11 +660,25 @@ def run_weareth_dual_adset_pipeline(
     emails: List[str] = []
     shop_meta: Dict[str, Any] = {}
     buyer_count = 0
+    shopify_ok = bool(
+        (os.environ.get("SHOPIFY_STORE") or "").strip() and (os.environ.get("SHOPIFY_TOKEN") or "").strip()
+    )
+    result["shopify_env_configured"] = shopify_ok
+
     if not skip_audiences:
-        emails, shop_meta = shopify_customer_emails_with_orders()
-        buyer_count = len(set(emails))
-        result["shopify"] = shop_meta
-        result["buyer_hashes_count"] = buyer_count
+        if shopify_ok:
+            emails, shop_meta = shopify_customer_emails_with_orders()
+            buyer_count = len(set(emails))
+            result["shopify"] = shop_meta
+            result["buyer_hashes_count"] = buyer_count
+        else:
+            result["shopify"] = {"configured": False, "note": "SHOPIFY_STORE / SHOPIFY_TOKEN missing on server"}
+            result["buyer_hashes_count"] = None
+            result["warnings"].append(
+                "Shopify credentials not set in Railway — buyer seed count skipped. "
+                "Add SHOPIFY_STORE + SHOPIFY_TOKEN for seed + lookalike (required for live)."
+            )
+            buyer_count = 0
     else:
         result["buyer_hashes_count"] = None
 
@@ -677,6 +691,9 @@ def run_weareth_dual_adset_pipeline(
         len(int_w_objs),
         len(int_m_objs),
     )
+    # Dry-run without Shopify should not block on seed — user is validating Meta mapping only.
+    if dry_run and not skip_audiences and not shopify_ok:
+        result["critical_warnings"] = [x for x in result["critical_warnings"] if "Buyer seed" not in x]
 
     lookalike_id = (os.environ.get("WEARTH_LOOKALIKE_ID") or "").strip()
     seed_id = ""
@@ -721,6 +738,32 @@ def run_weareth_dual_adset_pipeline(
         result["ok"] = False
         result["critical_warnings"].append("CRITICAL: Could not load creative from source ad — fix WEARTH_SOURCE_AD_ID.")
         result["live_skipped"] = True
+        return result
+
+    if not skip_audiences and not shopify_ok:
+        result["ok"] = False
+        result["critical_warnings"].append(
+            "CRITICAL: SHOPIFY_STORE and SHOPIFY_TOKEN must be set in Railway for live buyer seed upload."
+        )
+        result["live_skipped"] = True
+        result["hint"] = "Configure Shopify env vars, or use skip_audiences:true with WEARTH_LOOKALIKE_ID."
+        tw = build_base_targeting(
+            genders=[2],
+            age_min=WOMEN_AGE[0],
+            age_max=WOMEN_AGE[1],
+            cities=cities,
+            interests=int_w_objs,
+            lookalike_id=lookalike_id or "UNSET",
+        )
+        tm = build_base_targeting(
+            genders=[1],
+            age_min=MEN_AGE[0],
+            age_max=MEN_AGE[1],
+            cities=cities,
+            interests=int_m_objs,
+            lookalike_id=lookalike_id or "UNSET",
+        )
+        result["planned_preview"] = {"women_targeting": tw, "men_targeting": tm}
         return result
 
     def _allowed_live() -> bool:
