@@ -168,7 +168,9 @@ def _wearth_cors(resp):
     """Allow WEARTH ads dashboard (separate Railway origin) to call JSON APIs."""
     if request.path.startswith("/api/"):
         resp.headers.setdefault("Access-Control-Allow-Origin", "*")
-        resp.headers.setdefault("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS")
+        resp.headers.setdefault(
+            "Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, OPTIONS"
+        )
         resp.headers.setdefault(
             "Access-Control-Allow-Headers",
             "Content-Type, Authorization, X-Wearth-N8n-Mail",
@@ -367,28 +369,194 @@ def api_meta_campaign_used_videos():
         return jsonify({"ok": False, "error": str(e), "trace": traceback.format_exc()}), 500
 
 
-def _adset_roas_from_insights(ins: dict) -> dict:
-    rows = list((ins or {}).get("data") or [])
-    if not rows:
-        return {"spend": 0.0, "clicks": 0, "purchase_value": 0.0, "roas": None}
-    row = rows[0]
+def _insight_row_metrics(row: dict) -> dict:
+    """Single Meta insights row → spend, clicks, CPM, CPC, ROAS (purchase value / spend)."""
+    row = row or {}
     spend = float(row.get("spend") or 0)
     clicks = int(float(row.get("clicks") or 0))
+    impressions = int(float(row.get("impressions") or 0))
+    cpm_s, cpc_s = row.get("cpm"), row.get("cpc")
+    cpm = float(cpm_s) if cpm_s not in (None, "", "0") else (1000.0 * spend / impressions if impressions else None)
+    cpc = float(cpc_s) if cpc_s not in (None, "", "0") else (spend / clicks if clicks else None)
     pv = 0.0
     for a in row.get("action_values") or []:
         t = str(a.get("action_type") or "").lower()
         if "purchase" in t or "omni_purchase" in t:
             pv += float(a.get("value") or 0)
     roas = (pv / spend) if spend > 0 else None
-    return {"spend": spend, "clicks": clicks, "purchase_value": pv, "roas": roas}
+    return {
+        "spend": spend,
+        "clicks": clicks,
+        "impressions": impressions,
+        "cpm": cpm,
+        "cpc": cpc,
+        "purchase_value": pv,
+        "roas": roas,
+    }
+
+
+def _adset_roas_from_insights(ins: dict) -> dict:
+    rows = list((ins or {}).get("data") or [])
+    if not rows:
+        return {
+            "spend": 0.0,
+            "clicks": 0,
+            "impressions": 0,
+            "cpm": None,
+            "cpc": None,
+            "purchase_value": 0.0,
+            "roas": None,
+        }
+    return _insight_row_metrics(rows[0])
+
+
+def _daily_adset_series(adset_id: str) -> list:
+    ins = _meta_request(
+        "GET",
+        f"{adset_id}/insights",
+        params={
+            "fields": "spend,clicks,date_start",
+            "date_preset": "last_7d",
+            "time_increment": 1,
+        },
+    )
+    out = []
+    for row in ins.get("data") or []:
+        out.append(
+            {
+                "date": row.get("date_start") or "",
+                "spend": float(row.get("spend") or 0),
+                "clicks": int(float(row.get("clicks") or 0)),
+            }
+        )
+    return sorted(out, key=lambda x: x["date"])
+
+
+def _merge_chart_series(women_daily: list, men_daily: list) -> list:
+    by = {}
+    for r in women_daily:
+        d = r.get("date") or ""
+        by.setdefault(
+            d,
+            {
+                "date": d,
+                "women_spend": 0.0,
+                "men_spend": 0.0,
+                "women_clicks": 0,
+                "men_clicks": 0,
+            },
+        )
+        by[d]["women_spend"] = float(r.get("spend") or 0)
+        by[d]["women_clicks"] = int(r.get("clicks") or 0)
+    for r in men_daily:
+        d = r.get("date") or ""
+        by.setdefault(
+            d,
+            {
+                "date": d,
+                "women_spend": 0.0,
+                "men_spend": 0.0,
+                "women_clicks": 0,
+                "men_clicks": 0,
+            },
+        )
+        by[d]["men_spend"] = float(r.get("spend") or 0)
+        by[d]["men_clicks"] = int(r.get("clicks") or 0)
+    return [by[k] for k in sorted(by.keys())]
+
+
+def _count_active_ads_campaign(campaign_id: str, limit: int = 500) -> int:
+    out = _meta_request(
+        "GET",
+        f"{campaign_id}/ads",
+        params={"fields": "effective_status", "limit": limit},
+    )
+    n = 0
+    for ad in out.get("data") or []:
+        if (ad.get("effective_status") or "").upper() == "ACTIVE":
+            n += 1
+    return n
+
+
+@app.route("/api/meta/activate-campaign", methods=["POST", "OPTIONS"])
+def api_meta_activate_campaign():
+    """Set WEARTH campaign status to ACTIVE (Graph POST)."""
+    if request.method == "OPTIONS":
+        return "", 204
+    if not META_ACCESS_TOKEN:
+        return jsonify({"ok": False, "error": "META_ACCESS_TOKEN not set"}), 500
+    body = request.json or {}
+    cid = str(body.get("campaign_id") or WEARTH_META_CAMPAIGN_ID_DEFAULT).strip()
+    try:
+        _meta_request("POST", cid, data={"status": "ACTIVE"})
+        st = _meta_request("GET", cid, params={"fields": "name,status,effective_status"})
+        return jsonify(
+            {
+                "ok": True,
+                "campaign_id": cid,
+                "effective_status": st.get("effective_status"),
+                "status": st.get("status"),
+            }
+        )
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e), "trace": traceback.format_exc()}), 502
 
 
 @app.route("/api/meta/adsets-live", methods=["GET"])
 def api_meta_adsets_live():
-    """Last-7d spend / ROAS / status for women + men ad sets (dashboard)."""
+    """Campaign snapshot + last-7d Meta insights for women/men ad sets + 7d daily chart series."""
     if not META_ACCESS_TOKEN:
         return jsonify({"ok": False, "error": "META_ACCESS_TOKEN not set"}), 500
-    out = []
+    cid = WEARTH_META_CAMPAIGN_ID_DEFAULT
+    payload = {
+        "ok": True,
+        "date_preset": "last_7d",
+        "campaign_id": cid,
+        "campaign": None,
+        "today_spend": None,
+        "weekly_roas": None,
+        "active_ads_count": None,
+        "adsets": [],
+        "chart": [],
+    }
+    try:
+        camp = _meta_request("GET", cid, params={"fields": "name,status,effective_status"})
+        payload["campaign"] = camp
+    except Exception as e:
+        payload["campaign"] = {"error": str(e)}
+
+    try:
+        today_ins = _meta_request(
+            "GET",
+            f"{cid}/insights",
+            params={"fields": "spend,action_values", "date_preset": "today"},
+        )
+        trows = today_ins.get("data") or []
+        payload["today_spend"] = (
+            float(trows[0].get("spend") or 0) if trows else 0.0
+        )
+    except Exception as e:
+        payload["today_spend_error"] = str(e)
+
+    try:
+        w_ins = _meta_request(
+            "GET",
+            f"{cid}/insights",
+            params={"fields": "spend,action_values", "date_preset": "last_7d"},
+        )
+        wrows = w_ins.get("data") or []
+        payload["weekly_roas"] = (
+            _insight_row_metrics(wrows[0]).get("roas") if wrows else None
+        )
+    except Exception as e:
+        payload["weekly_roas_error"] = str(e)
+
+    try:
+        payload["active_ads_count"] = _count_active_ads_campaign(cid)
+    except Exception as e:
+        payload["active_ads_error"] = str(e)
+
+    women_daily, men_daily = [], []
     for label, aid in (("women", WEARTH_WOMEN_ADSET_ID), ("men", WEARTH_MEN_ADSET_ID)):
         try:
             st = _meta_request("GET", aid, params={"fields": "name,status,effective_status"})
@@ -396,23 +564,39 @@ def api_meta_adsets_live():
                 "GET",
                 f"{aid}/insights",
                 params={
-                    "fields": "spend,clicks,action_values,actions,impressions",
+                    "fields": "spend,clicks,action_values,actions,impressions,cpm,cpc",
                     "date_preset": "last_7d",
                 },
             )
             m = _adset_roas_from_insights(ins)
+            daily = _daily_adset_series(aid)
+            if label == "women":
+                women_daily = daily
+            else:
+                men_daily = daily
+            _act = (META_AD_ACCOUNT_ID or "act_8979315238856807").replace("act_", "")
             m.update(
                 {
                     "label": label,
                     "adset_id": aid,
                     "name": (st or {}).get("name"),
                     "status": (st or {}).get("effective_status") or (st or {}).get("status"),
+                    "ads_manager_url": (
+                        f"https://adsmanager.facebook.com/adsmanager/manage/adsets?"
+                        f"act={_act}&selected_adset_ids={aid}"
+                    ),
                 }
             )
-            out.append(m)
+            payload["adsets"].append(m)
         except Exception as e:
-            out.append({"label": label, "adset_id": aid, "error": str(e)})
-    return jsonify({"ok": True, "adsets": out, "date_preset": "last_7d"})
+            payload["adsets"].append({"label": label, "adset_id": aid, "error": str(e)})
+
+    try:
+        payload["chart"] = _merge_chart_series(women_daily, men_daily)
+    except Exception:
+        payload["chart"] = []
+
+    return jsonify(payload)
 
 
 @app.route("/health", methods=["GET"])
