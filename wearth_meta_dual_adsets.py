@@ -672,9 +672,10 @@ def get_ad_creative_id(ad_id: str) -> str:
 
 
 def get_adset(adset_id: str) -> dict:
+    # Note: targeting_automation was removed from Ad Set in newer Graph versions — do not request it.
     fields = (
         "id,name,status,campaign_id,daily_budget,billing_event,optimization_goal,"
-        "bid_strategy,promoted_object,targeting,targeting_automation,start_time,end_time"
+        "bid_strategy,promoted_object,targeting,start_time,end_time"
     )
     return meta_request("GET", adset_id, params={"fields": fields})
 
@@ -1016,14 +1017,6 @@ def run_weareth_dual_adset_pipeline(
             promoted = json.loads(promoted)
         except Exception:
             promoted = None
-    ta = women_as.get("targeting_automation")
-    if isinstance(ta, str):
-        try:
-            ta = json.loads(ta)
-        except Exception:
-            ta = None
-    if not isinstance(ta, dict):
-        ta = {"advantage_audience": 0}
 
     result["women_adset_before"] = {"id": women_as.get("id"), "status": women_as.get("status")}
     men_budget_minor = int(MEN_DAILY_BUDGET_INR * 100)
@@ -1033,7 +1026,6 @@ def run_weareth_dual_adset_pipeline(
         WOMEN_ADSET_ID,
         targeting=tw,
         status="ACTIVE",
-        targeting_automation=ta,
         promoted_object=promoted if isinstance(promoted, dict) else None,
     )
 
@@ -1059,7 +1051,6 @@ def run_weareth_dual_adset_pipeline(
         targeting=tm,
         daily_budget_minor=men_budget_minor,
         status="ACTIVE",
-        targeting_automation={"advantage_audience": 0},
         promoted_object=promoted if isinstance(promoted, dict) else None,
     )
 
