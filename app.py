@@ -17,6 +17,7 @@ import tempfile
 from datetime import datetime, timezone, timedelta
 import smtplib
 from email.mime.text import MIMEText
+import threading as _threading
 
 app = Flask(__name__)
 
@@ -117,7 +118,6 @@ REPHRASE_PROMPT = (
 )
 
 # ── SEO ENGINE ──
-import threading as _threading
 from seo_engine import run_seo_engine
 
 # Persistent SEO job state (Railway restarts used to wipe in-memory dict → n8n loops on stale job ids).
