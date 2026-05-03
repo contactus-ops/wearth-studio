@@ -555,6 +555,19 @@ def main() -> None:
     except Exception:
         pass
 
+    if existing_id:
+        code_g, raw_g = _req(
+            "GET", f"{base}/api/v1/workflows/{existing_id}", n8n_key=n8n_key
+        )
+        if code_g == 200:
+            try:
+                cur = json.loads(raw_g)
+                cur_s = _sanitize_settings(cur.get("settings") or {})
+                new_s = _sanitize_settings(wf.get("settings") or {})
+                wf["settings"] = {**cur_s, **new_s}
+            except Exception:
+                pass
+
     payload = json.dumps(wf).encode("utf-8")
     if existing_id:
         put_url = f"{base}/api/v1/workflows/{existing_id}"

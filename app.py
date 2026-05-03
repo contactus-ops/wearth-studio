@@ -120,7 +120,47 @@ REPHRASE_PROMPT = (
 import threading as _threading
 from seo_engine import run_seo_engine
 
-_seo_results = {}
+# Persistent SEO job state (Railway restarts used to wipe in-memory dict → n8n loops on stale job ids).
+SEO_JOBS_PATH = os.environ.get("WEARTH_SEO_JOBS_PATH", "/tmp/seo_jobs.json")
+_seo_jobs_lock = _threading.Lock()
+
+
+def _seo_jobs_read() -> dict:
+    path = SEO_JOBS_PATH
+    if not os.path.isfile(path):
+        return {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _seo_jobs_write(data: dict) -> None:
+    path = SEO_JOBS_PATH
+    parent = os.path.dirname(os.path.abspath(path))
+    if parent and not os.path.isdir(parent):
+        os.makedirs(parent, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+
+def _seo_job_update(job_id: str, payload: dict) -> None:
+    jid = str(job_id or "").strip()
+    if not jid:
+        return
+    with _seo_jobs_lock:
+        data = _seo_jobs_read()
+        data[jid] = payload
+        _seo_jobs_write(data)
+
+
+def _seo_job_get(job_id: str) -> dict:
+    jid = str(job_id or "").strip()
+    with _seo_jobs_lock:
+        data = _seo_jobs_read()
+        return data.get(jid, {"status": "not_found"})
 
 
 @app.after_request
@@ -391,22 +431,25 @@ def generate_article_endpoint():
     if not os.environ.get("ANTHROPIC_API_KEY"):
         return jsonify({"error": "ANTHROPIC_API_KEY not set"}), 500
     job_id = str(int(time.time()))
-    _seo_results[job_id] = {"status": "running"}
+    _seo_job_update(job_id, {"status": "running"})
     def run():
         try:
             r = run_seo_engine(dry_run=dry_run, article_index=index)
             # Store as proper dict, not string
-            _seo_results[job_id] = {
-                "status": "complete",
-                "article": r if isinstance(r, dict) else {},
-                "title": r.get("title", "") if isinstance(r, dict) else "",
-                "handle": r.get("handle", "") if isinstance(r, dict) else "",
-                "url": f"https://wearthactive.com/blogs/news/{r.get('handle', '')}" if isinstance(r, dict) else "",
-                "image": r.get("image", {}).get("src", "") if isinstance(r, dict) else "",
-                "summary": r.get("summary_html", "") if isinstance(r, dict) else ""
-            }
+            _seo_job_update(
+                job_id,
+                {
+                    "status": "complete",
+                    "article": r if isinstance(r, dict) else {},
+                    "title": r.get("title", "") if isinstance(r, dict) else "",
+                    "handle": r.get("handle", "") if isinstance(r, dict) else "",
+                    "url": f"https://wearthactive.com/blogs/news/{r.get('handle', '')}" if isinstance(r, dict) else "",
+                    "image": r.get("image", {}).get("src", "") if isinstance(r, dict) else "",
+                    "summary": r.get("summary_html", "") if isinstance(r, dict) else "",
+                },
+            )
         except Exception as e:
-            _seo_results[job_id] = {"status": "error", "error": str(e)}
+            _seo_job_update(job_id, {"status": "error", "error": str(e)})
     t = _threading.Thread(target=run)
     t.daemon = True
     t.start()
@@ -414,8 +457,7 @@ def generate_article_endpoint():
 
 @app.route("/seo-job/<job_id>", methods=["GET"])
 def seo_job_status(job_id):
-    result = _seo_results.get(job_id, {"status": "not_found"})
-    return jsonify(result)
+    return jsonify(_seo_job_get(job_id))
 
 @app.route("/seo-status", methods=["GET"])
 def seo_status():

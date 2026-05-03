@@ -106,10 +106,22 @@ def upsert_workflow(base: str, n8n_key: str, wf: Dict[str, Any], workflow_name: 
         pass
 
     body_payload = {k: v for k, v in wf.items() if k != "active"}
-    payload = json.dumps(body_payload).encode("utf-8")
 
     if existing_id:
         put_url = f"{base}/api/v1/workflows/{existing_id}"
+        cg, rawg = req("GET", put_url, n8n_key=n8n_key)
+        if cg == 200:
+            try:
+                cur = json.loads(rawg)
+                cur_s = sanitize_settings(cur.get("settings") or {})
+                new_s = sanitize_settings(body_payload.get("settings") or {})
+                body_payload["settings"] = {**cur_s, **new_s}
+            except Exception:
+                pass
+
+    payload = json.dumps(body_payload).encode("utf-8")
+
+    if existing_id:
         code, raw_put = req("PUT", put_url, n8n_key=n8n_key, body=payload, content_type="application/json")
         if code != 200:
             code, raw_put = req(

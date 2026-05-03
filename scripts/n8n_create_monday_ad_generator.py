@@ -124,6 +124,7 @@ return [
 ];
 """
 
+    # Same synchronous pipeline as Flask publish-video-from-drive (async:false): Drive → advideo → _create_meta_video_ad_from_video_id (PAUSED). Avoids publish-video-async Meta access issues.
     publish_js = f"""const base = '{APP_BASE}';
 const row = $input.first().json;
 const plan = row.plan || {{}};
@@ -131,43 +132,31 @@ const drive_file_id = row.drive_file_id;
 const self = this;
 
 return await (async () => {{
-  const payload = {{
+  const body = {{
     drive_file_id,
     headline: String(plan.headline || ''),
     primary_text: String(plan.body || ''),
     cta: String(plan.cta || 'Shop Now'),
     daily_budget: 200,
     variant_id: 'A',
+    async: false,
   }};
-  const start = await self.helpers.httpRequest({{
+  const res = await self.helpers.httpRequest({{
     method: 'POST',
-    url: base + '/api/meta-advantage/publish-video-async',
+    url: base + '/api/meta-advantage/publish-video-from-drive',
     headers: {{ 'Content-Type': 'application/json' }},
-    body: JSON.stringify(payload),
+    body: JSON.stringify(body),
     json: true,
+    timeout: 900000,
   }});
-  const job_id = start.job_id;
-  if (!job_id) throw new Error('No job_id from publish-video-async');
-
-  let last = null;
-  for (let i = 0; i < 50; i++) {{
-    await new Promise((r) => setTimeout(r, 15000));
-    last = await self.helpers.httpRequest({{
-      method: 'GET',
-      url: base + '/api/meta-advantage/job-status/' + encodeURIComponent(job_id),
-      json: true,
-    }});
-    if (last.status === 'complete') break;
-    if (last.status === 'error') throw new Error(last.error || 'publish job error');
+  if (res && res.ok === false) {{
+    throw new Error(res.error || res.message || 'publish-video-from-drive rejected');
   }}
-  if (last.status !== 'complete') throw new Error('Publish timed out');
-
-  const full = last.result || {{}};
-  const pr = full.publish_result || {{}};
-  const ad_id = String(pr.ad_id || full.ad_id || '');
-  const campaign_id = String(pr.campaign_id || full.campaign_id || '');
-  const adset_id = String(pr.adset_id || full.adset_id || '');
-  const video_id = String(pr.video_id || full.video_id || '');
+  const pr = res.publish_result || {{}};
+  const ad_id = String(pr.ad_id || res.ad_id || '');
+  const campaign_id = String(pr.campaign_id || res.campaign_id || '');
+  const adset_id = String(pr.adset_id || res.adset_id || '');
+  const video_id = String(pr.video_id || res.video_id || '');
 
   return [
     {{
@@ -207,9 +196,9 @@ return await (async () => {{
   subject: 'New WEARTH ad ready for approval — ' + $now.setZone('Asia/Kolkata').toFormat('dd MMM yyyy'),
   text:
     'Shai, your weekly ad is ready. Review and approve it at https://wearth-ads.up.railway.app.\\n\\nThe AI recommends this ad because: ' +
-    ($('Publish Video Async And Poll').first().json.plan.reasoning || '') +
+    ($('Publish Paused Video Sync Graph').first().json.plan.reasoning || '') +
     '\\n\\nPredicted ROAS: ' +
-    String($('Publish Video Async And Poll').first().json.plan.predicted_roas ?? '')
+    String($('Publish Paused Video Sync Graph').first().json.plan.predicted_roas ?? '')
 }) }}"""
 
     nodes: List[Dict[str, Any]] = [
@@ -327,7 +316,7 @@ return await (async () => {{
         {
             "parameters": {"language": "javaScript", "jsCode": publish_js},
             "id": n8,
-            "name": "Publish Video Async And Poll",
+            "name": "Publish Paused Video Sync Graph",
             "type": "n8n-nodes-base.code",
             "typeVersion": 2,
             "position": pos(8),
@@ -405,9 +394,9 @@ return await (async () => {{
             "main": [[{"node": "Parse JSON Plan", "type": "main", "index": 0}]]
         },
         "Parse JSON Plan": {
-            "main": [[{"node": "Publish Video Async And Poll", "type": "main", "index": 0}]]
+            "main": [[{"node": "Publish Paused Video Sync Graph", "type": "main", "index": 0}]]
         },
-        "Publish Video Async And Poll": {
+        "Publish Paused Video Sync Graph": {
             "main": [[{"node": "POST Pending Ad", "type": "main", "index": 0}]]
         },
         "POST Pending Ad": {"main": [[{"node": "Email Shai", "type": "main", "index": 0}]]},
