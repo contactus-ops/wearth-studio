@@ -561,7 +561,7 @@ def create_customer_audience(name: str) -> str:
     data = {
         "name": name,
         "subtype": "CUSTOM",
-        "customer_file_source": "USER_PROVIDED",
+        "customer_file_source": "USER_PROVIDED_ONLY",
         "description": "WEARTH Shopify buyers",
     }
     out = meta_request("POST", act_path("customaudiences"), data=data)
