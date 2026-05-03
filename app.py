@@ -236,6 +236,47 @@ def api_n8n_send_mail():
         return jsonify({"ok": False, "error": str(e), "trace": traceback.format_exc()}), 500
 
 
+@app.route("/api/n8n/health", methods=["GET", "OPTIONS"])
+def api_n8n_health():
+    """Lightweight checks for n8n → Railway integrations (no secrets in response)."""
+    if request.method == "OPTIONS":
+        return "", 204
+    probe = (request.args.get("probe") or "").strip().lower() in ("1", "true", "yes")
+    out = {
+        "ok": True,
+        "mail_bridge": {
+            "gmail_configured": bool(GMAIL_USER_MAIL and GMAIL_APP_PASSWORD_MAIL),
+            "n8n_mail_token_gate": bool(WEARTH_N8N_MAIL_TOKEN),
+        },
+        "klaviyo": {
+            "private_key_configured": bool(KLAVIYO_PRIVATE_KEY),
+            "active_list_id_configured": bool(str(KLAVIYO_ACTIVE_LIST_ID or "").strip()),
+            "active_segment_id_configured": bool(str(KLAVIYO_ACTIVE_SEGMENT_ID or "").strip()),
+        },
+    }
+    if probe:
+        if not KLAVIYO_PRIVATE_KEY:
+            out["klaviyo_probe"] = {"ok": False, "error": "KLAVIYO_PRIVATE_KEY not set"}
+        else:
+            try:
+                t0 = time.time()
+                j = _klaviyo_api_get(
+                    "https://a.klaviyo.com/api/accounts/",
+                    params={"page[size]": 1},
+                    max_retries=2,
+                    http_timeout=12.0,
+                )
+                rows = j.get("data") or []
+                out["klaviyo_probe"] = {
+                    "ok": True,
+                    "ms": int((time.time() - t0) * 1000),
+                    "account_rows": len(rows) if isinstance(rows, list) else 0,
+                }
+            except Exception as e:
+                out["klaviyo_probe"] = {"ok": False, "error": str(e)[:500]}
+    return jsonify(out)
+
+
 @app.route("/api/ads/pending", methods=["GET", "POST"])
 def api_ads_pending():
     """Flask keeps one rule per path — GET lists pending rows; POST upserts one."""
@@ -1060,7 +1101,7 @@ def _klaviyo_api_patch_json(url: str, json_body: dict, max_retries: int = 5):
         return resp
 
 
-def _klaviyo_api_get(url: str, params=None, max_retries: int = 5) -> dict:
+def _klaviyo_api_get(url: str, params=None, max_retries: int = 5, http_timeout: float = 45) -> dict:
     if not KLAVIYO_PRIVATE_KEY:
         raise Exception('KLAVIYO_PRIVATE_KEY not set')
     headers = {
@@ -1070,7 +1111,7 @@ def _klaviyo_api_get(url: str, params=None, max_retries: int = 5) -> dict:
     }
     retries = 0
     while True:
-        resp = requests.get(url, params=params, headers=headers, timeout=45)
+        resp = requests.get(url, params=params, headers=headers, timeout=http_timeout)
         if resp.status_code == 429 and retries < max_retries:
             wait_sec = 1.0 + retries
             try:
@@ -3880,6 +3921,8 @@ def _shopify_graphql(query: str, variables=None):
 @app.route('/api/klaviyo/active-count', methods=['GET'])
 def klaviyo_active_count():
     """One Klaviyo GET: profile_count on a list or segment (query or env ids)."""
+    # Short HTTP timeout so n8n + Railway never sit past Gunicorn/proxy limits (502).
+    _ac_timeout = 22.0
     try:
         if not KLAVIYO_PRIVATE_KEY:
             return jsonify({'ok': False, 'error': 'KLAVIYO_PRIVATE_KEY not set'}), 500
@@ -3889,6 +3932,7 @@ def klaviyo_active_count():
             j = _klaviyo_api_get(
                 f'https://a.klaviyo.com/api/lists/{list_id}/',
                 params={'additional-fields[list]': 'profile_count'},
+                http_timeout=_ac_timeout,
             )
             attrs = (j.get('data') or {}).get('attributes') or {}
             cnt = attrs.get('profile_count')
@@ -3903,6 +3947,7 @@ def klaviyo_active_count():
             j = _klaviyo_api_get(
                 f'https://a.klaviyo.com/api/segments/{segment_id}/',
                 params={'additional-fields[segment]': 'profile_count'},
+                http_timeout=_ac_timeout,
             )
             attrs = (j.get('data') or {}).get('attributes') or {}
             cnt = attrs.get('profile_count')
@@ -3917,6 +3962,8 @@ def klaviyo_active_count():
             'ok': False,
             'error': 'Pass ?list_id= or ?segment_id=, or set KLAVIYO_ACTIVE_LIST_ID / KLAVIYO_ACTIVE_SEGMENT_ID',
         }), 400
+    except requests.exceptions.Timeout as e:
+        return jsonify({'ok': False, 'error': f'Klaviyo timeout: {e}'}), 504
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e), 'trace': traceback.format_exc()}), 500
 
