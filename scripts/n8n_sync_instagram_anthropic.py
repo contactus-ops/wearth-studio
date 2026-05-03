@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Update Instagram workflow "Generate Post Content" node: set x-api-key to ANTHROPIC_API_KEY.
-Reads N8N_BASE_URL, N8N_API_KEY, ANTHROPIC_API_KEY from environment (use `railway run`).
+Reads N8N_BASE_URL, N8N_API_KEY (or N8N_API_KEY_FILE), ANTHROPIC_API_KEY from environment (`railway run`).
 
 Test run: POST Webhook URL from first Webhook trigger if present (production webhook path).
 """
@@ -49,7 +49,10 @@ def _patch_x_api_key(obj: Any, new_key: str) -> int:
             params = hp.get("parameters")
             if isinstance(params, list):
                 for item in params:
-                    if isinstance(item, dict) and (item.get("name") or "").lower() == "x-api-key":
+                    if isinstance(item, dict):
+                        nm = (item.get("name") or "").strip().lower().replace("_", "-")
+                        if nm != "x-api-key":
+                            continue
                         item["value"] = new_key
                         n += 1
         # Generic
@@ -80,9 +83,23 @@ def _find_webhook_path(nodes: List[Dict[str, Any]]) -> Optional[str]:
     return None
 
 
+def _load_n8n_api_key() -> str:
+    key = (os.environ.get("N8N_API_KEY") or "").strip()
+    path = (os.environ.get("N8N_API_KEY_FILE") or "").strip()
+    if not key and path:
+        with open(path, encoding="utf-8") as f:
+            key = f.read().strip()
+    return key
+
+
+def _prune_workflow_put(wf: Dict[str, Any]) -> Dict[str, Any]:
+    keep = ("name", "nodes", "connections", "settings", "staticData", "pinData")
+    return {k: wf[k] for k in keep if k in wf}
+
+
 def main() -> None:
     base = (os.environ.get("N8N_BASE_URL") or "").rstrip("/")
-    n8n_key = (os.environ.get("N8N_API_KEY") or "").strip()
+    n8n_key = _load_n8n_api_key()
     anthropic = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
 
     if not base:
@@ -93,7 +110,8 @@ def main() -> None:
             json.dumps(
                 {
                     "error": "N8N_API_KEY missing",
-                    "hint": "n8n → Settings → n8n API → Create API key, then add to Railway as N8N_API_KEY",
+                    "hint": "n8n → Settings → n8n API → Create API key, then: railway variables --set \"N8N_API_KEY=...\" --service web "
+                    "(or set N8N_API_KEY_FILE to a local path when running outside Railway)",
                 }
             )
         )
@@ -147,15 +165,18 @@ def main() -> None:
         )
         sys.exit(1)
 
-    # PUT expects workflow payload (same shape as GET)
-    put_body = json.dumps(wf).encode("utf-8")
-    code, raw_put = _req(
-        "PUT",
-        wf_url,
-        n8n_key=n8n_key,
-        body=put_body,
-        content_type="application/json",
-    )
+    def _put(payload: Dict[str, Any]) -> Tuple[int, str]:
+        return _req(
+            "PUT",
+            wf_url,
+            n8n_key=n8n_key,
+            body=json.dumps(payload).encode("utf-8"),
+            content_type="application/json",
+        )
+
+    code, raw_put = _put(wf)
+    if code != 200:
+        code, raw_put = _put(_prune_workflow_put(wf))
     if code != 200:
         print(json.dumps({"step": "PUT workflow", "http": code, "body": raw_put[:8000]}))
         sys.exit(1)
