@@ -147,6 +147,10 @@ INTEREST_FALLBACKS: Dict[str, List[str]] = {
         "cold plunge",
         "cryo spa",
         "Wim Hof Method",
+        # Broad targets last — Meta often has no cold-plunge interest for IN accounts.
+        "wellness",
+        "spa",
+        "sauna",
     ],
     "breathing exercises": [
         "Pranayama",
@@ -154,6 +158,8 @@ INTEREST_FALLBACKS: Dict[str, List[str]] = {
         "breathwork",
         "meditation breathing",
         "pranayama yoga",
+        "yoga",
+        "Meditation",
     ],
     "organic cosmetics": ["natural cosmetics", "organic makeup"],
     "luxury goods": ["luxury retail", "premium goods"],
@@ -259,7 +265,17 @@ def match_confidence(query: str, matched_name: str) -> Tuple[str, float]:
     if q == "quantified self" and ("quantif" in m or "wearable" in m or "tracker" in m):
         return "medium", 0.62
     if q == "cold therapy" and any(
-        x in m for x in ("cryo", "cold therapy", "ice bath", "cold plunge", "wim hof")
+        x in m
+        for x in (
+            "cryo",
+            "cold therapy",
+            "ice bath",
+            "cold plunge",
+            "wim hof",
+            "wellness",
+            "spa",
+            "sauna",
+        )
     ):
         return "medium", 0.62
     if q == "breathing exercises" and any(
