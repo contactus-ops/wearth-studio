@@ -23,6 +23,7 @@ from n8n_api_common import load_n8n_api_key, prune_minimal_put, req, sanitize_se
 
 ERROR_HANDLER_NAME = "WEARTH n8n Error Alert"
 APP_BASE = "https://web-production-448c1.up.railway.app"
+N8N_MAIL_BRIDGE_HEADER = "wearthn8ncommute"
 
 # Default: Friday loop, Monday generator, Instagram Auto (override via N8N_ERROR_ALERT_TARGET_IDS).
 DEFAULT_TARGET_IDS = "3GUAuIiPvyxZK09s,AeZlTxTmAcOHjAek,cGbp1fEkP5DoIIsZ"
@@ -109,7 +110,7 @@ def build_error_handler_workflow() -> Dict[str, Any]:
                             {"name": "Content-Type", "value": "application/json"},
                             {
                                 "name": "X-Wearth-N8n-Mail",
-                                "value": "={{ $env.WEARTH_N8N_MAIL_TOKEN }}",
+                                "value": N8N_MAIL_BRIDGE_HEADER,
                             },
                         ]
                     },

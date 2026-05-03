@@ -3,8 +3,8 @@
 """
 Creates / updates workflow "WEARTH Friday Performance Loop" on wearthactive.app.n8n.cloud.
 
-Requires (e.g. railway run): N8N_BASE_URL, N8N_API_KEY, and on the n8n instance env vars
-mirroring Railway: META_ACCESS_TOKEN, ANTHROPIC_API_KEY, WEARTH_N8N_MAIL_TOKEN (must match web).
+Requires `railway run` so ANTHROPIC_API_KEY and META_ACCESS_TOKEN are read from Railway and **embedded
+into the workflow JSON** (n8n Cloud free tier has no env vars). Mail bridge header is fixed to match web.
 
 Schedule: cron 0 8 * * 5, timezone Asia/Kolkata.
 """
@@ -21,6 +21,8 @@ from typing import Any, Dict, List, Optional, Tuple
 WORKFLOW_NAME = "WEARTH Friday Performance Loop"
 APP_BASE = "https://web-production-448c1.up.railway.app"
 META_V = "v19.0"
+# Must match WEARTH_N8N_MAIL_TOKEN on Railway web for /api/n8n/send-mail (not a Meta/Anthropic secret).
+N8N_MAIL_BRIDGE_HEADER = "wearthn8ncommute"
 CAMPAIGN_ID = "120245108704880305"
 WOMEN_ADSET = "120245108705080305"
 MEN_ADSET = "120245228295720305"
@@ -97,14 +99,14 @@ def _load_n8n_api_key() -> str:
     return key
 
 
-def _meta_query_params() -> List[Dict[str, str]]:
+def _meta_query_params(meta_token: str) -> List[Dict[str, str]]:
     return [
         {
             "name": "fields",
             "value": "impressions,clicks,spend,actions,action_values,cpc,cpm,ctr",
         },
         {"name": "date_preset", "value": "last_7d"},
-        {"name": "access_token", "value": "={{ $env.META_ACCESS_TOKEN }}"},
+        {"name": "access_token", "value": meta_token},
     ]
 
 
@@ -113,6 +115,8 @@ def _http_get_node(
     name: str,
     url: str,
     pos: List[int],
+    *,
+    meta_token: str,
 ) -> Dict[str, Any]:
     return {
         "parameters": {
@@ -120,7 +124,7 @@ def _http_get_node(
             "url": url,
             "authentication": "none",
             "sendQuery": True,
-            "queryParameters": {"parameters": _meta_query_params()},
+            "queryParameters": {"parameters": _meta_query_params(meta_token)},
             "options": {"timeout": 120000},
         },
         "id": nid,
@@ -147,7 +151,7 @@ def _http_get_simple(nid: str, name: str, url: str, pos: List[int]) -> Dict[str,
     }
 
 
-def build_workflow() -> Dict[str, Any]:
+def build_workflow(anthropic_key: str, meta_token: str) -> Dict[str, Any]:
     # Stable ids for connections
     n_sched = _nid()
     n_k1 = _nid()
@@ -282,52 +286,52 @@ return [
 ];
 """
 
-    pause_js = """const prep = $input.first().json;
-const token = $env.META_ACCESS_TOKEN;
+    pause_js = f"""const prep = $input.first().json;
+const token = {json.dumps(meta_token)};
 const self = this;
 
-return await (async () => {
-  async function pauseOne(id) {
-    const qs = new URLSearchParams({ status: 'PAUSED', access_token: token });
-    return await self.helpers.httpRequest({
+return await (async () => {{
+  async function pauseOne(id) {{
+    const qs = new URLSearchParams({{ status: 'PAUSED', access_token: token }});
+    return await self.helpers.httpRequest({{
       method: 'POST',
-      url: `https://graph.facebook.com/v19.0/${id}?${qs.toString()}`,
+      url: `https://graph.facebook.com/v19.0/${{id}}?${{qs.toString()}}`,
       json: true,
-    });
-  }
+    }});
+  }}
 
   let pw = null;
   let pm = null;
-  try {
-    if (prep.pause_women && token) {
+  try {{
+    if (prep.pause_women && token) {{
       pw = await pauseOne('120245108705080305');
-    }
-  } catch (e) {
-    pw = { error: String(e) };
-  }
-  try {
-    if (prep.pause_men && token) {
+    }}
+  }} catch (e) {{
+    pw = {{ error: String(e) }};
+  }}
+  try {{
+    if (prep.pause_men && token) {{
       pm = await pauseOne('120245228295720305');
-    }
-  } catch (e) {
-    pm = { error: String(e) };
-  }
+    }}
+  }} catch (e) {{
+    pm = {{ error: String(e) }};
+  }}
 
   const extra =
     pw || pm
-      ? '\\n\\n--- Ad set pause ---\\n' + JSON.stringify({ women: pw, men: pm }, null, 2)
+      ? '\\n\\n--- Ad set pause ---\\n' + JSON.stringify({{ women: pw, men: pm }}, null, 2)
       : '';
 
   return [
-    {
-      json: {
+    {{
+      json: {{
         to: 'contactus@wearthactive.com',
         subject: prep.subject,
         text: prep.email_text + extra,
-      },
-    },
+      }},
+    }},
   ];
-})();
+}})();
 """
 
     nodes: List[Dict[str, Any]] = [
@@ -367,18 +371,21 @@ return await (async () => {
             "Meta Campaign Insights",
             f"https://graph.facebook.com/{META_V}/{CAMPAIGN_ID}/insights",
             pos(4),
+            meta_token=meta_token,
         ),
         _http_get_node(
             n_mmen,
             "Meta Men Adset Insights",
             f"https://graph.facebook.com/{META_V}/{MEN_ADSET}/insights",
             pos(5),
+            meta_token=meta_token,
         ),
         _http_get_node(
             n_mw,
             "Meta Women Adset Insights",
             f"https://graph.facebook.com/{META_V}/{WOMEN_ADSET}/insights",
             pos(6),
+            meta_token=meta_token,
         ),
         {
             "parameters": {
@@ -403,7 +410,7 @@ return await (async () => {
                         {"name": "Content-Type", "value": "application/json"},
                         {
                             "name": "x-api-key",
-                            "value": "={{ $env.ANTHROPIC_API_KEY }}",
+                            "value": anthropic_key,
                         },
                     ]
                 },
@@ -453,7 +460,7 @@ return await (async () => {
                         {"name": "Content-Type", "value": "application/json"},
                         {
                             "name": "X-Wearth-N8n-Mail",
-                            "value": "={{ $env.WEARTH_N8N_MAIL_TOKEN }}",
+                            "value": N8N_MAIL_BRIDGE_HEADER,
                         },
                     ]
                 },
@@ -533,7 +540,20 @@ def main() -> None:
         print(json.dumps({"error": "N8N_API_KEY missing"}))
         sys.exit(1)
 
-    wf = build_workflow()
+    anthropic_key = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
+    meta_token = (os.environ.get("META_ACCESS_TOKEN") or "").strip()
+    if not anthropic_key or not meta_token:
+        print(
+            json.dumps(
+                {
+                    "error": "ANTHROPIC_API_KEY and META_ACCESS_TOKEN required — embed keys into workflow.",
+                    "hint": "railway run -- python scripts/n8n_create_friday_performance_loop.py",
+                }
+            )
+        )
+        sys.exit(1)
+
+    wf = build_workflow(anthropic_key, meta_token)
     list_url = f"{base}/api/v1/workflows"
     code, raw_list = _req("GET", list_url, n8n_key=n8n_key)
     if code != 200:
@@ -675,7 +695,7 @@ def main() -> None:
                 "workflow_id": wf_id,
                 "workflow_name": WORKFLOW_NAME,
                 "active": activated,
-                "note": "Set on n8n Cloud the same env vars as Railway: META_ACCESS_TOKEN, ANTHROPIC_API_KEY, WEARTH_N8N_MAIL_TOKEN.",
+                "note": "Anthropic/Meta literals baked from Railway env at push time (n8n Cloud free has no env vars).",
             },
             indent=2,
         )

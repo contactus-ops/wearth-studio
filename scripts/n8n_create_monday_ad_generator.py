@@ -3,8 +3,7 @@
 """
 Schedule: Monday 7:00 Asia/Kolkata (cron 0 7 * * 1).
 
-Env on n8n (mirror Railway): ANTHROPIC_API_KEY, WEARTH_N8N_MAIL_TOKEN, and for the publish+poll
-Code node the web app needs no extra token for internal poll URLs.
+Anthropic/Meta tokens are read from Railway at push time and embedded into workflow nodes (n8n Cloud free has no env vars). Mail bridge header is fixed.
 """
 from __future__ import annotations
 
@@ -22,24 +21,25 @@ WORKFLOW_NAME = "WEARTH Monday Ad Generator"
 APP_BASE = "https://web-production-448c1.up.railway.app"
 CAMPAIGN_ID = "120245108704880305"
 META_V = "v19.0"
+N8N_MAIL_BRIDGE_HEADER = "wearthn8ncommute"
 
 
 def _nid() -> str:
     return str(uuid.uuid4())
 
 
-def _meta_q() -> List[Dict[str, str]]:
+def _meta_q(meta_token: str) -> List[Dict[str, str]]:
     return [
         {
             "name": "fields",
             "value": "impressions,clicks,spend,actions,action_values,cpc,cpm,ctr",
         },
         {"name": "date_preset", "value": "last_7d"},
-        {"name": "access_token", "value": "={{ $env.META_ACCESS_TOKEN }}"},
+        {"name": "access_token", "value": meta_token},
     ]
 
 
-def build_workflow() -> Dict[str, Any]:
+def build_workflow(anthropic_key: str, meta_token: str) -> Dict[str, Any]:
     n0, n1, n2, n3, n4, n5, n6, n7, n8, n9, n10 = (_nid() for _ in range(11))
     y, x0, dx = 300, 100, 220
     pos = lambda i: [x0 + i * dx, y]
@@ -264,7 +264,7 @@ return await (async () => {{
                 "url": f"https://graph.facebook.com/{META_V}/{CAMPAIGN_ID}/insights",
                 "authentication": "none",
                 "sendQuery": True,
-                "queryParameters": {"parameters": _meta_q()},
+                "queryParameters": {"parameters": _meta_q(meta_token)},
                 "options": {"timeout": 120000},
             },
             "id": n4,
@@ -291,7 +291,7 @@ return await (async () => {{
                     "parameters": [
                         {"name": "anthropic-version", "value": "2023-06-01"},
                         {"name": "Content-Type", "value": "application/json"},
-                        {"name": "x-api-key", "value": "={{ $env.ANTHROPIC_API_KEY }}"},
+                        {"name": "x-api-key", "value": anthropic_key},
                     ]
                 },
                 "sendBody": True,
@@ -352,7 +352,7 @@ return await (async () => {{
                         {"name": "Content-Type", "value": "application/json"},
                         {
                             "name": "X-Wearth-N8n-Mail",
-                            "value": "={{ $env.WEARTH_N8N_MAIL_TOKEN }}",
+                            "value": N8N_MAIL_BRIDGE_HEADER,
                         },
                     ]
                 },
@@ -423,7 +423,19 @@ def main() -> None:
     if not key:
         print(json.dumps({"error": "N8N_API_KEY missing"}))
         sys.exit(1)
-    wf = build_workflow()
+    anthropic_key = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
+    meta_token = (os.environ.get("META_ACCESS_TOKEN") or "").strip()
+    if not anthropic_key or not meta_token:
+        print(
+            json.dumps(
+                {
+                    "error": "ANTHROPIC_API_KEY and META_ACCESS_TOKEN required",
+                    "hint": "railway run -- python scripts/n8n_create_monday_ad_generator.py",
+                }
+            )
+        )
+        sys.exit(1)
+    wf = build_workflow(anthropic_key, meta_token)
     try:
         wf_id, activated = upsert_workflow(base, key, wf, WORKFLOW_NAME)
     except RuntimeError as e:
