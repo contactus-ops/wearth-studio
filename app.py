@@ -3356,18 +3356,8 @@ def klaviyo_diagnose():
     blockers = []
 
     try:
-        acc_j = _klaviyo_api_get(
-            'https://a.klaviyo.com/api/accounts/',
-            params={
-                # Klaviyo accepts fields[account] only once (comma-separated), not repeated keys.
-                'fields[account]': (
-                    'test_account,timezone,locale,public_api_key,contact_information,'
-                    'contact_information.default_sender_email,'
-                    'contact_information.default_sender_name,'
-                    'contact_information.organization_name'
-                ),
-            },
-        )
+        # Omit fields[account]: some clients/encodings duplicate the param and Klaviyo returns 400.
+        acc_j = _klaviyo_api_get('https://a.klaviyo.com/api/accounts/')
         rows = acc_j.get('data') or []
         acc_summary = None
         if rows and isinstance(rows[0], dict):
@@ -3400,10 +3390,11 @@ def klaviyo_diagnose():
             list_ids_try.append(lid)
     for lid in list_ids_try:
         try:
+            # Omit fields[list]: Klaviyo rejects duplicate fields[list] if the client serializes badly;
+            # default list payload includes name, opt_in_process, updated.
             list_payloads[lid] = _klaviyo_api_get(
                 f'https://a.klaviyo.com/api/lists/{lid}/',
                 params={
-                    'fields[list]': 'name,opt_in_process,updated',
                     'additional-fields[list]': 'profile_count',
                     'include': 'flow-triggers',
                 },
