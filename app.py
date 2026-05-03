@@ -3359,16 +3359,13 @@ def klaviyo_diagnose():
         acc_j = _klaviyo_api_get(
             'https://a.klaviyo.com/api/accounts/',
             params={
-                'fields[account]': [
-                    'test_account',
-                    'timezone',
-                    'locale',
-                    'public_api_key',
-                    'contact_information',
-                    'contact_information.default_sender_email',
-                    'contact_information.default_sender_name',
-                    'contact_information.organization_name',
-                ],
+                # Klaviyo accepts fields[account] only once (comma-separated), not repeated keys.
+                'fields[account]': (
+                    'test_account,timezone,locale,public_api_key,contact_information,'
+                    'contact_information.default_sender_email,'
+                    'contact_information.default_sender_name,'
+                    'contact_information.organization_name'
+                ),
             },
         )
         rows = acc_j.get('data') or []
@@ -3406,7 +3403,7 @@ def klaviyo_diagnose():
             list_payloads[lid] = _klaviyo_api_get(
                 f'https://a.klaviyo.com/api/lists/{lid}/',
                 params={
-                    'fields[list]': ['name', 'opt_in_process', 'updated'],
+                    'fields[list]': 'name,opt_in_process,updated',
                     'additional-fields[list]': 'profile_count',
                     'include': 'flow-triggers',
                 },
