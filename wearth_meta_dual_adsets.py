@@ -124,7 +124,7 @@ INTERESTS_MEN_QUERIES = _build_gender_stack(
 INTEREST_FALLBACKS: Dict[str, List[str]] = {
     "hyrox": ["Hyrox", "hybrid training", "functional fitness"],
     "pickleball": ["pickleball"],
-    "barre workout": ["Pure Barre", "barre fitness", "ballet fitness"],
+    "barre workout": ["Pure Barre", "barre", "barre fitness", "ballet fitness"],
     "clean beauty": ["organic skincare", "natural cosmetics"],
     "menswear": ["men's clothing", "mens fashion"],
     "whisky": ["whiskey", "single malt"],
@@ -132,9 +132,28 @@ INTEREST_FALLBACKS: Dict[str, List[str]] = {
     "home workout": ["home exercise", "fitness at home"],
     "fitness gym": ["health club", "gym membership", "fitness center"],
     "health food": ["organic food", "whole foods"],
-    "quantified self": ["wearable technology", "fitness tracking"],
-    "cryotherapy": ["cryo spa", "cold plunge"],
-    "pranayama": ["yoga breathing", "breathing exercises"],
+    "quantified self": [
+        "Quantified Self",
+        "self-tracking",
+        "lifelogging",
+        "wearable technology",
+        "fitness tracking",
+    ],
+    "cryotherapy": [
+        "cold therapy",
+        "ice bath",
+        "cryo",
+        "cold plunge",
+        "cryo spa",
+        "Wim Hof Method",
+    ],
+    "pranayama": [
+        "breathing exercises",
+        "yoga breathing",
+        "breathwork",
+        "meditation breathing",
+        "pranayama yoga",
+    ],
     "organic cosmetics": ["natural cosmetics", "organic makeup"],
     "luxury goods": ["luxury retail", "premium goods"],
     "sleep": ["sleep health", "wellness"],
@@ -232,32 +251,55 @@ def match_confidence(query: str, matched_name: str) -> Tuple[str, float]:
     return "low", 0.25
 
 
+def _confidence_rank(label: str) -> int:
+    return {"high": 3, "medium": 2, "low": 1, "none": 0}.get(label, 0)
+
+
 def resolve_interest_line(label: str) -> Dict[str, Any]:
     """
     TARGET ROAS 4:1 AT ₹15K/MONTH SPEND — resolve one interest with fallbacks + confidence.
+    Scores top Meta results for every query variant and keeps the best match (not only the first API hit).
     """
     tries = [label] + INTEREST_FALLBACKS.get(label.lower().strip(), [])
-    tried = []
+    tried: List[str] = []
+    best_pick: Optional[Dict[str, Any]] = None
+    best_score = -1.0
+    best_conf = "low"
+    best_match_query = ""
+
     for t in tries:
         t = t.strip()
         if not t or t in tried:
             continue
         tried.append(t)
         rows = search_interest_raw(t)
-        if rows:
-            pick = rows[0]
+        for pick in rows[:8]:
             mid = str(pick.get("id") or "")
             mname = str(pick.get("name") or "")
+            if not mid:
+                continue
             conf, score = match_confidence(label, mname)
-            return {
-                "query": label,
-                "resolved": True,
-                "interest_id": mid,
-                "matched_name": mname,
-                "confidence": conf,
-                "score": round(score, 3),
-                "attempted_queries": tried,
-            }
+            rank = _confidence_rank(conf)
+            best_rank = _confidence_rank(best_conf)
+            if score > best_score or (
+                score == best_score and rank > best_rank
+            ):
+                best_score = score
+                best_conf = conf
+                best_pick = pick
+                best_match_query = t
+
+    if best_pick and str(best_pick.get("id") or ""):
+        return {
+            "query": label,
+            "resolved": True,
+            "interest_id": str(best_pick.get("id") or ""),
+            "matched_name": str(best_pick.get("name") or ""),
+            "confidence": best_conf,
+            "score": round(best_score, 3),
+            "attempted_queries": tried,
+            "best_match_query": best_match_query,
+        }
     sug = INTEREST_FALLBACKS.get(label.lower().strip(), ["related lifestyle interest"])
     return {
         "query": label,
