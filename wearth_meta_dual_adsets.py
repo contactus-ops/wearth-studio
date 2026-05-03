@@ -222,12 +222,18 @@ def act_path(tail: str) -> str:
 
 
 def search_interest_raw(q: str) -> List[Dict[str, Any]]:
-    # TARGET ROAS 4:1 AT ₹15K/MONTH SPEND — pull top matches for confidence scoring.
-    out = meta_request(
-        "GET",
-        "search",
-        params={"type": "adinterest", "q": q.strip(), "limit": 8},
-    )
+    # TARGET ROAS 4:1 AT ₹15K/MONTH SPEND — account targetingsearch returns geo-valid interests; fall back to global /search.
+    params = {"type": "adinterest", "q": q.strip(), "limit": 25}
+    act = _env_act_id()
+    if act:
+        try:
+            out = meta_request("GET", f"{act}/targetingsearch", params=params)
+            data = list(out.get("data") or [])
+            if data:
+                return data
+        except Exception:
+            pass
+    out = meta_request("GET", "search", params=params)
     return list(out.get("data") or [])
 
 
@@ -255,6 +261,21 @@ def _confidence_rank(label: str) -> int:
     return {"high": 3, "medium": 2, "low": 1, "none": 0}.get(label, 0)
 
 
+def _interest_tiebreak(label: str, matched_name: str) -> float:
+    """Tiny score bump so ties prefer substring / token-in-name hits over unrelated categories."""
+    q = (label or "").lower()
+    m = (matched_name or "").lower()
+    if not q or not m:
+        return 0.0
+    b = 0.0
+    if q in m or m in q:
+        b += 0.02
+    for tok in re.split(r"[^\w]+", q):
+        if len(tok) >= 4 and tok in m:
+            b += 0.004
+    return b
+
+
 def resolve_interest_line(label: str) -> Dict[str, Any]:
     """
     TARGET ROAS 4:1 AT ₹15K/MONTH SPEND — resolve one interest with fallbacks + confidence.
@@ -264,6 +285,7 @@ def resolve_interest_line(label: str) -> Dict[str, Any]:
     tried: List[str] = []
     best_pick: Optional[Dict[str, Any]] = None
     best_score = -1.0
+    best_effective = -1.0
     best_conf = "low"
     best_match_query = ""
 
@@ -273,17 +295,24 @@ def resolve_interest_line(label: str) -> Dict[str, Any]:
             continue
         tried.append(t)
         rows = search_interest_raw(t)
-        for pick in rows[:8]:
+        for pick in rows[:25]:
             mid = str(pick.get("id") or "")
             mname = str(pick.get("name") or "")
             if not mid:
                 continue
             conf, score = match_confidence(label, mname)
+            effective = score + _interest_tiebreak(label, mname)
             rank = _confidence_rank(conf)
             best_rank = _confidence_rank(best_conf)
-            if score > best_score or (
-                score == best_score and rank > best_rank
+            replace = False
+            if effective > best_effective:
+                replace = True
+            elif effective == best_effective and (
+                score > best_score or (score == best_score and rank > best_rank)
             ):
+                replace = True
+            if replace:
+                best_effective = effective
                 best_score = score
                 best_conf = conf
                 best_pick = pick
