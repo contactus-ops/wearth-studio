@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && node scripts/verify-dashboard-ui.mjs",
     "start": "serve -s dist",
     "lint": "eslint .",
     "preview": "vite preview"

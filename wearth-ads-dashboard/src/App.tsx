@@ -806,7 +806,17 @@ export default function App() {
         {loading ? (
           <div className="skel-card" />
         ) : pending.length === 0 ? (
-          <p className="empty-note">No pending ads.</p>
+          <div className="ad-card empty-pending-card">
+            <div className="empty-pending-title">Nothing in the queue</div>
+            <p className="ad-body" style={{ marginBottom: 12 }}>
+              When a creative is pending approval it appears here with the full
+              Ad Studio (copy, Drive video/image, AI variants, publish).
+            </p>
+            <p className="audience-copy">
+              Use the <strong>+</strong> button (bottom right) to inject a test ad
+              and walk through the flow. Target ROAS 4:1 at ₹15k/month spend.
+            </p>
+          </div>
         ) : (
           pending.map((ad) => (
             <PendingCard key={ad.ad_id} ad={ad} onRefresh={load} pushToast={pushToast} />

@@ -793,6 +793,18 @@
   padding: 32px 16px;
 }
 
+.empty-pending-card {
+  border-style: dashed;
+}
+
+.empty-pending-title {
+  font-family: "Playfair Display", serif;
+  font-size: 22px;
+  font-weight: 600;
+  color: #1a1a18;
+  margin-bottom: 10px;
+}
+
 .audience-copy {
   font-size: 13px;
   color: #5a5650;
