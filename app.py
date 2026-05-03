@@ -27,6 +27,10 @@ WEARTH_N8N_MAIL_TOKEN = os.environ.get("WEARTH_N8N_MAIL_TOKEN", "")
 GMAIL_USER_MAIL = os.environ.get("GMAIL_USER", "")
 GMAIL_APP_PASSWORD_MAIL = os.environ.get("GMAIL_APP_PASSWORD", "")
 _pending_ads_lock = _threading.Lock()
+# Short-TTL cache for n8n /api/klaviyo/active-count — avoids 502 when Railway proxy
+# outlives slow Klaviyo or workers are busy (burst from workflows).
+_active_count_cache_lock = _threading.Lock()
+_active_count_cache: dict[str, tuple[float, dict]] = {}
 WEARTH_META_CAMPAIGN_ID_DEFAULT = os.environ.get("WEARTH_META_CAMPAIGN_ID", "120245108704880305")
 WEARTH_WOMEN_ADSET_ID = os.environ.get("WEARTH_WOMEN_ADSET_ID", "120245108705080305")
 WEARTH_MEN_ADSET_ID = os.environ.get("WEARTH_MEN_ADSET_ID", "120245228295720305")
@@ -1102,7 +1106,13 @@ def _klaviyo_api_patch_json(url: str, json_body: dict, max_retries: int = 5):
         return resp
 
 
-def _klaviyo_api_get(url: str, params=None, max_retries: int = 5, http_timeout: float = 45) -> dict:
+def _klaviyo_api_get(
+    url: str,
+    params=None,
+    max_retries: int = 5,
+    http_timeout: float = 45,
+    connect_timeout: float | None = None,
+) -> dict:
     if not KLAVIYO_PRIVATE_KEY:
         raise Exception('KLAVIYO_PRIVATE_KEY not set')
     headers = {
@@ -1110,9 +1120,14 @@ def _klaviyo_api_get(url: str, params=None, max_retries: int = 5, http_timeout: 
         'accept': 'application/json',
         'revision': '2024-10-15'
     }
+    timeouts = (
+        (float(connect_timeout), float(http_timeout))
+        if connect_timeout is not None
+        else float(http_timeout)
+    )
     retries = 0
     while True:
-        resp = requests.get(url, params=params, headers=headers, timeout=http_timeout)
+        resp = requests.get(url, params=params, headers=headers, timeout=timeouts)
         if resp.status_code == 429 and retries < max_retries:
             wait_sec = 1.0 + retries
             try:
@@ -3922,43 +3937,74 @@ def _shopify_graphql(query: str, variables=None):
 @app.route('/api/klaviyo/active-count', methods=['GET'])
 def klaviyo_active_count():
     """One Klaviyo GET: profile_count on a list or segment (query or env ids)."""
-    # Short HTTP timeout so n8n + Railway never sit past Gunicorn/proxy limits (502).
-    _ac_timeout = 22.0
+    # Stay under Railway edge limits (~60s worst case; often stricter). gthread helps
+    # concurrency; cache absorbs n8n + dashboard bursts.
+    _ac_read = float(os.environ.get('KLAVIYO_ACTIVE_COUNT_HTTP_TIMEOUT', '12'))
+    _ac_connect = float(os.environ.get('KLAVIYO_ACTIVE_COUNT_CONNECT_TIMEOUT', '5'))
+    _cache_ttl = float(os.environ.get('KLAVIYO_ACTIVE_COUNT_CACHE_TTL', '60'))
     try:
         if not KLAVIYO_PRIVATE_KEY:
             return jsonify({'ok': False, 'error': 'KLAVIYO_PRIVATE_KEY not set'}), 500
         list_id = request.args.get('list_id', '').strip() or str(KLAVIYO_ACTIVE_LIST_ID or '').strip()
         segment_id = request.args.get('segment_id', '').strip() or str(KLAVIYO_ACTIVE_SEGMENT_ID or '').strip()
+        cache_key = f'L:{list_id}' if list_id else (f'S:{segment_id}' if segment_id else '')
+        now = time.time()
+        if cache_key:
+            with _active_count_cache_lock:
+                hit = _active_count_cache.get(cache_key)
+                if hit and hit[0] > now:
+                    r = jsonify({
+                        **hit[1],
+                        'cached': True,
+                        'cache_ttl_remaining_sec': max(0, int(hit[0] - now)),
+                    })
+                    r.headers['X-Wearth-Active-Count-Cache'] = 'hit'
+                    return r
+
         if list_id:
             j = _klaviyo_api_get(
                 f'https://a.klaviyo.com/api/lists/{list_id}/',
                 params={'additional-fields[list]': 'profile_count'},
-                http_timeout=_ac_timeout,
+                http_timeout=_ac_read,
+                connect_timeout=_ac_connect,
+                max_retries=1,
             )
             attrs = (j.get('data') or {}).get('attributes') or {}
             cnt = attrs.get('profile_count')
-            return jsonify({
+            payload = {
                 'ok': True,
                 'active_profile_count': cnt,
                 'source': 'list',
                 'resource_id': list_id,
                 'note': 'Single Klaviyo GET: list profile_count (member count for that list).',
-            })
+            }
+            with _active_count_cache_lock:
+                _active_count_cache[cache_key] = (now + _cache_ttl, dict(payload))
+            r = jsonify({**payload, 'cached': False})
+            r.headers['X-Wearth-Active-Count-Cache'] = 'miss'
+            return r
         if segment_id:
             j = _klaviyo_api_get(
                 f'https://a.klaviyo.com/api/segments/{segment_id}/',
                 params={'additional-fields[segment]': 'profile_count'},
-                http_timeout=_ac_timeout,
+                http_timeout=_ac_read,
+                connect_timeout=_ac_connect,
+                max_retries=1,
             )
             attrs = (j.get('data') or {}).get('attributes') or {}
             cnt = attrs.get('profile_count')
-            return jsonify({
+            payload = {
                 'ok': True,
                 'active_profile_count': cnt,
                 'source': 'segment',
                 'resource_id': segment_id,
                 'note': 'Single Klaviyo GET: segment profile_count (member count for that segment).',
-            })
+            }
+            with _active_count_cache_lock:
+                _active_count_cache[cache_key] = (now + _cache_ttl, dict(payload))
+            r = jsonify({**payload, 'cached': False})
+            r.headers['X-Wearth-Active-Count-Cache'] = 'miss'
+            return r
         return jsonify({
             'ok': False,
             'error': 'Pass ?list_id= or ?segment_id=, or set KLAVIYO_ACTIVE_LIST_ID / KLAVIYO_ACTIVE_SEGMENT_ID',
