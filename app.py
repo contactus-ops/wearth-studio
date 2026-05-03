@@ -2537,20 +2537,27 @@ def publish_meta_advantage_variant():
 
 @app.route('/api/meta/weareth-dual-adsets-setup', methods=['POST'])
 def weareth_dual_adsets_setup():
+    # TARGET ROAS 4:1 AT ₹15K/MONTH SPEND — gated Meta + Shopify pipeline for WEARTH Active.
     """
     Full WEARTH pipeline: Shopify buyer emails → Custom Audience → 1% IN lookalike →
     update women ad set targeting + activate; copy ad set to men's campaign; create men's ad.
-    JSON: optional dry_run (bool), skip_audiences (bool, requires WEARTH_LOOKALIKE_ID).
+    JSON: dry_run (bool, preflight only), skip_audiences (bool, uses WEARTH_LOOKALIKE_ID),
+          force_live (bool, bypass seed-size gate only).
 
     Env: META_ACCESS_TOKEN, META_AD_ACCOUNT_ID, SHOPIFY_TOKEN, SHOPIFY_STORE.
-    Optional: WEARTH_WOMEN_ADSET_ID, WEARTH_MEN_CAMPAIGN_ID, WEARTH_SOURCE_AD_ID, WEARTH_LOOKALIKE_ID.
+    Optional: WEARTH_* IDs, WEARTH_MIN_SEED, WEARTH_MAX_INTERESTS.
     """
     try:
         data = request.get_json(silent=True) or {}
         dry_run = bool(data.get('dry_run'))
         skip_audiences = bool(data.get('skip_audiences'))
+        force_live = bool(data.get('force_live'))
         from wearth_meta_dual_adsets import run_weareth_dual_adset_pipeline
-        out = run_weareth_dual_adset_pipeline(dry_run=dry_run, skip_audiences=skip_audiences)
+        out = run_weareth_dual_adset_pipeline(
+            dry_run=dry_run,
+            skip_audiences=skip_audiences,
+            force_live=force_live,
+        )
         return jsonify(out)
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e), 'trace': traceback.format_exc()}), 500

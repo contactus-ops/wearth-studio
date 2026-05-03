@@ -1,15 +1,20 @@
 # -*- coding: utf-8 -*-
+# TARGET ROAS 4:1 AT ₹15K/MONTH SPEND. Every change here aims at efficient reach for WEARTH Active:
+# premium urban India buyers who pay for quality — align targeting and pacing with measurable purchase ROAS.
+
 """
 WEARTH Meta dual ad-set pipeline: Shopify buyer emails → Custom Audience →
 1% India Lookalike → narrow targeting on Women + Men ad sets + creatives.
 
 Requires env: META_ACCESS_TOKEN, META_AD_ACCOUNT_ID, SHOPIFY_TOKEN, SHOPIFY_STORE.
-Strongly recommended: META_PIXEL_ID (read from existing ad sets for conversion optimization).
 
-Run once from Railway or locally:
-  python wearth_meta_dual_adsets.py
+Run: python wearth_meta_dual_adsets.py [--dry-run]
 
-This module is imported by app.py POST /api/meta/weareth-dual-adsets-setup
+POST /api/meta/weareth-dual-adsets-setup JSON:
+  dry_run: true  → preflight only (interests with confidence, cities, seed count).
+  dry_run: false → internal preflight then LIVE if no critical_warnings and buyer seed ≥100.
+  force_live: true → bypass seed gate (dangerous).
+  skip_audiences: true → use WEARTH_LOOKALIKE_ID (no Shopify upload).
 """
 from __future__ import annotations
 
@@ -17,6 +22,7 @@ import hashlib
 import json
 import os
 import random
+import re
 import sys
 import time
 import traceback
@@ -27,31 +33,124 @@ import requests
 META_GRAPH_VERSION = os.environ.get("META_GRAPH_VERSION", "v22.0")
 META_GRAPH_BASE = f"https://graph.facebook.com/{META_GRAPH_VERSION}"
 
-# --- IDs from campaign brief (override via env if needed) ---
+# TARGET ROAS 4:1 AT ₹15K/MONTH SPEND — IDs tunable via env for staging.
 WOMEN_ADSET_ID = os.environ.get("WEARTH_WOMEN_ADSET_ID", "120245108705080305")
 MEN_CAMPAIGN_ID = os.environ.get("WEARTH_MEN_CAMPAIGN_ID", "120245108704880305")
 SOURCE_CREATIVE_AD_ID = os.environ.get("WEARTH_SOURCE_AD_ID", "120245108707140305")
 
 SHOPIFY_API_VERSION = os.environ.get("SHOPIFY_API_VERSION", "2024-10")
+MIN_SEED_BUYERS = int(os.environ.get("WEARTH_MIN_SEED", "100"))
+MAX_INTEREST_IDS = int(os.environ.get("WEARTH_MAX_INTERESTS", "38"))
 
-# Targeting brief
-WOMEN_AGE = (24, 40)
-MEN_AGE = (26, 42)
+# Unified demo band: premium urban India 24–42 (north star: ingredient-conscious spenders).
+WOMEN_AGE = (24, 42)
+MEN_AGE = (24, 42)
 MEN_DAILY_BUDGET_INR = 150
 
-INTERESTS_WOMEN = [
-    "yoga", "pilates", "running", "premium fitness", "organic food",
-    "international travel", "premium fashion", "athleisure",
-]
-INTERESTS_MEN = [
-    "running", "CrossFit", "gym", "premium fitness", "cycling", "triathlon",
-    "international travel", "menswear", "whisky", "golf",
+# --- Interest stacks (weighted = listed first for resolution / dedupe priority). ---
+# TARGET ROAS 4:1 AT ₹15K/MONTH SPEND — broaden affinity beyond yoga/pilates for premium fitness + quality buyers.
+
+MASTER_FITNESS = [
+    "yoga", "pilates", "running", "CrossFit", "Hyrox", "functional fitness", "barre",
+    "cycling", "swimming", "triathlon", "marathon running", "pickleball", "tennis",
+    "squash", "rock climbing", "HIIT", "home workout", "gym", "weightlifting", "calisthenics",
 ]
 
-CITY_QUERIES = [
-    ("Mumbai", "IN"),
-    ("Delhi", "IN"),
-    ("Bangalore", "IN"),
+MASTER_WELLNESS = [
+    "clean eating", "organic food", "nutrition", "dietary supplements", "ayurveda",
+    "mindfulness", "meditation", "sleep", "biohacking", "cold therapy", "breathwork",
+]
+
+MASTER_PREMIUM_LIFESTYLE = [
+    "international travel", "business travel", "luxury hotel", "fine dining", "wine",
+    "whisky", "golf", "luxury goods", "skin care", "natural beauty", "clean beauty",
+]
+
+MASTER_FASHION = [
+    "athleisure", "sportswear", "Nike", "Adidas", "sustainable fashion",
+    "luxury fashion", "designer clothing",
+]
+
+MASTER_PROFESSIONAL = [
+    "entrepreneurship", "startup company", "business", "physician", "architecture",
+    "creative director", "consulting",
+]
+
+MASTER_DIGITAL_BEHAVIOR = [
+    "online shopping", "engaged shoppers", "travel",
+]
+
+# Women: heavier yoga / pilates / barre / beauty / wellness / organic / fashion / travel.
+WOMEN_WEIGHTED_FIRST = [
+    "yoga", "pilates", "barre", "clean beauty", "skin care", "wellness", "organic food",
+    "luxury fashion", "international travel", "natural beauty", "meditation", "athleisure",
+]
+
+# Men: heavier endurance / strength sports / golf / menswear / whisky / entrepreneurship.
+MEN_WEIGHTED_FIRST = [
+    "running", "CrossFit", "Hyrox", "cycling", "triathlon", "golf", "pickleball",
+    "menswear", "whisky", "entrepreneurship", "marathon running", "functional fitness",
+]
+
+
+def _dedupe_ordered(seq: List[str]) -> List[str]:
+    seen = set()
+    out = []
+    for x in seq:
+        k = x.strip().lower()
+        if not k or k in seen:
+            continue
+        seen.add(k)
+        out.append(x.strip())
+    return out
+
+
+def _build_gender_stack(weighted: List[str], master_lists: List[List[str]]) -> List[str]:
+    """TARGET ROAS 4:1 AT ₹15K/MONTH SPEND — ordered broad stack, deduped, capped later."""
+    combined = _dedupe_ordered(weighted + [x for lst in master_lists for x in lst])
+    return combined
+
+
+INTERESTS_WOMEN_QUERIES = _build_gender_stack(
+    WOMEN_WEIGHTED_FIRST,
+    [MASTER_FITNESS, MASTER_WELLNESS, MASTER_PREMIUM_LIFESTYLE, MASTER_FASHION, MASTER_PROFESSIONAL, MASTER_DIGITAL_BEHAVIOR],
+)
+INTERESTS_MEN_QUERIES = _build_gender_stack(
+    MEN_WEIGHTED_FIRST,
+    [MASTER_FITNESS, MASTER_WELLNESS, MASTER_PREMIUM_LIFESTYLE, MASTER_FASHION, MASTER_PROFESSIONAL, MASTER_DIGITAL_BEHAVIOR],
+)
+
+# Alternate search strings when Meta returns no adinterest match (TARGET ROAS 4:1 AT ₹15K/MONTH SPEND).
+INTEREST_FALLBACKS: Dict[str, List[str]] = {
+    "hyrox": ["Hyrox", "hybrid training", "functional fitness"],
+    "pickleball": ["pickleball"],
+    "barre": ["barre workout", "ballet fitness"],
+    "clean beauty": ["natural beauty", "organic skincare"],
+    "menswear": ["men's clothing", "mens fashion"],
+    "whisky": ["whiskey", "single malt"],
+    "skin care": ["skincare", "beauty"],
+    "home workout": ["home exercise", "fitness at home"],
+    "cold therapy": ["cold plunge", "cryotherapy"],
+    "sleep": ["sleep health", "wellness"],
+    "luxury hotel": ["luxury travel", "five star hotel"],
+    "designer clothing": ["luxury fashion", "premium fashion"],
+    "startup company": ["startup", "entrepreneurship"],
+    "engaged shoppers": ["online shoppers", "shopping"],
+    "travel": ["frequent travelers", "travel enthusiasts"],
+}
+
+
+# Tier 1 = core metros; Tier 2 = secondary expansion (same ad set — Meta has no per-city bid;
+# clone ad sets with lower budget for tier-2-only tests to simulate “lower bid”).
+CITY_QUERIES: List[Tuple[str, str, int]] = [
+    ("Mumbai", "IN", 1),
+    ("Delhi", "IN", 1),
+    ("Bangalore", "IN", 1),
+    ("Pune", "IN", 2),
+    ("Hyderabad", "IN", 2),
+    ("Chennai", "IN", 2),
+    ("Gurgaon", "IN", 2),
+    ("Noida", "IN", 2),
 ]
 
 
@@ -77,7 +176,7 @@ def _meta_error(resp: requests.Response) -> str:
 
 
 def meta_request(method: str, path: str, *, params=None, data=None, files=None) -> dict:
-    """Graph API call; path like 'act_123/campaigns' or full edge."""
+    # TARGET ROAS 4:1 AT ₹15K/MONTH SPEND — reliable Graph calls for optimization workflows.
     token = _env_token()
     if not token:
         raise RuntimeError("META_ACCESS_TOKEN is not set")
@@ -97,23 +196,125 @@ def act_path(tail: str) -> str:
     return f"{_env_act_id()}/{tail.lstrip('/')}"
 
 
-def search_interest(q: str) -> Optional[Dict[str, Any]]:
-    try:
-        out = meta_request(
-            "GET",
-            "search",
-            params={"type": "adinterest", "q": q.strip(), "limit": 5},
-        )
-        rows = out.get("data") or []
+def search_interest_raw(q: str) -> List[Dict[str, Any]]:
+    # TARGET ROAS 4:1 AT ₹15K/MONTH SPEND — pull top matches for confidence scoring.
+    out = meta_request(
+        "GET",
+        "search",
+        params={"type": "adinterest", "q": q.strip(), "limit": 8},
+    )
+    return list(out.get("data") or [])
+
+
+def match_confidence(query: str, matched_name: str) -> Tuple[str, float]:
+    """Return label high|medium|low and 0..1 score."""
+    q = (query or "").lower().strip()
+    m = (matched_name or "").lower().strip()
+    if not m:
+        return "low", 0.0
+    if q == m or q in m or m in q:
+        return "high", 0.95
+    qt = set(re.split(r"[^\w]+", q)) - {"", "the", "and"}
+    mt = set(re.split(r"[^\w]+", m)) - {"", "the", "and"}
+    if qt and qt <= mt:
+        return "high", 0.88
+    overlap = len(qt & mt) / max(len(qt), 1)
+    if overlap >= 0.45:
+        return "medium", 0.55 + 0.25 * overlap
+    if overlap > 0:
+        return "low", 0.35 + 0.15 * overlap
+    return "low", 0.25
+
+
+def resolve_interest_line(label: str) -> Dict[str, Any]:
+    """
+    TARGET ROAS 4:1 AT ₹15K/MONTH SPEND — resolve one interest with fallbacks + confidence.
+    """
+    tries = [label] + INTEREST_FALLBACKS.get(label.lower().strip(), [])
+    tried = []
+    for t in tries:
+        t = t.strip()
+        if not t or t in tried:
+            continue
+        tried.append(t)
+        rows = search_interest_raw(t)
         if rows:
-            return {"id": str(rows[0].get("id")), "name": rows[0].get("name", q)}
-    except Exception:
-        pass
-    return None
+            pick = rows[0]
+            mid = str(pick.get("id") or "")
+            mname = str(pick.get("name") or "")
+            conf, score = match_confidence(label, mname)
+            return {
+                "query": label,
+                "resolved": True,
+                "interest_id": mid,
+                "matched_name": mname,
+                "confidence": conf,
+                "score": round(score, 3),
+                "attempted_queries": tried,
+            }
+    sug = INTEREST_FALLBACKS.get(label.lower().strip(), ["related lifestyle interest"])
+    return {
+        "query": label,
+        "resolved": False,
+        "interest_id": None,
+        "matched_name": None,
+        "confidence": "none",
+        "score": 0.0,
+        "attempted_queries": tried,
+        "suggested_replacements": sug[:4],
+    }
+
+
+def resolve_interest_stack_weighted(
+    queries: List[str],
+    *,
+    max_ids: int = MAX_INTEREST_IDS,
+) -> Tuple[List[Dict[str, str]], List[Dict[str, Any]], List[str]]:
+    """
+    Dedupe by Meta interest id; preserve weighted order.
+    TARGET ROAS 4:1 AT ₹15K/MONTH SPEND.
+    """
+    detailed: List[Dict[str, Any]] = []
+    warnings: List[str] = []
+    seen_ids = set()
+    api_objs: List[Dict[str, str]] = []
+    for q in queries:
+        if len(api_objs) >= max_ids:
+            break
+        row = resolve_interest_line(q)
+        detailed.append(row)
+        if row.get("resolved") and row.get("interest_id"):
+            iid = str(row["interest_id"])
+            if iid not in seen_ids:
+                seen_ids.add(iid)
+                api_objs.append({"id": iid, "name": row.get("matched_name") or q})
+        else:
+            warnings.append(f'No Meta adinterest match for "{q}" — try: {row.get("suggested_replacements")}')
+    return api_objs, detailed, warnings
+
+
+def resolve_cities() -> Tuple[List[dict], List[str]]:
+    # TARGET ROAS 4:1 AT ₹15K/MONTH SPEND — metro + tier-2 coverage for scale within ROAS guardrails.
+    cities = []
+    warns: List[str] = []
+    tried_keys = set()
+    for q, cc, tier in CITY_QUERIES:
+        c = search_city(q, cc)
+        if not c and q.lower() == "bangalore":
+            c = search_city("Bengaluru", cc)
+        if not c and q.lower() == "gurgaon":
+            c = search_city("Gurugram", cc)
+        if c:
+            k = c["key"]
+            if k not in tried_keys:
+                tried_keys.add(k)
+                cities.append({"key": k, "name": c["name"], "tier": tier})
+        else:
+            warns.append(f"City not resolved in Meta geo search: {q}, {cc}")
+    return cities, warns
 
 
 def search_city(name: str, country: str) -> Optional[Dict[str, Any]]:
-    """Resolve Meta geolocation key for a city (India)."""
     try:
         out = meta_request(
             "GET",
@@ -140,38 +341,8 @@ def search_city(name: str, country: str) -> Optional[Dict[str, Any]]:
     return None
 
 
-def resolve_interests(labels: List[str]) -> Tuple[List[Dict[str, str]], List[str]]:
-    resolved = []
-    warnings = []
-    for lb in labels:
-        m = search_interest(lb)
-        if m:
-            resolved.append({"id": m["id"], "name": m.get("name") or lb})
-        else:
-            warnings.append(f'No Meta interest match for "{lb}"')
-    return resolved, warnings
-
-
-def resolve_cities() -> Tuple[List[dict], List[str]]:
-    cities = []
-    warns: List[str] = []
-    tried_keys = set()
-    for q, cc in CITY_QUERIES:
-        c = search_city(q, cc)
-        if not c and q.lower() == "bangalore":
-            c = search_city("Bengaluru", cc)
-        if c:
-            k = c["key"]
-            if k not in tried_keys:
-                tried_keys.add(k)
-                cities.append({"key": k, "name": c["name"]})
-        else:
-            warns.append(f"City not resolved in Meta geo search: {q}, {cc}")
-    return cities, warns
-
-
 def shopify_customer_emails_with_orders() -> Tuple[List[str], Dict[str, Any]]:
-    """Emails from Shopify customers with at least one order (buyers)."""
+    """TARGET ROAS 4:1 AT ₹15K/MONTH SPEND — buyer seed for lookalike quality."""
     store = (os.environ.get("SHOPIFY_STORE") or "").strip().lower()
     token = (os.environ.get("SHOPIFY_TOKEN") or "").strip()
     meta: Dict[str, Any] = {"store": store, "pages": 0, "raw_customers": 0}
@@ -227,7 +398,6 @@ def create_customer_audience(name: str) -> str:
 
 
 def upload_hashed_emails(audience_id: str, hashes: List[str]) -> None:
-    """Batch upload EMAIL_SHA256 rows (session protocol)."""
     if not hashes:
         raise RuntimeError("No emails to upload")
     session_id = random.randint(1, 2**63 - 1)
@@ -253,7 +423,6 @@ def upload_hashed_emails(audience_id: str, hashes: List[str]) -> None:
 
 
 def poll_audience_ready(audience_id: str, label: str, max_wait_s: int = 180) -> Dict[str, Any]:
-    """Best-effort poll; lookalikes can take hours — we only wait briefly."""
     t0 = time.time()
     last: Dict[str, Any] = {}
     while time.time() - t0 < max_wait_s:
@@ -299,11 +468,7 @@ def build_base_targeting(
     interests: List[Dict[str, str]],
     lookalike_id: str,
 ) -> Dict[str, Any]:
-    """
-    Stack: lookalike seed pool + geo + demo + affinity interests + premium placements.
-    Note: Meta cannot express 'Samsung Galaxy S only' natively; we use mobile iOS+Android
-    and recommend exclusions in Ads Manager for Audience Network / Messenger if needed.
-    """
+    # TARGET ROAS 4:1 AT ₹15K/MONTH SPEND — lookalike + affinity OR stack + premium placements.
     city_objs = [{"key": c["key"]} for c in cities if c.get("key")]
     interest_objs = [{"id": x["id"]} for x in interests if x.get("id")]
     t: Dict[str, Any] = {
@@ -380,14 +545,12 @@ def copy_adset(
     status_option: str = "PAUSED",
     deep_copy: bool = False,
 ) -> str:
-    """POST /{ad-set-id}/copies — returns new ad set id."""
     data = {
         "campaign_id": dest_campaign_id,
         "status_option": status_option,
         "deep_copy": "true" if deep_copy else "false",
     }
     out = meta_request("POST", f"{source_adset_id}/copies", data=data)
-    # Response shapes vary by API version (sync vs async job).
     for key in ("copied_adset_ids", "adset_ids", "ids"):
         ids = out.get(key)
         if isinstance(ids, list) and ids:
@@ -427,74 +590,186 @@ def create_ad(adset_id: str, name: str, creative_id: str, status: str = "ACTIVE"
     return str(out.get("id") or "")
 
 
+def _compute_critical_warnings(
+    cities: List[dict],
+    buyer_count: int,
+    skip_audiences: bool,
+    women_api_count: int,
+    men_api_count: int,
+) -> List[str]:
+    # TARGET ROAS 4:1 AT ₹15K/MONTH SPEND — block live spend when seed/geo/affinity unusable.
+    cw = []
+    if not cities:
+        cw.append("CRITICAL: No cities resolved — cannot build geo targeting.")
+    if women_api_count < 1:
+        cw.append("CRITICAL: Zero women's interests resolved — broaden queries or fix Meta token scopes.")
+    if men_api_count < 1:
+        cw.append("CRITICAL: Zero men's interests resolved — broaden queries or fix Meta token scopes.")
+    if not skip_audiences and buyer_count < MIN_SEED_BUYERS:
+        cw.append(
+            f"CRITICAL: Buyer seed {buyer_count} < {MIN_SEED_BUYERS} — Meta lookalike requires ≥100 matched people."
+        )
+    return cw
+
+
 def run_weareth_dual_adset_pipeline(
     *,
     dry_run: bool = False,
     skip_audiences: bool = False,
+    force_live: bool = False,
 ) -> Dict[str, Any]:
     """
-    Execute full pipeline. dry_run=True returns planned actions only.
-    skip_audiences=True uses WEARTH_LOOKALIKE_ID only (no Shopify seed upload).
+    TARGET ROAS 4:1 AT ₹15K/MONTH SPEND — preflight always; live only when gates pass unless force_live.
+    dry_run=True → stop after preflight (no ad set / audience writes).
     """
     result: Dict[str, Any] = {
         "ok": False,
         "dry_run": dry_run,
+        "force_live": force_live,
         "warnings": [],
+        "critical_warnings": [],
         "optimization_notes": [
-            "Placement-limited to FB/IG Feed + IG Feed/Reels/Stories (no Audience Network) for premium brand suitability.",
-            "Advantage Audience disabled on these ad sets for tighter control; monitor frequency & CPA weekly.",
-            "For ROAS 4+: prioritize Purchase optimization with sufficient weekly conversions; otherwise test InitiateCheckout + value rules.",
-            "Consider Advantage+ shopping catalog campaigns once pixel fires 50+ purchases / week.",
-            "Device-level 'Galaxy S only' is not fully available via API; mobile + OS split is the practical ceiling.",
+            "TARGET ROAS 4:1 AT ₹15K/MONTH SPEND — pace ₹15k/month ≈ ₹500/day; tune budget across ad sets to hit efficiency targets.",
+            "Tier-2 cities share one ad set here (Meta cannot bid lower per city in a single ad set). Clone a tier-2-only ad set at 30–50% daily budget to approximate lower bids.",
+            "Placement-limited to FB/IG Feed + IG Feed/Reels/Stories (exclude Audience Network for premium brand safety).",
+            "advantage_audience: women inherit existing ad set; men forced to 0 for precision testing.",
+            "ROAS 4+: optimize for Purchase with enough weekly volume; else test Initiate Checkout + value rules before scaling.",
+            "Ingredient-conscious buyers: creative and landing pages should mirror transparency (fabric composition, origin) to lift conversion rate.",
         ],
     }
 
     if not _env_token() or not _env_act_id():
         raise RuntimeError("META_ACCESS_TOKEN and META_AD_ACCOUNT_ID are required")
 
-    creative_id = get_ad_creative_id(SOURCE_CREATIVE_AD_ID)
-    result["source_creative_id"] = creative_id
-
-    cities, cw = resolve_cities()
-    result["warnings"].extend(cw)
-
-    int_w, iw = resolve_interests(INTERESTS_WOMEN)
-    int_m, im = resolve_interests(INTERESTS_MEN)
-    result["warnings"].extend(iw + im)
-    result["interests_resolved"] = {"women": int_w, "men": int_m}
+    cities, cw_geo = resolve_cities()
+    result["warnings"].extend(cw_geo)
     result["cities_resolved"] = cities
+    result["cities_tier1"] = [c for c in cities if c.get("tier") == 1]
+    result["cities_tier2"] = [c for c in cities if c.get("tier") == 2]
 
-    lookalike_id = (os.environ.get("WEARTH_LOOKALIKE_ID") or "").strip()
+    int_w_objs, int_w_detail, iw_warn = resolve_interest_stack_weighted(INTERESTS_WOMEN_QUERIES)
+    int_m_objs, int_m_detail, im_warn = resolve_interest_stack_weighted(INTERESTS_MEN_QUERIES)
+    result["warnings"].extend(iw_warn + im_warn)
+    result["interests_resolved"] = {
+        "women": int_w_detail,
+        "men": int_m_detail,
+        "women_api_ids_count": len(int_w_objs),
+        "men_api_ids_count": len(int_m_objs),
+    }
 
-    shop_meta = {}
-    seed_id = ""
+    emails: List[str] = []
+    shop_meta: Dict[str, Any] = {}
+    buyer_count = 0
     if not skip_audiences:
         emails, shop_meta = shopify_customer_emails_with_orders()
+        buyer_count = len(set(emails))
         result["shopify"] = shop_meta
-        hashes = [sha256_email(e) for e in emails]
-        result["buyer_hashes_count"] = len(hashes)
-        if len(hashes) < 100:
-            result["warnings"].append(
-                "Seed audience has <100 matched buyers — Meta may reject lookalike creation "
-                f"(got {len(hashes)}). Consider importing more historical orders or relax filters."
-            )
-        if dry_run:
-            seed_id = "DRY_RUN_SEED"
-            lookalike_id = lookalike_id or "DRY_RUN_LAL"
-        else:
-            seed_id = create_customer_audience("WEARTH Buyers")
-            upload_hashed_emails(seed_id, hashes)
-            poll_audience_ready(seed_id, "seed")
-            lookalike_id = create_lookalike_india_1pct(seed_id, "WEARTH Buyers — 1% Lookalike IN")
-            poll_audience_ready(lookalike_id, "lookalike", max_wait_s=180)
+        result["buyer_hashes_count"] = buyer_count
+    else:
+        result["buyer_hashes_count"] = None
+
+    hashes = [sha256_email(e) for e in emails]
+
+    result["critical_warnings"] = _compute_critical_warnings(
+        cities,
+        buyer_count,
+        skip_audiences,
+        len(int_w_objs),
+        len(int_m_objs),
+    )
+
+    lookalike_id = (os.environ.get("WEARTH_LOOKALIKE_ID") or "").strip()
+    seed_id = ""
+
+    creative_id = ""
+    try:
+        creative_id = get_ad_creative_id(SOURCE_CREATIVE_AD_ID)
+        result["source_creative_id"] = creative_id
+    except Exception as ex:
+        result["warnings"].append(f"Creative fetch failed: {ex}")
+
+    if dry_run:
+        lookalike_id = lookalike_id or "DRY_RUN_LAL"
+        tw = build_base_targeting(
+            genders=[2],
+            age_min=WOMEN_AGE[0],
+            age_max=WOMEN_AGE[1],
+            cities=cities,
+            interests=int_w_objs,
+            lookalike_id=lookalike_id,
+        )
+        tm = build_base_targeting(
+            genders=[1],
+            age_min=MEN_AGE[0],
+            age_max=MEN_AGE[1],
+            cities=cities,
+            interests=int_m_objs,
+            lookalike_id=lookalike_id,
+        )
+        result["ok"] = True
+        result["planned"] = {
+            "women_targeting": tw,
+            "men_targeting": tm,
+            "men_daily_budget_minor": int(MEN_DAILY_BUDGET_INR * 100),
+            "copy_from_adset": WOMEN_ADSET_ID,
+            "men_campaign": MEN_CAMPAIGN_ID,
+        }
+        result["preflight_only"] = True
+        return result
+
+    if not creative_id:
+        result["ok"] = False
+        result["critical_warnings"].append("CRITICAL: Could not load creative from source ad — fix WEARTH_SOURCE_AD_ID.")
+        result["live_skipped"] = True
+        return result
+
+    def _allowed_live() -> bool:
+        # TARGET ROAS 4:1 AT ₹15K/MONTH SPEND — force_live skips only seed-size gate; geo/affinity still required.
+        crit = list(result["critical_warnings"])
+        if force_live:
+            crit = [x for x in crit if "Buyer seed" not in x]
+        if crit:
+            return False
+        if not force_live and not skip_audiences and buyer_count < MIN_SEED_BUYERS:
+            return False
+        return True
+
+    gate_fail = not _allowed_live()
+
+    if gate_fail:
+        result["ok"] = False
+        result["live_skipped"] = True
+        result["hint"] = "Fix critical_warnings or set force_live:true (not recommended) or skip_audiences with WEARTH_LOOKALIKE_ID."
+        tw = build_base_targeting(
+            genders=[2],
+            age_min=WOMEN_AGE[0],
+            age_max=WOMEN_AGE[1],
+            cities=cities,
+            interests=int_w_objs,
+            lookalike_id=lookalike_id or "UNSET",
+        )
+        tm = build_base_targeting(
+            genders=[1],
+            age_min=MEN_AGE[0],
+            age_max=MEN_AGE[1],
+            cities=cities,
+            interests=int_m_objs,
+            lookalike_id=lookalike_id or "UNSET",
+        )
+        result["planned_preview"] = {"women_targeting": tw, "men_targeting": tm}
+        return result
+
+    if not skip_audiences:
+        seed_id = create_customer_audience("WEARTH Buyers")
+        upload_hashed_emails(seed_id, hashes)
+        poll_audience_ready(seed_id, "seed")
+        lookalike_id = create_lookalike_india_1pct(seed_id, "WEARTH Buyers — 1% Lookalike IN")
+        poll_audience_ready(lookalike_id, "lookalike", max_wait_s=180)
         result["custom_audience_id"] = seed_id
         result["lookalike_audience_id"] = lookalike_id
     else:
         if not lookalike_id:
-            if dry_run:
-                lookalike_id = "DRY_RUN_LAL"
-            else:
-                raise RuntimeError("skip_audiences requires WEARTH_LOOKALIKE_ID")
+            raise RuntimeError("skip_audiences requires WEARTH_LOOKALIKE_ID")
         result["lookalike_audience_id"] = lookalike_id
 
     tw = build_base_targeting(
@@ -502,7 +777,7 @@ def run_weareth_dual_adset_pipeline(
         age_min=WOMEN_AGE[0],
         age_max=WOMEN_AGE[1],
         cities=cities,
-        interests=int_w,
+        interests=int_w_objs,
         lookalike_id=lookalike_id,
     )
     tm = build_base_targeting(
@@ -510,7 +785,7 @@ def run_weareth_dual_adset_pipeline(
         age_min=MEN_AGE[0],
         age_max=MEN_AGE[1],
         cities=cities,
-        interests=int_m,
+        interests=int_m_objs,
         lookalike_id=lookalike_id,
     )
 
@@ -531,21 +806,8 @@ def run_weareth_dual_adset_pipeline(
         ta = {"advantage_audience": 0}
 
     result["women_adset_before"] = {"id": women_as.get("id"), "status": women_as.get("status")}
+    men_budget_minor = int(MEN_DAILY_BUDGET_INR * 100)
 
-    men_budget_minor = int(MEN_DAILY_BUDGET_INR * 100)  # paise
-
-    if dry_run:
-        result["ok"] = True
-        result["planned"] = {
-            "women_targeting": tw,
-            "men_targeting": tm,
-            "men_daily_budget_minor": men_budget_minor,
-            "copy_from_adset": WOMEN_ADSET_ID,
-            "men_campaign": MEN_CAMPAIGN_ID,
-        }
-        return result
-
-    # --- Women ad set ---
     pause_if_needed(WOMEN_ADSET_ID, str(women_as.get("status") or ""))
     update_adset_full(
         WOMEN_ADSET_ID,
@@ -554,7 +816,7 @@ def run_weareth_dual_adset_pipeline(
         targeting_automation=ta,
         promoted_object=promoted if isinstance(promoted, dict) else None,
     )
-    # Activate ads in women ad set & align creative
+
     ad_notes = []
     for ad in list_ads(WOMEN_ADSET_ID):
         aid = str(ad.get("id"))
@@ -568,7 +830,6 @@ def run_weareth_dual_adset_pipeline(
     if ad_notes:
         result["warnings"].extend([str(x) for x in ad_notes])
 
-    # --- Men ad set: copy then specialize ---
     new_men_id = copy_adset(WOMEN_ADSET_ID, MEN_CAMPAIGN_ID, status_option="PAUSED", deep_copy=False)
     result["men_adset_id"] = new_men_id
 
@@ -590,6 +851,7 @@ def run_weareth_dual_adset_pipeline(
 
     result["ok"] = True
     result["women_adset_id"] = WOMEN_ADSET_ID
+    result["live_completed"] = True
     result["summary"] = (
         f"Women ad set {WOMEN_ADSET_ID} ACTIVE with lookalike {lookalike_id}; "
         f"Men ad set {new_men_id} ACTIVE @ ₹{MEN_DAILY_BUDGET_INR}/day."
@@ -599,7 +861,8 @@ def run_weareth_dual_adset_pipeline(
 
 def main():
     try:
-        out = run_weareth_dual_adset_pipeline(dry_run="--dry-run" in sys.argv)
+        dry = "--dry-run" in sys.argv
+        out = run_weareth_dual_adset_pipeline(dry_run=dry)
         print(json.dumps(out, indent=2, default=str))
     except Exception as e:
         print(json.dumps({"ok": False, "error": str(e), "trace": traceback.format_exc()}, indent=2))
