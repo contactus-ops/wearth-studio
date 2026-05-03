@@ -260,9 +260,10 @@ def api_n8n_health():
         else:
             try:
                 t0 = time.time()
+                # Accounts collection does not accept page[size] (Klaviyo 400).
                 j = _klaviyo_api_get(
                     "https://a.klaviyo.com/api/accounts/",
-                    params={"page[size]": 1},
+                    params=None,
                     max_retries=2,
                     http_timeout=12.0,
                 )
