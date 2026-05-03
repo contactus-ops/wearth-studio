@@ -1,0 +1,7 @@
+# TARGET ROAS 4:1 AT ₹15K/MONTH SPEND — deploy as static SPA + serve.
+[build]
+builder = "nixpacks"
+buildCommand = "npm install && npm run build"
+
+[deploy]
+startCommand = "npx serve -s dist -l tcp://0.0.0.0:$PORT"

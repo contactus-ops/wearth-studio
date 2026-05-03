@@ -59,8 +59,7 @@ MASTER_FITNESS = [
 
 MASTER_WELLNESS = [
     "clean eating", "organic food", "nutrition", "Health food", "ayurveda",
-    # Meta has no adinterest for "Cryotherapy"/"Pranayama"; these labels index and match the same niches.
-    "Meditation", "sleep", "Quantified Self", "cold therapy", "breathing exercises",
+    "Meditation", "sleep", "Quantified Self", "Cryotherapy", "Pranayama",
 ]
 
 MASTER_PREMIUM_LIFESTYLE = [
@@ -153,7 +152,28 @@ INTEREST_FALLBACKS: Dict[str, List[str]] = {
         "spa",
         "sauna",
     ],
+    # Primary query label after Chat 3 — reuse cold-therapy ladder.
+    "cryotherapy": [
+        "Cryotherapy",
+        "ice bath",
+        "cryo",
+        "cold plunge",
+        "cryo spa",
+        "Wim Hof Method",
+        "wellness",
+        "spa",
+        "sauna",
+    ],
     "breathing exercises": [
+        "Pranayama",
+        "yoga breathing",
+        "breathwork",
+        "meditation breathing",
+        "pranayama yoga",
+        "yoga",
+        "Meditation",
+    ],
+    "pranayama": [
         "Pranayama",
         "yoga breathing",
         "breathwork",
@@ -265,11 +285,12 @@ def match_confidence(query: str, matched_name: str) -> Tuple[str, float]:
         return "low", 0.0
     if q == "quantified self" and ("quantif" in m or "wearable" in m or "tracker" in m):
         return "medium", 0.62
-    if q == "cold therapy" and any(
+    if q in ("cold therapy", "cryotherapy") and any(
         x in m
         for x in (
             "cryo",
             "cold therapy",
+            "cryotherapy",
             "ice bath",
             "cold plunge",
             "wim hof",
@@ -279,7 +300,7 @@ def match_confidence(query: str, matched_name: str) -> Tuple[str, float]:
         )
     ):
         return "medium", 0.62
-    if q == "breathing exercises" and any(
+    if q in ("breathing exercises", "pranayama") and any(
         x in m for x in ("pranayama", "breath", "yoga", "meditation")
     ):
         return "medium", 0.62

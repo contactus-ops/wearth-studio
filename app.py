@@ -15,8 +15,20 @@ import sys
 import subprocess
 import tempfile
 from datetime import datetime, timezone, timedelta
+import smtplib
+from email.mime.text import MIMEText
 
 app = Flask(__name__)
+
+# TARGET ROAS 4:1 AT ₹15K/MONTH SPEND — approval queue + n8n mail bridge (WEARTH Friday / Monday loops).
+PENDING_ADS_PATH = os.environ.get("WEARTH_PENDING_ADS_PATH", "/tmp/pending_ads.json")
+WEARTH_N8N_MAIL_TOKEN = os.environ.get("WEARTH_N8N_MAIL_TOKEN", "")
+GMAIL_USER_MAIL = os.environ.get("GMAIL_USER", "")
+GMAIL_APP_PASSWORD_MAIL = os.environ.get("GMAIL_APP_PASSWORD", "")
+_pending_ads_lock = _threading.Lock()
+WEARTH_META_CAMPAIGN_ID_DEFAULT = os.environ.get("WEARTH_META_CAMPAIGN_ID", "120245108704880305")
+WEARTH_WOMEN_ADSET_ID = os.environ.get("WEARTH_WOMEN_ADSET_ID", "120245108705080305")
+WEARTH_MEN_ADSET_ID = os.environ.get("WEARTH_MEN_ADSET_ID", "120245228295720305")
 
 COMPOSITOR_URL = 'https://web-production-48b5f.up.railway.app/compose'
 ANTHROPIC_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
@@ -109,6 +121,259 @@ import threading as _threading
 from seo_engine import run_seo_engine
 
 _seo_results = {}
+
+
+@app.after_request
+def _wearth_cors(resp):
+    """Allow WEARTH ads dashboard (separate Railway origin) to call JSON APIs."""
+    if request.path.startswith("/api/"):
+        resp.headers.setdefault("Access-Control-Allow-Origin", "*")
+        resp.headers.setdefault("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS")
+        resp.headers.setdefault(
+            "Access-Control-Allow-Headers",
+            "Content-Type, Authorization, X-Wearth-N8n-Mail",
+        )
+    return resp
+
+
+def _read_pending_ads_raw() -> list:
+    path = PENDING_ADS_PATH
+    if not os.path.isfile(path):
+        return []
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
+
+def _write_pending_ads_raw(rows: list) -> None:
+    path = PENDING_ADS_PATH
+    parent = os.path.dirname(os.path.abspath(path))
+    if parent and not os.path.isdir(parent):
+        os.makedirs(parent, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(rows, f, indent=2, ensure_ascii=False)
+
+
+def _send_gmail_plain(to_addr: str, subject: str, body: str) -> None:
+    if not GMAIL_USER_MAIL or not GMAIL_APP_PASSWORD_MAIL:
+        raise RuntimeError("GMAIL_USER / GMAIL_APP_PASSWORD not set on this service")
+    msg = MIMEText(body, "plain", "utf-8")
+    msg["Subject"] = subject
+    msg["From"] = GMAIL_USER_MAIL
+    msg["To"] = to_addr
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=45) as smtp:
+        smtp.login(GMAIL_USER_MAIL, GMAIL_APP_PASSWORD_MAIL)
+        smtp.sendmail(GMAIL_USER_MAIL, [to_addr], msg.as_string())
+
+
+@app.route("/api/n8n/send-mail", methods=["POST", "OPTIONS"])
+def api_n8n_send_mail():
+    """n8n-friendly Gmail bridge (same SMTP as manual sends). Requires X-Wearth-N8n-Mail if WEARTH_N8N_MAIL_TOKEN is set."""
+    if request.method == "OPTIONS":
+        return "", 204
+    if WEARTH_N8N_MAIL_TOKEN:
+        token = (request.headers.get("X-Wearth-N8n-Mail") or "").strip()
+        auth = (request.headers.get("Authorization") or "").strip()
+        if auth.lower().startswith("bearer "):
+            token = token or auth[7:].strip()
+        if token != WEARTH_N8N_MAIL_TOKEN:
+            return jsonify({"ok": False, "error": "Unauthorized"}), 401
+    data = request.json or {}
+    to_addr = str(data.get("to") or "").strip() or "contactus@wearthactive.com"
+    subject = str(data.get("subject") or "").strip()
+    text_body = str(data.get("text") or data.get("body") or "").strip()
+    if not subject or not text_body:
+        return jsonify({"ok": False, "error": "subject and text required"}), 400
+    try:
+        _send_gmail_plain(to_addr, subject, text_body)
+        return jsonify({"ok": True, "to": to_addr})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e), "trace": traceback.format_exc()}), 500
+
+
+@app.route("/api/ads/pending", methods=["GET", "POST"])
+def api_ads_pending():
+    """Flask keeps one rule per path — GET lists pending rows; POST upserts one."""
+    if request.method == "GET":
+        with _pending_ads_lock:
+            rows = _read_pending_ads_raw()
+        pending = [
+            r for r in rows if isinstance(r, dict) and (r.get("status") or "").lower() == "pending"
+        ]
+        return jsonify({"ok": True, "ads": pending, "count": len(pending)})
+
+    data = request.json or {}
+    ad_id = str(data.get("ad_id") or "").strip()
+    if not ad_id:
+        return jsonify({"ok": False, "error": "ad_id required"}), 400
+    row = {
+        "ad_id": ad_id,
+        "adset_id": str(data.get("adset_id") or "").strip(),
+        "campaign_id": str(data.get("campaign_id") or "").strip(),
+        "video_id": str(data.get("video_id") or "").strip(),
+        "headline": str(data.get("headline") or "").strip(),
+        "body": str(data.get("body") or "").strip(),
+        "cta": str(data.get("cta") or "").strip(),
+        "audience_summary": str(data.get("audience_summary") or "").strip(),
+        "scheduled_hour": data.get("scheduled_hour"),
+        "reasoning": str(data.get("reasoning") or "").strip(),
+        "predicted_roas": data.get("predicted_roas"),
+        "creative_url": str(data.get("creative_url") or "").strip(),
+        "created_at": str(data.get("created_at") or "").strip()
+        or datetime.now(timezone.utc).isoformat(),
+        "status": "pending",
+    }
+    with _pending_ads_lock:
+        rows = _read_pending_ads_raw()
+        for i, r in enumerate(rows):
+            if isinstance(r, dict) and str(r.get("ad_id") or "") == ad_id:
+                rows[i] = row
+                break
+        else:
+            rows.append(row)
+        _write_pending_ads_raw(rows)
+    return jsonify({"ok": True, "ad": row})
+
+
+def _find_pending_index(ad_id: str):
+    rows = _read_pending_ads_raw()
+    for i, r in enumerate(rows):
+        if isinstance(r, dict) and str(r.get("ad_id") or "") == ad_id:
+            return rows, i
+    return rows, -1
+
+
+@app.route("/api/ads/approve/<ad_id>", methods=["POST"])
+def api_ads_approve(ad_id):
+    ad_id = str(ad_id or "").strip()
+    if not META_ACCESS_TOKEN:
+        return jsonify({"ok": False, "error": "META_ACCESS_TOKEN not set"}), 500
+    with _pending_ads_lock:
+        rows, idx = _find_pending_index(ad_id)
+        if idx < 0:
+            return jsonify({"ok": False, "error": "ad not found"}), 404
+        try:
+            r = requests.post(
+                f"{META_GRAPH_BASE}/{ad_id}",
+                params={"status": "ACTIVE", "access_token": META_ACCESS_TOKEN},
+                timeout=90,
+            )
+            if r.status_code not in (200, 201):
+                return jsonify({"ok": False, "error": _meta_error_message(r)}), 502
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)}), 502
+        rows[idx]["status"] = "approved"
+        rows[idx]["approved_at"] = datetime.now(timezone.utc).isoformat()
+        _write_pending_ads_raw(rows)
+    return jsonify({"ok": True, "ad_id": ad_id, "status": "approved"})
+
+
+@app.route("/api/ads/reject/<ad_id>", methods=["POST"])
+def api_ads_reject(ad_id):
+    ad_id = str(ad_id or "").strip()
+    with _pending_ads_lock:
+        rows, idx = _find_pending_index(ad_id)
+        if idx < 0:
+            return jsonify({"ok": False, "error": "ad not found"}), 404
+        rows[idx]["status"] = "rejected"
+        rows[idx]["rejected_at"] = datetime.now(timezone.utc).isoformat()
+        _write_pending_ads_raw(rows)
+    return jsonify({"ok": True, "ad_id": ad_id, "status": "rejected"})
+
+
+@app.route("/api/ads/edit/<ad_id>", methods=["PUT"])
+def api_ads_edit(ad_id):
+    ad_id = str(ad_id or "").strip()
+    data = request.json or {}
+    with _pending_ads_lock:
+        rows, idx = _find_pending_index(ad_id)
+        if idx < 0:
+            return jsonify({"ok": False, "error": "ad not found"}), 404
+        for key in ("headline", "body", "cta"):
+            if key in data:
+                rows[idx][key] = str(data.get(key) or "").strip()
+        _write_pending_ads_raw(rows)
+    return jsonify({"ok": True, "ad": rows[idx]})
+
+
+@app.route("/api/meta/campaign-used-videos", methods=["GET"])
+def api_meta_campaign_used_videos():
+    """Video IDs referenced by active/paused ads in a campaign (recent creatives)."""
+    if not META_ACCESS_TOKEN:
+        return jsonify({"ok": False, "error": "META_ACCESS_TOKEN not set"}), 500
+    cid = str(request.args.get("campaign_id") or WEARTH_META_CAMPAIGN_ID_DEFAULT).strip()
+    try:
+        out = _meta_request(
+            "GET",
+            f"{cid}/ads",
+            params={
+                "fields": "creative{object_story_spec{video_data{id, video_id}}},status",
+                "limit": 500,
+            },
+        )
+        vids = set()
+        for row in out.get("data") or []:
+            cr = (row.get("creative") or {}).get("object_story_spec") or {}
+            vd = cr.get("video_data") or {}
+            for k in ("video_id", "id"):
+                vid = vd.get(k)
+                if vid:
+                    vids.add(str(vid))
+        return jsonify({"ok": True, "campaign_id": cid, "video_ids": sorted(vids)})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e), "trace": traceback.format_exc()}), 500
+
+
+def _adset_roas_from_insights(ins: dict) -> dict:
+    rows = list((ins or {}).get("data") or [])
+    if not rows:
+        return {"spend": 0.0, "clicks": 0, "purchase_value": 0.0, "roas": None}
+    row = rows[0]
+    spend = float(row.get("spend") or 0)
+    clicks = int(float(row.get("clicks") or 0))
+    pv = 0.0
+    for a in row.get("action_values") or []:
+        t = str(a.get("action_type") or "").lower()
+        if "purchase" in t or "omni_purchase" in t:
+            pv += float(a.get("value") or 0)
+    roas = (pv / spend) if spend > 0 else None
+    return {"spend": spend, "clicks": clicks, "purchase_value": pv, "roas": roas}
+
+
+@app.route("/api/meta/adsets-live", methods=["GET"])
+def api_meta_adsets_live():
+    """Last-7d spend / ROAS / status for women + men ad sets (dashboard)."""
+    if not META_ACCESS_TOKEN:
+        return jsonify({"ok": False, "error": "META_ACCESS_TOKEN not set"}), 500
+    out = []
+    for label, aid in (("women", WEARTH_WOMEN_ADSET_ID), ("men", WEARTH_MEN_ADSET_ID)):
+        try:
+            st = _meta_request("GET", aid, params={"fields": "name,status,effective_status"})
+            ins = _meta_request(
+                "GET",
+                f"{aid}/insights",
+                params={
+                    "fields": "spend,clicks,action_values,actions,impressions",
+                    "date_preset": "last_7d",
+                },
+            )
+            m = _adset_roas_from_insights(ins)
+            m.update(
+                {
+                    "label": label,
+                    "adset_id": aid,
+                    "name": (st or {}).get("name"),
+                    "status": (st or {}).get("effective_status") or (st or {}).get("status"),
+                }
+            )
+            out.append(m)
+        except Exception as e:
+            out.append({"label": label, "adset_id": aid, "error": str(e)})
+    return jsonify({"ok": True, "adsets": out, "date_preset": "last_7d"})
+
 
 @app.route("/health", methods=["GET"])
 def health():
@@ -3857,7 +4122,8 @@ def n8n_workflows_status():
             {'name': 'SEO engine', 'recommended': True, 'build_status': 'live'},
             {'name': 'Instagram automation', 'recommended': True, 'build_status': 'live'},
             {'name': 'video ad automation', 'recommended': True, 'build_status': 'not built'},
-            {'name': 'performance loop', 'recommended': True, 'build_status': 'not built'},
+            {'name': 'performance loop', 'recommended': True, 'build_status': 'live (n8n: WEARTH Friday Performance Loop)'},
+            {'name': 'monday ad generator', 'recommended': True, 'build_status': 'live (n8n: WEARTH Monday Ad Generator)'},
             {'name': 'daily laundry', 'recommended': True, 'build_status': 'not built'},
             {'name': 'post purchase flow', 'recommended': True, 'build_status': 'not built'},
         ],
