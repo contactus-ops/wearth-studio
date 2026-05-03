@@ -334,11 +334,123 @@ def api_ads_edit(ad_id):
         rows, idx = _find_pending_index(ad_id)
         if idx < 0:
             return jsonify({"ok": False, "error": "ad not found"}), 404
-        for key in ("headline", "body", "cta"):
+        for key in ("headline", "body", "cta", "video_id", "creative_url"):
             if key in data:
                 rows[idx][key] = str(data.get(key) or "").strip()
         _write_pending_ads_raw(rows)
     return jsonify({"ok": True, "ad": rows[idx]})
+
+
+@app.route("/api/ads/improve-copy", methods=["POST", "OPTIONS"])
+def api_ads_improve_copy():
+    """Return 3 Claude variants for headline, body, or CTA (dashboard Ad Studio)."""
+    if request.method == "OPTIONS":
+        return "", 204
+    if not ANTHROPIC_KEY:
+        return jsonify({"ok": False, "error": "ANTHROPIC_API_KEY not set"}), 500
+    data = request.json or {}
+    field = str(data.get("field") or "").strip().lower()
+    current = str(data.get("current_text") or "").strip()
+    instruction = str(data.get("instruction") or "").strip()
+    if field not in ("headline", "body", "cta"):
+        return jsonify({"ok": False, "error": "field must be headline, body, or cta"}), 400
+    if not current:
+        return jsonify({"ok": False, "error": "current_text required"}), 400
+    limit_hint = {
+        "headline": "Each variant: max 40 characters, lowercase preferred, ends with period when natural.",
+        "body": "Each variant: 80-150 words, short sentences, trusted-friend tone.",
+        "cta": "Each variant: max 22 characters, lowercase, action phrase.",
+    }[field]
+    prompt = (
+        "You are a copy editor for WEARTH — Indian plant-based activewear. Premium, calm voice.\n"
+        "No em dashes. No exclamation marks. Never use: TENCEL, lyocell, game-changer, sacred, ritual, journey.\n\n"
+        f"Field: {field}\n"
+        f"Current text:\n\"\"\"\n{current}\n\"\"\"\n\n"
+        f"Instruction:\n{instruction or 'Sharpen for Meta feed ads; keep meaning.'}\n\n"
+        f"{limit_hint}\n\n"
+        'Return ONLY valid JSON with exactly this shape: {"variants": ["v1", "v2", "v3"]}\n'
+        "Use exactly 3 strings in the array."
+    )
+    try:
+        out = _call_claude_json(prompt, max_tokens=1800)
+        variants = out.get("variants")
+        if not isinstance(variants, list):
+            variants = []
+        variants = [str(v).strip() for v in variants if str(v).strip()]
+        while len(variants) < 3:
+            variants.append(variants[-1] if variants else current)
+        return jsonify({"ok": True, "variants": variants[:3]})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e), "trace": traceback.format_exc()}), 500
+
+
+@app.route("/api/drive/images", methods=["GET"])
+def list_drive_images():
+    """List images from META_AD_IMAGES_DRIVE_FOLDER_ID (or ?folder_id=)."""
+    try:
+        if not GOOGLE_DRIVE_API_KEY:
+            return jsonify({"ok": False, "error": "GOOGLE_DRIVE_API_KEY not set"}), 500
+        folder_id = (request.args.get("folder_id") or META_AD_IMAGES_DRIVE_FOLDER_ID or "").strip()
+        if not folder_id:
+            return jsonify({"ok": True, "count": 0, "images": [], "folder_id": ""})
+        imgs = _list_drive_folder_images(folder_id)
+        return jsonify({"ok": True, "folder_id": folder_id, "count": len(imgs), "images": imgs})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e), "trace": traceback.format_exc()}), 500
+
+
+@app.route("/api/ads/publish/<ad_id>", methods=["POST", "OPTIONS"])
+def api_ads_publish(ad_id):
+    """Merge optional copy/creative fields, activate ad in Meta, mark pending row published."""
+    if request.method == "OPTIONS":
+        return "", 204
+    ad_id = str(ad_id or "").strip()
+    if not META_ACCESS_TOKEN:
+        return jsonify({"ok": False, "error": "META_ACCESS_TOKEN not set"}), 500
+    data = request.json or {}
+    with _pending_ads_lock:
+        rows, idx = _find_pending_index(ad_id)
+        if idx < 0:
+            return jsonify({"ok": False, "error": "ad not found"}), 404
+        for key in ("headline", "body", "cta", "video_id", "creative_url"):
+            if key in data:
+                rows[idx][key] = str(data.get(key) or "").strip()
+        try:
+            r = requests.post(
+                f"{META_GRAPH_BASE}/{ad_id}",
+                params={"status": "ACTIVE", "access_token": META_ACCESS_TOKEN},
+                timeout=90,
+            )
+            if r.status_code not in (200, 201):
+                return jsonify({"ok": False, "error": _meta_error_message(r)}), 502
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)}), 502
+        rows[idx]["status"] = "approved"
+        rows[idx]["published_at"] = datetime.now(timezone.utc).isoformat()
+        _write_pending_ads_raw(rows)
+    return jsonify({"ok": True, "ad_id": ad_id, "status": "published"})
+
+
+@app.route("/api/ads/feedback", methods=["POST", "OPTIONS"])
+def api_ads_feedback():
+    """Persist qualitative feedback on a pending ad row."""
+    if request.method == "OPTIONS":
+        return "", 204
+    data = request.json or {}
+    ad_id = str(data.get("ad_id") or "").strip()
+    if not ad_id:
+        return jsonify({"ok": False, "error": "ad_id required"}), 400
+    worked = str(data.get("what_worked") or data.get("whatWorked") or "").strip()
+    didnt = str(data.get("what_didnt_work") or data.get("whatDidntWork") or "").strip()
+    with _pending_ads_lock:
+        rows, idx = _find_pending_index(ad_id)
+        if idx < 0:
+            return jsonify({"ok": False, "error": "ad not found"}), 404
+        rows[idx]["feedback_worked"] = worked
+        rows[idx]["feedback_didnt"] = didnt
+        rows[idx]["feedback_at"] = datetime.now(timezone.utc).isoformat()
+        _write_pending_ads_raw(rows)
+    return jsonify({"ok": True, "ad_id": ad_id})
 
 
 @app.route("/api/meta/campaign-used-videos", methods=["GET"])
@@ -1772,6 +1884,10 @@ def delete_logo():
 # ── META ADVANTAGE+ CREATIVE GENERATOR ──
 GOOGLE_DRIVE_API_KEY = os.environ.get('GOOGLE_DRIVE_API_KEY', '')
 META_AD_VIDEOS_DRIVE_FOLDER_ID = '1Zpi1G_zK9o4WrTQkFL9v-yS9K4yxvvMl'
+# Optional: Drive folder with ad images (mime image/*). Falls back to video folder if unset (often empty).
+META_AD_IMAGES_DRIVE_FOLDER_ID = os.environ.get(
+    "META_AD_IMAGES_DRIVE_FOLDER_ID", ""
+).strip() or META_AD_VIDEOS_DRIVE_FOLDER_ID
 
 META_AB_PROMPT = (
     "You are generating Meta Advantage+ ad copy variants for WEARTH Active.\n\n"

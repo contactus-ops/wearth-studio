@@ -1,36 +1,15 @@
-/* TARGET ROAS 4:1 AT ₹15K/MONTH SPEND — Shai's ad command centre */
+/* TARGET ROAS 4:1 AT ₹15K/MONTH SPEND — layout matches public/prototype.html */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  CartesianGrid,
-  Legend,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
-import {
-  msUntilNextMonday7amIST,
-  nextMonday7amIST,
-  formatDuration,
-} from "./nextMonday";
 import "./App.css";
 
 const API =
   import.meta.env.VITE_API_BASE ?? "https://web-production-448c1.up.railway.app";
-
-const HERO_BG =
-  "https://drive.google.com/uc?export=view&id=1dpoCxKQ02eK2XmnOZvYaW3EeKmQFz3r2";
 
 const META_ADS_URL =
   "https://adsmanager.facebook.com/adsmanager/manage/ads?act=8979315238856807";
 
 type PendingAd = {
   ad_id: string;
-  adset_id?: string;
-  campaign_id?: string;
-  video_id?: string;
   headline?: string;
   body?: string;
   cta?: string;
@@ -39,6 +18,9 @@ type PendingAd = {
   reasoning?: string;
   predicted_roas?: number;
   creative_url?: string;
+  video_id?: string;
+  feedback_worked?: string;
+  feedback_didnt?: string;
   status?: string;
 };
 
@@ -57,14 +39,6 @@ type LiveAdset = {
   ads_manager_url?: string;
 };
 
-type ChartRow = {
-  date: string;
-  women_spend: number;
-  men_spend: number;
-  women_clicks: number;
-  men_clicks: number;
-};
-
 type LivePayload = {
   ok: boolean;
   campaign?: {
@@ -77,18 +51,26 @@ type LivePayload = {
   weekly_roas?: number | null;
   active_ads_count?: number | null;
   adsets: LiveAdset[];
-  chart: ChartRow[];
 };
+
+type DriveVideo = {
+  id: string;
+  name?: string;
+  thumbnail?: string;
+  url?: string;
+};
+
+type DriveImage = { id: string; name?: string; url?: string };
 
 type Toast = { id: number; kind: "ok" | "err"; msg: string };
 
-function fmtInr(n: number | null | undefined, fraction = 0): string {
+function fmtInr(n: number | null | undefined, frac = 0): string {
   if (n == null || Number.isNaN(n)) return "—";
   return new Intl.NumberFormat("en-IN", {
     style: "currency",
     currency: "INR",
-    maximumFractionDigits: fraction,
-    minimumFractionDigits: fraction,
+    maximumFractionDigits: frac,
+    minimumFractionDigits: frac,
   }).format(n);
 }
 
@@ -107,78 +89,130 @@ async function jfetch<T>(path: string, init?: RequestInit): Promise<T> {
   return data as T;
 }
 
-function ClockIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M12 7v6l4 2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function PendingEmptyState() {
-  const [ms, setMs] = useState(() => msUntilNextMonday7amIST());
-  useEffect(() => {
-    const t = setInterval(
-      () => setMs(msUntilNextMonday7amIST()),
-      1000
-    );
-    return () => clearInterval(t);
-  }, []);
-  const target = useMemo(() => nextMonday7amIST(), []);
-  return (
-    <div className="empty-pending">
-      <p className="empty-title brand-serif">Next ad drops Monday 7am</p>
-      <p className="empty-sub">
-        Countdown to {target.toLocaleString("en-IN", { timeZone: "Asia/Kolkata", weekday: "long", hour: "numeric", minute: "2-digit", timeZoneName: "short" })}
-      </p>
-      <div className="countdown mono">{formatDuration(ms)}</div>
-    </div>
-  );
-}
-
-function AdCard({
+function PendingCard({
   ad,
   onRefresh,
   pushToast,
 }: {
   ad: PendingAd;
   onRefresh: () => void;
-  pushToast: (kind: "ok" | "err", msg: string) => void;
+  pushToast: (k: "ok" | "err", m: string) => void;
 }) {
-  const [busy, setBusy] = useState<string | null>(null);
-  const [editing, setEditing] = useState(false);
+  const [studioOpen, setStudioOpen] = useState(false);
   const [headline, setHeadline] = useState(ad.headline ?? "");
   const [body, setBody] = useState(ad.body ?? "");
   const [cta, setCta] = useState(ad.cta ?? "");
+  const [draftVideoId, setDraftVideoId] = useState(ad.video_id ?? "");
+  const [draftImageUrl, setDraftImageUrl] = useState(ad.creative_url ?? "");
+  const [fbOk, setFbOk] = useState(ad.feedback_worked ?? "");
+  const [fbBad, setFbBad] = useState(ad.feedback_didnt ?? "");
+  const [aiHead, setAiHead] = useState<string[] | null>(null);
+  const [aiBody, setAiBody] = useState<string[] | null>(null);
+  const [aiCta, setAiCta] = useState<string[] | null>(null);
+  const [showAiHead, setShowAiHead] = useState(false);
+  const [showAiBody, setShowAiBody] = useState(false);
+  const [showAiCta, setShowAiCta] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [videoModal, setVideoModal] = useState(false);
+  const [imageModal, setImageModal] = useState(false);
+  const [videos, setVideos] = useState<DriveVideo[]>([]);
+  const [images, setImages] = useState<DriveImage[]>([]);
 
-  const act = async (kind: "approve" | "reject") => {
-    const label = kind === "approve" ? "approve" : "reject";
-    setBusy(label);
+  useEffect(() => {
+    setHeadline(ad.headline ?? "");
+    setBody(ad.body ?? "");
+    setCta(ad.cta ?? "");
+    setDraftVideoId(ad.video_id ?? "");
+    setDraftImageUrl(ad.creative_url ?? "");
+    setFbOk(ad.feedback_worked ?? "");
+    setFbBad(ad.feedback_didnt ?? "");
+  }, [ad.ad_id, ad.headline, ad.body, ad.cta, ad.video_id, ad.creative_url, ad.feedback_worked, ad.feedback_didnt]);
+
+  const roasLabel =
+    typeof ad.predicted_roas === "number"
+      ? `ROAS ${ad.predicted_roas.toFixed(1)}x`
+      : "ROAS —";
+
+  const hourTag =
+    ad.scheduled_hour != null ? `${ad.scheduled_hour}:00` : "—";
+
+  const improve = async (field: "headline" | "body" | "cta") => {
+    const cur =
+      field === "headline" ? headline : field === "body" ? body : cta;
+    const setAi =
+      field === "headline" ? setAiHead : field === "body" ? setAiBody : setAiCta;
+    const setShow =
+      field === "headline"
+        ? setShowAiHead
+        : field === "body"
+          ? setShowAiBody
+          : setShowAiCta;
+    setBusy(`ai-${field}`);
     try {
-      const path =
-        kind === "approve"
-          ? `/api/ads/approve/${encodeURIComponent(ad.ad_id)}`
-          : `/api/ads/reject/${encodeURIComponent(ad.ad_id)}`;
-      await jfetch(path, { method: "POST" });
-      pushToast("ok", kind === "approve" ? "Approved and live in Meta." : "Ad rejected.");
-      onRefresh();
+      const res = await jfetch<{ ok?: boolean; variants?: string[] }>(
+        "/api/ads/improve-copy",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            field,
+            current_text: cur,
+            instruction: "",
+          }),
+        }
+      );
+      if (!res.variants?.length) throw new Error("No variants returned");
+      setAi(res.variants.slice(0, 3));
+      setShow(true);
+      pushToast("ok", "AI variants ready.");
     } catch (e) {
-      pushToast("err", e instanceof Error ? e.message : "Request failed");
+      pushToast("err", e instanceof Error ? e.message : "AI failed");
     } finally {
       setBusy(null);
     }
   };
 
-  const saveEdit = async () => {
-    setBusy("save");
+  const openVideos = async () => {
+    setVideoModal(true);
+    setBusy("list-videos");
+    try {
+      const r = await jfetch<{ videos?: DriveVideo[] }>("/api/drive/videos");
+      setVideos(r.videos ?? []);
+    } catch (e) {
+      pushToast("err", e instanceof Error ? e.message : "Drive list failed");
+      setVideos([]);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const openImages = async () => {
+    setImageModal(true);
+    setBusy("list-images");
+    try {
+      const r = await jfetch<{ images?: DriveImage[] }>("/api/drive/images");
+      setImages(r.images ?? []);
+    } catch (e) {
+      pushToast("err", e instanceof Error ? e.message : "Drive list failed");
+      setImages([]);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const saveCopy = async () => {
+    setBusy("save-copy");
     try {
       await jfetch(`/api/ads/edit/${encodeURIComponent(ad.ad_id)}`, {
         method: "PUT",
-        body: JSON.stringify({ headline, body, cta }),
+        body: JSON.stringify({
+          headline,
+          body,
+          cta,
+          video_id: draftVideoId,
+          creative_url: draftImageUrl,
+        }),
       });
-      pushToast("ok", "Edits saved.");
-      setEditing(false);
+      pushToast("ok", "Copy saved.");
       onRefresh();
     } catch (e) {
       pushToast("err", e instanceof Error ? e.message : "Save failed");
@@ -187,107 +221,444 @@ function AdCard({
     }
   };
 
-  const roasNum =
-    typeof ad.predicted_roas === "number" ? ad.predicted_roas : null;
-  const roasHigh = roasNum != null && roasNum >= 3.5;
+  const publish = async () => {
+    setBusy("publish");
+    try {
+      await jfetch(`/api/ads/edit/${encodeURIComponent(ad.ad_id)}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          headline,
+          body,
+          cta,
+          video_id: draftVideoId,
+          creative_url: draftImageUrl,
+        }),
+      });
+      await jfetch(`/api/ads/publish/${encodeURIComponent(ad.ad_id)}`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      pushToast("ok", "Published to Meta.");
+      onRefresh();
+    } catch (e) {
+      pushToast("err", e instanceof Error ? e.message : "Publish failed");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const saveFeedback = async () => {
+    setBusy("feedback");
+    try {
+      await jfetch("/api/ads/feedback", {
+        method: "POST",
+        body: JSON.stringify({
+          ad_id: ad.ad_id,
+          what_worked: fbOk,
+          what_didnt_work: fbBad,
+        }),
+      });
+      pushToast("ok", "Feedback saved.");
+      onRefresh();
+    } catch (e) {
+      pushToast("err", e instanceof Error ? e.message : "Feedback failed");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const approve = async () => {
+    setBusy("approve");
+    try {
+      await jfetch(`/api/ads/approve/${encodeURIComponent(ad.ad_id)}`, {
+        method: "POST",
+      });
+      pushToast("ok", "Approved.");
+      onRefresh();
+    } catch (e) {
+      pushToast("err", e instanceof Error ? e.message : "Approve failed");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const reject = async () => {
+    setBusy("reject");
+    try {
+      await jfetch(`/api/ads/reject/${encodeURIComponent(ad.ad_id)}`, {
+        method: "POST",
+      });
+      pushToast("ok", "Rejected.");
+      onRefresh();
+    } catch (e) {
+      pushToast("err", e instanceof Error ? e.message : "Reject failed");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const previewUrl =
+    draftImageUrl ||
+    (draftVideoId
+      ? `https://drive.google.com/thumbnail?id=${draftVideoId}&sz=w800`
+      : "");
 
   return (
-    <article className="pending-card">
-      <div className="reasoning-block">
-        <p className="reasoning-text">{ad.reasoning || "—"}</p>
+    <div className="ad-card">
+      <div className="reasoning">&ldquo;{ad.reasoning || "—"}&rdquo;</div>
+      <div className="ad-headline">{ad.headline || "Untitled"}</div>
+      <div className="ad-body">{ad.body}</div>
+      <div className="pills-row">
+        {ad.audience_summary && (
+          <span className="tag">{ad.audience_summary}</span>
+        )}
+        <span className="tag">{hourTag}</span>
+        {ad.cta && <span className="tag">{ad.cta}</span>}
+        <span className="roas-badge">{roasLabel}</span>
       </div>
-
-      <h2 className="card-headline brand-serif">{ad.headline || "Untitled"}</h2>
-      <p className="card-body">{ad.body}</p>
-
-      <div className="pill-row">
-        <span className="pill cta-pill">{ad.cta || "—"}</span>
-        <span className="pill aud-pill">{ad.audience_summary || "—"}</span>
-        <span className="pill time-pill">
-          <ClockIcon />
-          {ad.scheduled_hour != null ? `${ad.scheduled_hour}:00 IST` : "—"}
-        </span>
-        <span className={`pill roas-pill ${roasHigh ? "roas-high" : "roas-low"}`}>
-          Pred. ROAS {roasNum != null ? roasNum.toFixed(1) : "—"}
-        </span>
-      </div>
-
-      {editing && (
-        <div className="edit-fields">
-          <label>
-            Headline
-            <input
-              value={headline}
-              onChange={(e) => setHeadline(e.target.value)}
-            />
-          </label>
-          <label>
-            Body
-            <textarea rows={4} value={body} onChange={(e) => setBody(e.target.value)} />
-          </label>
-          <label>
-            CTA
-            <input value={cta} onChange={(e) => setCta(e.target.value)} />
-          </label>
-          <div className="edit-actions">
-            <button type="button" className="btn-sage" disabled={!!busy} onClick={saveEdit}>
-              {busy === "save" ? "Saving…" : "Save"}
-            </button>
-            <button type="button" className="btn-ghost" disabled={!!busy} onClick={() => setEditing(false)}>
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
-
-      <div className="btn-stack">
+      <div className="btn-row">
         <button
           type="button"
-          className="btn-charcoal"
+          className="btn btn-approve"
           disabled={!!busy}
-          onClick={() => act("approve")}
+          onClick={approve}
         >
-          {busy === "approve" ? "Approving…" : "APPROVE"}
+          {busy === "approve" ? "…" : "APPROVE"}
         </button>
         <button
           type="button"
-          className="btn-sage"
-          disabled={!!busy || editing}
-          onClick={() => setEditing(true)}
+          className="btn btn-edit"
+          disabled={!!busy}
+          onClick={() => setStudioOpen((o) => !o)}
         >
           EDIT
         </button>
         <button
           type="button"
-          className="btn-red-muted"
+          className="btn btn-reject"
           disabled={!!busy}
-          onClick={() => act("reject")}
+          onClick={reject}
         >
-          {busy === "reject" ? "Rejecting…" : "REJECT"}
+          {busy === "reject" ? "…" : "REJECT"}
         </button>
       </div>
-
       <a
-        className="btn-meta"
         href={META_ADS_URL}
         target="_blank"
         rel="noopener noreferrer"
+        className="view-meta"
       >
-        VIEW IN META
+        View in Meta Ads Manager →
       </a>
-    </article>
-  );
-}
 
-function SkeletonHero() {
-  return (
-    <div className="skel-hero">
-      <div className="skel skel-line lg" />
-      <div className="skel row">
-        <div className="skel skel-pill" />
-        <div className="skel skel-pill" />
-        <div className="skel skel-pill" />
+      <div className="studio-panel">
+        <button
+          type="button"
+          className="studio-header"
+          onClick={() => setStudioOpen((o) => !o)}
+        >
+          <span>Ad Studio — Review &amp; Edit Creative</span>
+          <span>{studioOpen ? "▲" : "▼"}</span>
+        </button>
+        {studioOpen && (
+          <div className="studio-body">
+            <div>
+              <div className="studio-col-label">Creative</div>
+              <div className="creative-preview">
+                {previewUrl ? (
+                  <img src={previewUrl} alt="" />
+                ) : (
+                  "video preview"
+                )}
+              </div>
+              <button
+                type="button"
+                className="change-btn"
+                disabled={!!busy}
+                onClick={openVideos}
+              >
+                Change Video
+              </button>
+              <button
+                type="button"
+                className="change-btn"
+                disabled={!!busy}
+                onClick={openImages}
+              >
+                Change Image
+              </button>
+              <div style={{ marginTop: 24 }}>
+                <div className="studio-col-label">Audience</div>
+                <p className="audience-copy">
+                  {ad.audience_summary ||
+                    "Targeting details from your ad plan will appear here."}
+                </p>
+              </div>
+              <div className="feedback-section">
+                <div className="feedback-label">What worked</div>
+                <textarea
+                  className="fb-textarea"
+                  rows={2}
+                  placeholder="e.g. The hook landed well, high CTR on Sunday evening..."
+                  value={fbOk}
+                  onChange={(e) => setFbOk(e.target.value)}
+                />
+                <div className="feedback-label" style={{ marginTop: 12 }}>
+                  What didn&apos;t work
+                </div>
+                <textarea
+                  className="fb-textarea"
+                  rows={2}
+                  placeholder="e.g. Too much text in body, lost them at line 3..."
+                  value={fbBad}
+                  onChange={(e) => setFbBad(e.target.value)}
+                />
+                <button
+                  type="button"
+                  className="save-btn"
+                  disabled={!!busy}
+                  onClick={saveFeedback}
+                >
+                  {busy === "feedback" ? "Saving…" : "Save feedback"}
+                </button>
+              </div>
+            </div>
+            <div>
+              <div className="studio-col-label">Copy Editor</div>
+              <div className="copy-field">
+                <div className="copy-label">Headline</div>
+                <textarea
+                  className="copy-text"
+                  rows={2}
+                  value={headline}
+                  onChange={(e) => setHeadline(e.target.value)}
+                />
+                <button
+                  type="button"
+                  className="ai-btn"
+                  disabled={!!busy}
+                  onClick={() => improve("headline")}
+                >
+                  {busy === "ai-headline" ? "…" : "Improve with AI"}
+                </button>
+                {showAiHead && aiHead && (
+                  <div className="ai-suggestions">
+                    <div className="ai-suggestion-label">
+                      3 variants — click to use
+                    </div>
+                    {aiHead.map((t, i) => (
+                      <button
+                        type="button"
+                        key={i}
+                        className="ai-suggestion"
+                        onClick={() => {
+                          setHeadline(t);
+                          setShowAiHead(false);
+                        }}
+                      >
+                        <span>{t}</span>
+                        <span className="use-btn">Use this</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="copy-field">
+                <div className="copy-label">Body</div>
+                <textarea
+                  className="copy-text body-text"
+                  rows={4}
+                  value={body}
+                  onChange={(e) => setBody(e.target.value)}
+                />
+                <button
+                  type="button"
+                  className="ai-btn"
+                  disabled={!!busy}
+                  onClick={() => improve("body")}
+                >
+                  {busy === "ai-body" ? "…" : "Improve with AI"}
+                </button>
+                {showAiBody && aiBody && (
+                  <div className="ai-suggestions">
+                    <div className="ai-suggestion-label">
+                      3 variants — click to use
+                    </div>
+                    {aiBody.map((t, i) => (
+                      <button
+                        type="button"
+                        key={i}
+                        className="ai-suggestion"
+                        onClick={() => {
+                          setBody(t);
+                          setShowAiBody(false);
+                        }}
+                      >
+                        <span>{t}</span>
+                        <span className="use-btn">Use this</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="copy-field">
+                <div className="copy-label">CTA</div>
+                <textarea
+                  className="copy-text"
+                  rows={1}
+                  value={cta}
+                  onChange={(e) => setCta(e.target.value)}
+                />
+                <button
+                  type="button"
+                  className="ai-btn"
+                  disabled={!!busy}
+                  onClick={() => improve("cta")}
+                >
+                  {busy === "ai-cta" ? "…" : "Improve with AI"}
+                </button>
+                {showAiCta && aiCta && (
+                  <div className="ai-suggestions">
+                    <div className="ai-suggestion-label">
+                      3 variants — click to use
+                    </div>
+                    {aiCta.map((t, i) => (
+                      <button
+                        type="button"
+                        key={i}
+                        className="ai-suggestion"
+                        onClick={() => {
+                          setCta(t);
+                          setShowAiCta(false);
+                        }}
+                      >
+                        <span>{t}</span>
+                        <span className="use-btn">Use</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <button
+                type="button"
+                className="save-btn"
+                style={{ marginBottom: 8 }}
+                disabled={!!busy}
+                onClick={saveCopy}
+              >
+                {busy === "save-copy" ? "Saving…" : "Save copy changes"}
+              </button>
+              <button
+                type="button"
+                className="publish-btn"
+                disabled={!!busy}
+                onClick={publish}
+              >
+                {busy === "publish" ? "Publishing…" : "Publish to Meta"}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
+
+      {videoModal && (
+        <div
+          className="modal-back"
+          role="presentation"
+          onClick={() => setVideoModal(false)}
+        >
+          <div
+            className="modal-panel"
+            role="dialog"
+            aria-modal
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-head">
+              <h3>Pick video</h3>
+              <button
+                type="button"
+                className="modal-close"
+                onClick={() => setVideoModal(false)}
+              >
+                ×
+              </button>
+            </div>
+            <div className="modal-list">
+              {videos.map((v) => (
+                <button
+                  type="button"
+                  key={v.id}
+                  className="pick-item"
+                  onClick={() => {
+                    setDraftVideoId(v.id);
+                    setDraftImageUrl("");
+                    setVideoModal(false);
+                    pushToast("ok", "Video selected (save copy or publish).");
+                  }}
+                >
+                  {v.thumbnail && (
+                    <img src={v.thumbnail} alt="" className="pick-thumb" />
+                  )}
+                  <span>{v.name || v.id}</span>
+                </button>
+              ))}
+              {videos.length === 0 && (
+                <p className="empty-note">No videos found.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {imageModal && (
+        <div
+          className="modal-back"
+          role="presentation"
+          onClick={() => setImageModal(false)}
+        >
+          <div
+            className="modal-panel"
+            role="dialog"
+            aria-modal
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-head">
+              <h3>Pick image</h3>
+              <button
+                type="button"
+                className="modal-close"
+                onClick={() => setImageModal(false)}
+              >
+                ×
+              </button>
+            </div>
+            <div className="modal-list">
+              {images.map((im) => (
+                <button
+                  type="button"
+                  key={im.id}
+                  className="pick-item"
+                  onClick={() => {
+                    setDraftImageUrl(im.url || "");
+                    setImageModal(false);
+                    pushToast("ok", "Image selected.");
+                  }}
+                >
+                  <img
+                    src={im.url}
+                    alt=""
+                    className="pick-thumb"
+                  />
+                  <span>{im.name || im.id}</span>
+                </button>
+              ))}
+              {images.length === 0 && (
+                <p className="empty-note">No images found.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -295,7 +666,6 @@ function SkeletonHero() {
 export default function App() {
   const [pending, setPending] = useState<PendingAd[]>([]);
   const [live, setLive] = useState<LivePayload | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activating, setActivating] = useState(false);
@@ -303,17 +673,14 @@ export default function App() {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [updatedAt, setUpdatedAt] = useState(() => new Date());
 
-  const pushToast = useCallback((kind: "ok" | "err", text: string) => {
+  const pushToast = useCallback((kind: "ok" | "err", msg: string) => {
     const id = Date.now() + Math.random();
-    setToasts((t) => [...t, { id, kind, msg: text }]);
-    setTimeout(() => {
-      setToasts((t) => t.filter((x) => x.id !== id));
-    }, 4500);
+    setToasts((t) => [...t, { id, kind, msg }]);
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 4200);
   }, []);
 
   const load = useCallback(async () => {
     setRefreshing(true);
-    setMsg(null);
     try {
       const [p, l] = await Promise.all([
         jfetch<{ ads: PendingAd[] }>("/api/ads/pending"),
@@ -322,13 +689,13 @@ export default function App() {
       setPending(p.ads ?? []);
       setLive(l);
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : "Failed to load");
+      pushToast("err", e instanceof Error ? e.message : "Load failed");
     } finally {
       setLoading(false);
       setRefreshing(false);
       setUpdatedAt(new Date());
     }
-  }, []);
+  }, [pushToast]);
 
   useEffect(() => {
     load();
@@ -351,16 +718,16 @@ export default function App() {
         method: "POST",
         body: JSON.stringify({}),
       });
-      pushToast("ok", "Campaign activation requested.");
+      pushToast("ok", "Campaign activated.");
       await load();
     } catch (e) {
-      pushToast("err", e instanceof Error ? e.message : "Activation failed");
+      pushToast("err", e instanceof Error ? e.message : "Activate failed");
     } finally {
       setActivating(false);
     }
   };
 
-  const injectTestAd = async () => {
+  const injectTest = async () => {
     setInjecting(true);
     const ad_id = `wearth-inject-${Date.now()}`;
     try {
@@ -369,17 +736,16 @@ export default function App() {
         body: JSON.stringify({
           ad_id,
           headline: "that sticky feeling after a workout.",
-          body:
-            "It is not just sweat. It is plastic. WEARTH is made from plant-based fabric that breathes the way your body does.",
+          body: "It's not just sweat. It's plastic. WEARTH is made from plant-based fabric that breathes the way your body does.",
           cta: "shop now",
           audience_summary: "Women 24-38 Mumbai yoga pilates",
           scheduled_hour: 19,
           reasoning:
-            "Sunday evening post-workout golden hour. Mumbai fitness crowd peaks 7-9pm. Pilates and yoga interest stack historically 2.3x higher CTR than gym-only.",
+            "Sunday evening post-workout golden hour. Mumbai fitness crowd peaks 7-9pm.",
           predicted_roas: 4.1,
         }),
       });
-      pushToast("ok", "Test ad added to queue.");
+      pushToast("ok", "Test ad injected.");
       await load();
     } catch (e) {
       pushToast("err", e instanceof Error ? e.message : "Inject failed");
@@ -388,10 +754,29 @@ export default function App() {
     }
   };
 
-  const chartData = live?.chart ?? [];
+  const heroPills = loading ? (
+    <div className="pills skel-hero">
+      <div className="pill" />
+      <div className="pill" />
+      <div className="pill" />
+    </div>
+  ) : (
+    <div className="pills">
+      <div className="pill">
+        {live?.active_ads_count ?? "—"} active ads
+      </div>
+      <div className="pill">Today {fmtInr(live?.today_spend ?? 0)}</div>
+      <div className="pill">
+        Weekly ROAS{" "}
+        {live?.weekly_roas != null && !Number.isNaN(live.weekly_roas)
+          ? live.weekly_roas.toFixed(2)
+          : "—"}
+      </div>
+    </div>
+  );
 
   return (
-    <div className="dash">
+    <div className="app-root">
       <div className="toast-stack" aria-live="polite">
         {toasts.map((t) => (
           <div key={t.id} className={`toast toast-${t.kind}`}>
@@ -402,201 +787,149 @@ export default function App() {
 
       <button
         type="button"
-        className="fab-inject"
-        onClick={injectTestAd}
-        disabled={injecting}
+        className="fab"
         title="Inject test ad"
+        disabled={injecting}
+        onClick={injectTest}
       >
-        {injecting ? "…" : "Inject test ad"}
+        +
       </button>
 
-      <header
-        className="hero"
-        style={{ backgroundImage: `linear-gradient(105deg, rgba(26,26,24,0.72) 0%, rgba(245,240,232,0.45) 45%, rgba(245,240,232,0.85) 100%), url(${HERO_BG})` }}
-      >
-        <div className="hero-inner">
-          <h1 className="wordmark brand-serif">WEARTH</h1>
-          <p className="hero-sub">ad command centre</p>
-          {loading ? (
-            <SkeletonHero />
-          ) : (
-            <div className="metric-pills">
-              <div className="metric-pill">
-                <span className="metric-label">Active ads</span>
-                <span className="metric-value mono">
-                  {live?.active_ads_count ?? "—"}
-                </span>
-              </div>
-              <div className="metric-pill">
-                <span className="metric-label">Spend today</span>
-                <span className="metric-value mono">
-                  {fmtInr(live?.today_spend ?? undefined)}
-                </span>
-              </div>
-              <div className="metric-pill">
-                <span className="metric-label">Weekly ROAS</span>
-                <span className="metric-value mono">
-                  {live?.weekly_roas != null && !Number.isNaN(live.weekly_roas)
-                    ? live.weekly_roas.toFixed(2)
-                    : "—"}
-                </span>
-              </div>
-            </div>
-          )}
-        </div>
-      </header>
+      <div className="hero">
+        <h1>WEARTH</h1>
+        <p>ad command centre</p>
+        {heroPills}
+      </div>
 
-      {campaignPaused && (
-        <div className="paused-banner">
-          <span>Campaign paused — click to activate</span>
-          <button type="button" disabled={activating} onClick={activateCampaign}>
-            {activating ? "Activating…" : "Activate campaign"}
-          </button>
-        </div>
-      )}
+      <div className="wrap">
+        <div className="section-label">Pending Approval</div>
+        {loading ? (
+          <div className="skel-card" />
+        ) : pending.length === 0 ? (
+          <p className="empty-note">No pending ads.</p>
+        ) : (
+          pending.map((ad) => (
+            <PendingCard key={ad.ad_id} ad={ad} onRefresh={load} pushToast={pushToast} />
+          ))
+        )}
 
-      <main className="main-content">
-        {msg && <div className="banner-err">{msg}</div>}
-
-        <section className="section">
-          <h2 className="section-title brand-serif">Pending approvals</h2>
-          {!loading && pending.length === 0 && <PendingEmptyState />}
-          <div className="pending-grid">
-            {pending.map((ad) => (
-              <AdCard key={ad.ad_id} ad={ad} onRefresh={load} pushToast={pushToast} />
+        <div className="section-label">Live Campaigns</div>
+        {loading ? (
+          <div className="live-grid">
+            <div className="skel-card" />
+            <div className="skel-card" />
+          </div>
+        ) : (
+          <div className="live-grid">
+            {(live?.adsets ?? []).map((a) => (
+              <div key={a.adset_id ?? a.label} className="live-card">
+                <div className="live-label">{(a.label ?? "?").toUpperCase()}</div>
+                <div className="live-name">{a.name ?? a.adset_id}</div>
+                {a.error ? (
+                  <span className="status-badge status-paused">
+                    <span className="dot dot-paused" />
+                    {a.error}
+                  </span>
+                ) : (
+                  <span
+                    className={`status-badge ${
+                      (a.status ?? "").includes("ACTIVE")
+                        ? "status-active"
+                        : "status-paused"
+                    }`}
+                  >
+                    <span
+                      className={`dot ${
+                        (a.status ?? "").includes("ACTIVE")
+                          ? "dot-active"
+                          : "dot-paused"
+                      }`}
+                    />
+                    {campaignPaused ? "Campaign paused" : a.status ?? "—"}
+                  </span>
+                )}
+                {campaignPaused && (
+                  <div className="paused-banner">
+                    <p>Campaign paused — activate to start spending</p>
+                    <button
+                      type="button"
+                      className="activate-btn"
+                      disabled={activating}
+                      onClick={activateCampaign}
+                    >
+                      {activating ? "…" : "Activate"}
+                    </button>
+                  </div>
+                )}
+                {!a.error && (
+                  <div className="metrics-grid">
+                    <div className="metric">
+                      <div className="metric-val">{fmtInr(a.spend)}</div>
+                      <div className="metric-label">7d spend</div>
+                    </div>
+                    <div className="metric">
+                      <div className="metric-val">{a.clicks ?? 0}</div>
+                      <div className="metric-label">Clicks</div>
+                    </div>
+                    <div className="metric">
+                      <div className="metric-val">
+                        {a.roas != null ? a.roas.toFixed(2) : "—"}
+                      </div>
+                      <div className="metric-label">ROAS</div>
+                    </div>
+                    <div className="metric">
+                      <div className="metric-val">
+                        {a.cpm != null ? fmtInr(a.cpm, 2) : "—"}
+                      </div>
+                      <div className="metric-label">CPM</div>
+                    </div>
+                    <div className="metric">
+                      <div className="metric-val">
+                        {a.cpc != null ? fmtInr(a.cpc, 2) : "—"}
+                      </div>
+                      <div className="metric-label">CPC</div>
+                    </div>
+                    <div className="metric">
+                      <div className="metric-val">{a.impressions ?? 0}</div>
+                      <div className="metric-label">Impressions</div>
+                    </div>
+                  </div>
+                )}
+                {a.ads_manager_url && (
+                  <a
+                    href={a.ads_manager_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="meta-link"
+                  >
+                    Open in Meta Ads Manager →
+                  </a>
+                )}
+              </div>
             ))}
           </div>
-        </section>
+        )}
+      </div>
 
-        <section className="section">
-          <h2 className="section-title brand-serif">Live campaigns</h2>
-          <p className="section-hint">Last 7 days · Meta insights</p>
-          {loading ? (
-            <div className="live-two skel-grid">
-              <div className="skel skel-card" />
-              <div className="skel skel-card" />
-            </div>
-          ) : (
-            <div className="live-two">
-              {(live?.adsets ?? []).map((a) => (
-                <div key={a.adset_id ?? a.label} className="live-card">
-                  <div className="live-card-head">
-                    <h3 className="brand-serif">{a.name ?? a.label}</h3>
-                    {a.error ? (
-                      <span className="badge badge-err">{a.error}</span>
-                    ) : (
-                      <span
-                        className={`badge ${
-                          (a.status ?? "").includes("ACTIVE")
-                            ? "badge-ok"
-                            : "badge-bad"
-                        }`}
-                      >
-                        {a.status ?? "—"}
-                      </span>
-                    )}
-                  </div>
-                  {!a.error && (
-                    <>
-                      <div className="stat-grid">
-                        <div>
-                          <span className="stat-k">Spend (7d)</span>
-                          <span className="stat-v">{fmtInr(a.spend)}</span>
-                        </div>
-                        <div>
-                          <span className="stat-k">Clicks</span>
-                          <span className="stat-v">{a.clicks ?? "—"}</span>
-                        </div>
-                        <div>
-                          <span className="stat-k">ROAS</span>
-                          <span className="stat-v">
-                            {a.roas != null ? a.roas.toFixed(2) : "—"}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="stat-k">CPM</span>
-                          <span className="stat-v">
-                            {a.cpm != null ? fmtInr(a.cpm, 2) : "—"}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="stat-k">CPC</span>
-                          <span className="stat-v">
-                            {a.cpc != null ? fmtInr(a.cpc, 2) : "—"}
-                          </span>
-                        </div>
-                      </div>
-                      {a.ads_manager_url && (
-                        <a
-                          className="btn-meta-outline"
-                          href={a.ads_manager_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          Open in Ads Manager
-                        </a>
-                      )}
-                    </>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-
-        <section className="section chart-section">
-          <h2 className="section-title brand-serif">Performance · last 7 days</h2>
-          {!loading && chartData.length > 0 ? (
-            <>
-              <h4 className="chart-sub">Spend</h4>
-              <div className="chart-box">
-                <ResponsiveContainer width="100%" height={240}>
-                  <LineChart data={chartData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e8e4dc" />
-                    <XAxis dataKey="date" tick={{ fontSize: 11 }} stroke="#6b6864" />
-                    <YAxis tick={{ fontSize: 11 }} stroke="#6b6864" />
-                    <Tooltip />
-                    <Legend />
-                    <Line type="monotone" dataKey="women_spend" name="Women spend" stroke="#8A9B78" strokeWidth={2} dot={false} />
-                    <Line type="monotone" dataKey="men_spend" name="Men spend" stroke="#1A1A18" strokeWidth={2} dot={false} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-              <h4 className="chart-sub">Clicks</h4>
-              <div className="chart-box">
-                <ResponsiveContainer width="100%" height={240}>
-                  <LineChart data={chartData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e8e4dc" />
-                    <XAxis dataKey="date" tick={{ fontSize: 11 }} stroke="#6b6864" />
-                    <YAxis tick={{ fontSize: 11 }} stroke="#6b6864" />
-                    <Tooltip />
-                    <Legend />
-                    <Line type="monotone" dataKey="women_clicks" name="Women clicks" stroke="#8A9B78" strokeWidth={2} dot={false} />
-                    <Line type="monotone" dataKey="men_clicks" name="Men clicks" stroke="#1A1A18" strokeWidth={2} dot={false} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            </>
-          ) : (
-            !loading && <p className="muted">No chart data yet.</p>
-          )}
-        </section>
-      </main>
-
-      <footer className="dash-footer">
-        <span className="mono">
+      <div className="footer">
+        <div className="footer-meta">
           Last updated{" "}
           {updatedAt.toLocaleString("en-IN", {
             timeZone: "Asia/Kolkata",
             dateStyle: "medium",
             timeStyle: "short",
           })}
-        </span>
-        <button type="button" className="btn-ghost-footer" disabled={refreshing} onClick={() => load()}>
-          {refreshing ? "Refreshing…" : "Refresh data"}
+        </div>
+        <div className="footer-brand">WEARTH</div>
+        <button
+          type="button"
+          className="refresh-btn"
+          disabled={refreshing}
+          onClick={() => load()}
+        >
+          {refreshing ? "…" : "Refresh data"}
         </button>
-        <span className="footer-copy brand-serif">WEARTH © 2026</span>
-      </footer>
+      </div>
     </div>
   );
 }
