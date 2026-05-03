@@ -645,6 +645,7 @@ def build_base_targeting(
 ) -> Dict[str, Any]:
     # TARGET ROAS 4:1 AT ₹15K/MONTH SPEND — lookalike + affinity OR stack + premium placements.
     # Meta requires advantage_audience (0|1) inside targeting.targeting_automation (not as a top-level ad set field).
+    # If advantage_audience=1 (Advantage+ audience), Meta caps manual age_max at >= 65 — use 0 for narrow bands e.g. 24–42.
     city_objs = [{"key": c["key"]} for c in cities if c.get("key")]
     interest_objs = [{"id": x["id"]} for x in interests if x.get("id")]
     t: Dict[str, Any] = {
@@ -1003,7 +1004,7 @@ def run_weareth_dual_adset_pipeline(
         cities=cities,
         interests=int_w_objs,
         lookalike_id=lookalike_id,
-        advantage_audience=1,
+        advantage_audience=0,
     )
     tm = build_base_targeting(
         genders=[1],
