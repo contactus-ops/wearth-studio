@@ -1,6 +1,15 @@
 # -*- coding: utf-8 -*-
 """
-Update Instagram workflow "Generate Post Content" node: set x-api-key to ANTHROPIC_API_KEY.
+Update Instagram workflow "Generate Post Content" node for Anthropic:
+
+When Authentication = Generic Credential Type → Header Auth, n8n sends the **credential** secret, not only
+inline headers — stale/wrong credential → “invalid x-api-key” in the UI even if header rows look correct.
+
+This script switches **Generate Post Content** to **Authentication: None** and relies on explicit
+**headerParameters** (x-api-key + anthropic-version + Content-Type), then PUTs the workflow.
+
+(Optional) PATCH credential via API is not used — n8n Cloud credential schema often rejects partial PATCH.
+
 Reads N8N_BASE_URL, N8N_API_KEY (or N8N_API_KEY_FILE), ANTHROPIC_API_KEY from environment (`railway run`).
 
 Test run: POST Webhook URL from first Webhook trigger if present (production webhook path).
@@ -66,6 +75,32 @@ def _patch_x_api_key(obj: Any, new_key: str) -> int:
         for el in obj:
             n += _patch_x_api_key(el, new_key)
     return n
+
+
+def _find_target_node(nodes: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    for node in nodes:
+        if isinstance(node, dict) and TARGET_NODE_SUBSTR in (node.get("name") or "").lower():
+            return node
+    return None
+
+
+def _use_explicit_header_auth_only(node: Dict[str, Any]) -> bool:
+    """HTTP Request node: turn off Generic Credential / Header Auth; use headerParameters only."""
+    if not isinstance(node, dict):
+        return False
+    p = node.get("parameters")
+    if not isinstance(p, dict):
+        return False
+    changed = False
+    if p.get("authentication") == "genericCredentialType" or p.get("genericAuthType"):
+        p["authentication"] = "none"
+        p.pop("genericAuthType", None)
+        changed = True
+    if node.get("credentials"):
+        node.pop("credentials", None)
+        changed = True
+    p.setdefault("sendHeaders", True)
+    return changed
 
 
 def _find_webhook_path(nodes: List[Dict[str, Any]]) -> Optional[str]:
@@ -175,6 +210,12 @@ def main() -> None:
         print(json.dumps({"error": "workflow has no nodes array"}))
         sys.exit(1)
 
+    target_node = _find_target_node(nodes)
+    auth_mode_note = {"explicit_headers_only": False}
+    if isinstance(target_node, dict):
+        if _use_explicit_header_auth_only(target_node):
+            auth_mode_note["explicit_headers_only"] = True
+
     updated_nodes: List[str] = []
     total_patches = 0
     for node in nodes:
@@ -201,7 +242,8 @@ def main() -> None:
         print(
             json.dumps(
                 {
-                    "error": "No x-api-key header found to patch",
+                    "error": "No x-api-key header row found to patch — check Generate Post Content node",
+                    "auth_mode": auth_mode_note,
                     "node_names": [n.get("name") for n in nodes if isinstance(n, dict)],
                 }
             )
@@ -231,8 +273,10 @@ def main() -> None:
     result: Dict[str, Any] = {
         "ok": True,
         "workflow_id": WORKFLOW_ID,
+        "auth_mode": auth_mode_note,
         "headers_updated": total_patches,
         "nodes_touched": updated_nodes,
+        "workflow_put_http": code,
         "put_response": json.loads(raw_put) if raw_put.strip().startswith("{") else raw_put[:500],
     }
 
