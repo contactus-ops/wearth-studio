@@ -1,7 +1,8 @@
 # TARGET ROAS 4:1 AT ₹15K/MONTH SPEND — deploy as static SPA + serve.
+# Dockerfile pins Node 22; Nixpacks alone kept picking Node 18 (Vite 8 fails on 18).
 [build]
-builder = "nixpacks"
-buildCommand = "npm install && npm run build"
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
 
 [deploy]
-startCommand = "npx serve -s dist -l tcp://0.0.0.0:$PORT"
+startCommand = "sh -c 'exec serve -s dist -l tcp://0.0.0.0:$PORT'"

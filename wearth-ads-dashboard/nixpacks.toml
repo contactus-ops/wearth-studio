@@ -1,3 +1,4 @@
+# Railway uses Dockerfile + Node 22 (see railway.toml). This file is unused there but documents local Nixpacks parity.
 # Vite 8 + ESLint 10 need Node 20.19+. Setting only NIXPACKS_NODE_VERSION was ignored (setup stayed nodejs_18).
 [phases.setup]
 nixPkgs = ["nodejs_22"]
