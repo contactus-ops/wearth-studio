@@ -51,24 +51,24 @@ MEN_DAILY_BUDGET_INR = 150
 # TARGET ROAS 4:1 AT ₹15K/MONTH SPEND — broaden affinity beyond yoga/pilates for premium fitness + quality buyers.
 
 MASTER_FITNESS = [
-    "yoga", "pilates", "running", "CrossFit", "Hyrox", "functional fitness", "barre",
+    "yoga", "pilates", "running", "CrossFit", "Hyrox", "functional fitness", "Barre workout",
     "cycling", "swimming", "triathlon", "marathon running", "pickleball", "tennis",
-    "squash", "rock climbing", "HIIT", "home workout", "gym", "weightlifting", "calisthenics",
+    "squash", "rock climbing", "HIIT", "home workout", "fitness gym", "weightlifting", "calisthenics",
 ]
 
 MASTER_WELLNESS = [
-    "clean eating", "organic food", "nutrition", "dietary supplements", "ayurveda",
-    "mindfulness", "meditation", "sleep", "biohacking", "cold therapy", "breathwork",
+    "clean eating", "organic food", "nutrition", "Health food", "ayurveda",
+    "Meditation", "sleep", "Quantified Self", "Cryotherapy", "Pranayama",
 ]
 
 MASTER_PREMIUM_LIFESTYLE = [
     "international travel", "business travel", "luxury hotel", "fine dining", "wine",
-    "whisky", "golf", "luxury goods", "skin care", "natural beauty", "clean beauty",
+    "whisky", "golf", "Luxury goods", "skin care", "Organic cosmetics", "clean beauty",
 ]
 
 MASTER_FASHION = [
     "athleisure", "sportswear", "Nike", "Adidas", "sustainable fashion",
-    "luxury fashion", "designer clothing",
+    "Luxury goods", "designer clothing",
 ]
 
 MASTER_PROFESSIONAL = [
@@ -82,8 +82,8 @@ MASTER_DIGITAL_BEHAVIOR = [
 
 # Women: heavier yoga / pilates / barre / beauty / wellness / organic / fashion / travel.
 WOMEN_WEIGHTED_FIRST = [
-    "yoga", "pilates", "barre", "clean beauty", "skin care", "wellness", "organic food",
-    "luxury fashion", "international travel", "natural beauty", "meditation", "athleisure",
+    "yoga", "pilates", "Barre workout", "clean beauty", "skin care", "wellness", "organic food",
+    "Luxury goods", "international travel", "Organic cosmetics", "meditation", "athleisure",
 ]
 
 # Men: heavier endurance / strength sports / golf / menswear / whisky / entrepreneurship.
@@ -124,16 +124,22 @@ INTERESTS_MEN_QUERIES = _build_gender_stack(
 INTEREST_FALLBACKS: Dict[str, List[str]] = {
     "hyrox": ["Hyrox", "hybrid training", "functional fitness"],
     "pickleball": ["pickleball"],
-    "barre": ["barre workout", "ballet fitness"],
-    "clean beauty": ["natural beauty", "organic skincare"],
+    "barre workout": ["Pure Barre", "barre fitness", "ballet fitness"],
+    "clean beauty": ["organic skincare", "natural cosmetics"],
     "menswear": ["men's clothing", "mens fashion"],
     "whisky": ["whiskey", "single malt"],
     "skin care": ["skincare", "beauty"],
     "home workout": ["home exercise", "fitness at home"],
-    "cold therapy": ["cold plunge", "cryotherapy"],
+    "fitness gym": ["health club", "gym membership", "fitness center"],
+    "health food": ["organic food", "whole foods"],
+    "quantified self": ["wearable technology", "fitness tracking"],
+    "cryotherapy": ["cryo spa", "cold plunge"],
+    "pranayama": ["yoga breathing", "breathing exercises"],
+    "organic cosmetics": ["natural cosmetics", "organic makeup"],
+    "luxury goods": ["luxury retail", "premium goods"],
     "sleep": ["sleep health", "wellness"],
     "luxury hotel": ["luxury travel", "five star hotel"],
-    "designer clothing": ["luxury fashion", "premium fashion"],
+    "designer clothing": ["Luxury goods", "premium fashion"],
     "startup company": ["startup", "entrepreneurship"],
     "engaged shoppers": ["online shoppers", "shopping"],
     "travel": ["frequent travelers", "travel enthusiasts"],
