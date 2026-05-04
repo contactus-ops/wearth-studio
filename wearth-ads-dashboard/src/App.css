@@ -232,6 +232,20 @@
   margin-bottom: 12px;
 }
 
+.meta-live-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #2d6a4f;
+  background: rgba(45, 106, 79, 0.12);
+  border: 1px solid rgba(45, 106, 79, 0.25);
+  border-radius: 6px;
+  padding: 4px 10px;
+  margin-bottom: 10px;
+}
+
 .creative-preview {
   background: #1a1a18;
   border-radius: 10px;
@@ -246,7 +260,8 @@
 }
 
 .creative-preview img,
-.creative-preview video {
+.creative-preview video,
+.creative-preview .creative-preview-img {
   width: 100%;
   height: 100%;
   object-fit: cover;

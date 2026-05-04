@@ -89,6 +89,11 @@ async function jfetch<T>(path: string, init?: RequestInit): Promise<T> {
   return data as T;
 }
 
+function isMetaNumericId(s: string | undefined): boolean {
+  const t = (s || "").trim();
+  return t.length > 0 && /^\d+$/.test(t);
+}
+
 function PendingCard({
   ad,
   onRefresh,
@@ -117,16 +122,103 @@ function PendingCard({
   const [imageModal, setImageModal] = useState(false);
   const [videos, setVideos] = useState<DriveVideo[]>([]);
   const [images, setImages] = useState<DriveImage[]>([]);
+  const [metaLive, setMetaLive] = useState<{
+    headline: string;
+    body: string;
+    thumbnail_url?: string;
+    video_id?: string;
+  } | null>(null);
+  const [metaVideoThumb, setMetaVideoThumb] = useState<string | null>(null);
 
   useEffect(() => {
-    setHeadline(ad.headline ?? "");
-    setBody(ad.body ?? "");
+    setMetaLive(null);
+    setMetaVideoThumb(null);
+  }, [ad.ad_id]);
+
+  useEffect(() => {
+    if (
+      isMetaNumericId(ad.ad_id) &&
+      metaLive &&
+      (metaLive.headline.length > 0 || metaLive.body.length > 0)
+    ) {
+      setHeadline(metaLive.headline || ad.headline || "");
+      setBody(metaLive.body || ad.body || "");
+    } else {
+      setHeadline(ad.headline ?? "");
+      setBody(ad.body ?? "");
+    }
     setCta(ad.cta ?? "");
     setDraftVideoId(ad.video_id ?? "");
     setDraftImageUrl(ad.creative_url ?? "");
     setFbOk(ad.feedback_worked ?? "");
     setFbBad(ad.feedback_didnt ?? "");
-  }, [ad.ad_id, ad.headline, ad.body, ad.cta, ad.video_id, ad.creative_url, ad.feedback_worked, ad.feedback_didnt]);
+  }, [
+    ad.ad_id,
+    ad.headline,
+    ad.body,
+    ad.cta,
+    ad.video_id,
+    ad.creative_url,
+    ad.feedback_worked,
+    ad.feedback_didnt,
+    metaLive,
+  ]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadMeta() {
+      if (!isMetaNumericId(ad.ad_id)) {
+        if (!cancelled) setMetaLive(null);
+        return;
+      }
+      try {
+        const r = await jfetch<{
+          ok?: boolean;
+          headline?: string;
+          body?: string;
+          thumbnail_url?: string;
+          video_id?: string;
+        }>(`/api/meta/ad-live-creative?ad_id=${encodeURIComponent(ad.ad_id.trim())}`);
+        if (cancelled || !r.ok) return;
+        setMetaLive({
+          headline: (r.headline || "").trim(),
+          body: (r.body || "").trim(),
+          thumbnail_url: (r.thumbnail_url || "").trim() || undefined,
+          video_id: (r.video_id || "").trim() || undefined,
+        });
+      } catch {
+        if (!cancelled) setMetaLive(null);
+      }
+    }
+    loadMeta();
+    return () => {
+      cancelled = true;
+    };
+  }, [ad.ad_id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const vid = (metaLive?.video_id || draftVideoId || ad.video_id || "").trim();
+    async function loadThumb() {
+      if (!isMetaNumericId(vid)) {
+        if (!cancelled) setMetaVideoThumb(null);
+        return;
+      }
+      try {
+        const r = await jfetch<{ ok?: boolean; thumbnail_url?: string | null }>(
+          `/api/meta/video-thumbnail?video_id=${encodeURIComponent(vid)}`
+        );
+        if (cancelled || !r.ok) return;
+        setMetaVideoThumb(r.thumbnail_url || null);
+      } catch {
+        if (!cancelled) setMetaVideoThumb(null);
+      }
+    }
+    loadThumb();
+    return () => {
+      cancelled = true;
+    };
+  }, [ad.video_id, draftVideoId, metaLive?.video_id]);
 
   const roasLabel =
     typeof ad.predicted_roas === "number"
@@ -297,17 +389,29 @@ function PendingCard({
     }
   };
 
-  const previewUrl =
+  const driveThumb =
     draftImageUrl ||
-    (draftVideoId
+    (draftVideoId && !isMetaNumericId(draftVideoId)
       ? `https://drive.google.com/thumbnail?id=${draftVideoId}&sz=w800`
       : "");
+  const previewUrl =
+    metaVideoThumb || metaLive?.thumbnail_url || driveThumb || "";
+
+  const cardHeadline =
+    (metaLive?.headline && metaLive.headline.length > 0
+      ? metaLive.headline
+      : ad.headline) || "Untitled";
+  const cardBody =
+    metaLive?.body && metaLive.body.length > 0 ? metaLive.body : ad.body;
 
   return (
     <div className="ad-card">
       <div className="reasoning">&ldquo;{ad.reasoning || "—"}&rdquo;</div>
-      <div className="ad-headline">{ad.headline || "Untitled"}</div>
-      <div className="ad-body">{ad.body}</div>
+      {metaLive && (metaLive.headline || metaLive.body) ? (
+        <div className="meta-live-badge">Live on Meta</div>
+      ) : null}
+      <div className="ad-headline">{cardHeadline}</div>
+      <div className="ad-body">{cardBody}</div>
       <div className="pills-row">
         {ad.audience_summary && (
           <span className="tag">{ad.audience_summary}</span>
@@ -366,7 +470,7 @@ function PendingCard({
               <div className="studio-col-label">Creative</div>
               <div className="creative-preview">
                 {previewUrl ? (
-                  <img src={previewUrl} alt="" />
+                  <img src={previewUrl} alt="" className="creative-preview-img" />
                 ) : (
                   "video preview"
                 )}

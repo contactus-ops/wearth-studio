@@ -499,6 +499,57 @@ def api_ads_feedback():
     return jsonify({"ok": True, "ad_id": ad_id})
 
 
+def _meta_numeric_node_id(node_id: str) -> bool:
+    s = str(node_id or "").strip()
+    return bool(s) and s.isdigit()
+
+
+@app.route("/api/meta/video-thumbnail", methods=["GET"])
+def api_meta_video_thumbnail():
+    """First thumbnail URI for a Meta video id (dashboard creative preview)."""
+    if not META_ACCESS_TOKEN:
+        return jsonify({"ok": False, "error": "META_ACCESS_TOKEN not set"}), 500
+    vid = str(request.args.get("video_id") or "").strip()
+    if not _meta_numeric_node_id(vid):
+        return jsonify({"ok": False, "error": "video_id must be a numeric Meta video id"}), 400
+    try:
+        j = _meta_request("GET", f"{vid}/thumbnails")
+        data = j.get("data") or []
+        url = ""
+        if isinstance(data, list) and data and isinstance(data[0], dict):
+            url = str(data[0].get("uri") or data[0].get("url") or "").strip()
+        return jsonify({"ok": True, "thumbnail_url": url or None})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/meta/ad-live-creative", methods=["GET"])
+def api_meta_ad_live_creative():
+    """Live ad copy + creative thumbs from Meta (numeric ad id only)."""
+    if not META_ACCESS_TOKEN:
+        return jsonify({"ok": False, "error": "META_ACCESS_TOKEN not set"}), 500
+    ad = str(request.args.get("ad_id") or "").strip()
+    if not _meta_numeric_node_id(ad):
+        return jsonify({"ok": False, "error": "ad_id must be a numeric Meta ad id"}), 400
+    try:
+        fields = "creative{thumbnail_url,video_id,body,title}"
+        j = _meta_request("GET", ad, params={"fields": fields})
+        cr = j.get("creative") if isinstance(j, dict) else None
+        if not isinstance(cr, dict):
+            cr = {}
+        return jsonify(
+            {
+                "ok": True,
+                "headline": str(cr.get("title") or ""),
+                "body": str(cr.get("body") or ""),
+                "thumbnail_url": str(cr.get("thumbnail_url") or ""),
+                "video_id": str(cr.get("video_id") or ""),
+            }
+        )
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @app.route("/api/meta/campaign-used-videos", methods=["GET"])
 def api_meta_campaign_used_videos():
     """Video IDs referenced by active/paused ads in a campaign (recent creatives)."""
