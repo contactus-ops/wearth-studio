@@ -310,21 +310,57 @@ def api_ads_pending():
     if request.method == "GET":
         with _pending_ads_lock:
             rows = _read_pending_ads_raw()
-        pending = [
-            _normalize_pending_ad_id(r)
-            for r in rows
-            if isinstance(r, dict) and (r.get("status") or "").lower() == "pending"
-        ]
+            new_rows = []
+            changed = False
+            for r in rows:
+                if not isinstance(r, dict):
+                    new_rows.append(r)
+                    continue
+                if (r.get("status") or "").lower() != "pending":
+                    new_rows.append(r)
+                    continue
+                before = (
+                    str(r.get("ad_id") or ""),
+                    str(r.get("headline") or ""),
+                    str(r.get("body") or ""),
+                    str(r.get("video_id") or ""),
+                    str(r.get("creative_url") or ""),
+                )
+                r2 = _enrich_pending_row_from_meta(_normalize_pending_ad_id(dict(r)))
+                after = (
+                    str(r2.get("ad_id") or ""),
+                    str(r2.get("headline") or ""),
+                    str(r2.get("body") or ""),
+                    str(r2.get("video_id") or ""),
+                    str(r2.get("creative_url") or ""),
+                )
+                if after != before:
+                    changed = True
+                new_rows.append(r2)
+            if changed:
+                _write_pending_ads_raw(new_rows)
+            pending = [
+                dict(x)
+                for x in new_rows
+                if isinstance(x, dict) and (x.get("status") or "").lower() == "pending"
+            ]
         return jsonify({"ok": True, "ads": pending, "count": len(pending)})
 
     data = request.json or {}
     ad_id = str(data.get("ad_id") or "").strip()
     if not ad_id:
         return jsonify({"ok": False, "error": "ad_id required"}), 400
+    prior: dict = {}
+    with _pending_ads_lock:
+        rows = _read_pending_ads_raw()
+        for r in rows:
+            if isinstance(r, dict) and str(r.get("ad_id") or "") == ad_id:
+                prior = dict(r)
+                break
     row = {
         "ad_id": ad_id,
-        "adset_id": str(data.get("adset_id") or "").strip(),
-        "campaign_id": str(data.get("campaign_id") or "").strip(),
+        "adset_id": str(data.get("adset_id") or prior.get("adset_id") or "").strip(),
+        "campaign_id": str(data.get("campaign_id") or prior.get("campaign_id") or "").strip(),
         "video_id": str(data.get("video_id") or "").strip(),
         "headline": str(data.get("headline") or "").strip(),
         "body": str(data.get("body") or "").strip(),
@@ -334,10 +370,13 @@ def api_ads_pending():
         "reasoning": str(data.get("reasoning") or "").strip(),
         "predicted_roas": data.get("predicted_roas"),
         "creative_url": str(data.get("creative_url") or "").strip(),
-        "created_at": str(data.get("created_at") or "").strip()
+        "created_at": str(data.get("created_at") or prior.get("created_at") or "").strip()
         or datetime.now(timezone.utc).isoformat(),
-        "status": "pending",
+        "status": str(data.get("status") or "pending").strip().lower() or "pending",
     }
+    for fb_k in ("feedback_worked", "feedback_didnt", "feedback_at"):
+        if fb_k in prior and prior.get(fb_k) and fb_k not in data:
+            row[fb_k] = prior[fb_k]
     with _pending_ads_lock:
         rows = _read_pending_ads_raw()
         for i, r in enumerate(rows):
@@ -2339,6 +2378,44 @@ def _meta_request(method: str, path: str, *, params=None, data=None, files=None)
     if resp.status_code not in [200, 201]:
         raise Exception(_meta_error_message(resp))
     return resp.json()
+
+
+def _enrich_pending_row_from_meta(row: dict) -> dict:
+    """Fill empty headline, body, or video_id from live Meta ad creative (numeric ad_id only)."""
+    out = dict(row)
+    if not META_ACCESS_TOKEN:
+        return out
+    aid = str(out.get("ad_id") or "").strip()
+    if not _meta_numeric_node_id(aid):
+        return out
+    h = str(out.get("headline") or "").strip()
+    b = str(out.get("body") or "").strip()
+    v = str(out.get("video_id") or "").strip()
+    if h and b and v:
+        return out
+    try:
+        j = _meta_request(
+            "GET",
+            aid,
+            params={"fields": "creative{body,title,thumbnail_url,video_id}"},
+        )
+        cr = j.get("creative") if isinstance(j, dict) else None
+        if not isinstance(cr, dict):
+            cr = {}
+        if not h:
+            out["headline"] = str(cr.get("title") or "").strip()
+        if not b:
+            out["body"] = str(cr.get("body") or "").strip()
+        if not v:
+            out["video_id"] = str(cr.get("video_id") or "").strip()
+        cu = str(out.get("creative_url") or "").strip()
+        if not cu:
+            thumb = str(cr.get("thumbnail_url") or "").strip()
+            if thumb:
+                out["creative_url"] = thumb
+    except Exception:
+        pass
+    return out
 
 
 def _meta_account_path(resource: str) -> str:
