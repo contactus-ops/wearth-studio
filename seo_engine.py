@@ -21,7 +21,10 @@ SHOPIFY_TOKEN = os.environ.get("SHOPIFY_TOKEN", "")
 ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 UNSPLASH_KEY = os.environ.get("UNSPLASH_ACCESS_KEY", "")
 GOOGLE_DRIVE_API_KEY = (os.environ.get("GOOGLE_DRIVE_API_KEY") or "").strip()
-DRIVE_IMAGES_FOLDER = (os.environ.get("DRIVE_IMAGES_FOLDER") or "").strip()
+SEO_IMAGES_FOLDER = (
+    (os.environ.get("SEO_IMAGES_FOLDER") or os.environ.get("DRIVE_IMAGES_FOLDER") or "").strip()
+)
+INSTAGRAM_IMAGES_FOLDER = (os.environ.get("INSTAGRAM_IMAGES_FOLDER") or "").strip()
 
 SHOPIFY_BASE = f"https://{SHOPIFY_STORE}/admin/api/2024-01"
 HEADERS_SHOPIFY = {
@@ -262,26 +265,58 @@ def _unsplash_search_results(unsplash_query: str) -> list:
 
 def fetch_seo_image(unsplash_query: str, article_title: str) -> str:
     """
-    Drive-first hero image: unused file from DRIVE_IMAGES_FOLDER, else Unsplash search
-    (per_page=30, first unused by track id). If all 30 Unsplash hits are used, reset
-    seo_images in the tracker and use the first result. Marks seo_images for the winner.
+    Drive-first hero image: combined pool from SEO_IMAGES_FOLDER + INSTAGRAM_IMAGES_FOLDER
+    (deduped by file id), minus get_used_ids("seo_images"). If empty after filter, reset
+    seo_images and pick from full combined pool. Else Unsplash (per_page=30). Marks winner.
     """
     umt = _used_media_tracker()
     title_hint = (article_title or "").strip() or "article"
     print(f"SEO hero image for: {title_hint[:70]}...")
 
-    if DRIVE_IMAGES_FOLDER and GOOGLE_DRIVE_API_KEY:
+    if GOOGLE_DRIVE_API_KEY and (SEO_IMAGES_FOLDER or INSTAGRAM_IMAGES_FOLDER):
+        rows_seo: list = []
+        rows_ig: list = []
         try:
-            rows = _list_seo_drive_folder_images(DRIVE_IMAGES_FOLDER)
+            rows_seo = _list_seo_drive_folder_images(SEO_IMAGES_FOLDER) if SEO_IMAGES_FOLDER else []
+            rows_ig = (
+                _list_seo_drive_folder_images(INSTAGRAM_IMAGES_FOLDER)
+                if INSTAGRAM_IMAGES_FOLDER
+                else []
+            )
+            seen: set[str] = set()
+            rows: list = []
+            for row in rows_seo + rows_ig:
+                rid = str(row.get("id") or "").strip()
+                if not rid or rid in seen:
+                    continue
+                seen.add(rid)
+                rows.append(row)
             used_ids = umt.get_used_ids("seo_images")
         except Exception:
-            rows, used_ids = [], []
+            rows = []
+            used_ids = []
+            rows_seo, rows_ig = [], []
         used_set = set(used_ids or [])
         unused_drive = [
             str(row["id"]).strip()
             for row in rows
             if str(row.get("id") or "").strip() not in used_set
         ]
+        print(
+            json.dumps(
+                {
+                    "seo_folder_count": len(rows_seo),
+                    "instagram_folder_count": len(rows_ig),
+                    "combined_after_dedup": len(rows),
+                }
+            )
+        )
+        if not unused_drive and rows:
+            try:
+                umt.reset_category("seo_images")
+            except Exception:
+                pass
+            unused_drive = [str(r["id"]).strip() for r in rows if str(r.get("id") or "").strip()]
         if unused_drive:
             fid = random.choice(unused_drive)
             drive_url = f"https://drive.google.com/uc?export=download&id={fid}"

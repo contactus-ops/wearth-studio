@@ -19,27 +19,23 @@ from n8n_api_common import load_n8n_api_key, prune_minimal_put, req
 WF_ID = "cGbp1fEkP5DoIIsZ"
 LIST_NODE_ID = "4c951b57-f51d-4fe7-b14f-b110cd13ee96"
 LIST_NODE_NAME = "List Photos from Drive"
-TARGET_URL = "https://web-production-448c1.up.railway.app/api/drive/images?omit_used_instagram=1"
+TARGET_URL = "https://web-production-448c1.up.railway.app/api/drive/instagram-media"
 
-# n8n Code node: fetch JSON and emit one item per image (Drive-like shape for downstream Sort/Limit).
-_JS = """const url = 'https://web-production-448c1.up.railway.app/api/drive/images?omit_used_instagram=1';
+# n8n Code node: unified image/video pick; emit one item (Drive-like shape for downstream Sort/Limit).
+_JS = """const url = 'https://web-production-448c1.up.railway.app/api/drive/instagram-media';
 let data;
 try {
   data = await this.helpers.httpRequest({ method: 'GET', url, json: true });
 } catch (e) {
   return [{ json: { error: String(e && e.message ? e.message : e), images: [] } }];
 }
-const images = Array.isArray(data && data.images) ? data.images : [];
-if (!images.length) {
+if (!data || !data.url) {
   return [];
 }
-return images.map((img) => ({
-  json: {
-    id: String(img.id || ''),
-    name: String(img.name || 'image'),
-    webViewLink: String(img.url || img.webViewLink || ''),
-  },
-}));
+const id = String(data.media_id || '');
+const name = String((data.media_type || 'media') + ':' + id);
+const webViewLink = String(data.url || '');
+return [{ json: { id, name, webViewLink } }];
 """
 
 
@@ -111,7 +107,9 @@ def main() -> int:
             for n in wf2.get("nodes") or []:
                 if isinstance(n, dict) and n.get("name") == LIST_NODE_NAME:
                     js = (n.get("parameters") or {}).get("jsCode", "")
-                    verify_js_contains_omit = "omit_used_instagram=1" in js
+                    verify_js_contains_omit = (
+                        "instagram-media" in js or "omit_used_instagram=1" in js
+                    )
                     break
         except Exception:
             pass

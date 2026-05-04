@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # TARGET ROAS 4:1 AT ₹15K/MONTH SPEND — persistent used-media IDs in Google Drive (survives Railway restarts).
 """
-JSON on Drive: {"instagram": [{"id": "...", "used_at": "ISO-8601"}], "seo_images": [...]}
+JSON on Drive: {"instagram": [...], "instagram_video": [...], "seo_images": [...]}
 Entries older than 30 days are dropped on read/write.
 
 Requires GOOGLE_DRIVE_API_KEY. For writes to work with a browser/API key, create an empty
@@ -25,7 +25,7 @@ GOOGLE_DRIVE_API_KEY = (os.environ.get("GOOGLE_DRIVE_API_KEY") or "").strip()
 WEARTH_USED_MEDIA_DRIVE_FILE_ID = (os.environ.get("WEARTH_USED_MEDIA_DRIVE_FILE_ID") or "").strip()
 JOBS_STATUS_PATH = os.environ.get("WEARTH_JOBS_STATUS_PATH", "/tmp/cursor_status.json")
 
-_CATEGORIES = ("instagram", "seo_images")
+_CATEGORIES = ("instagram", "instagram_video", "seo_images")
 _MAX_AGE = timedelta(days=30)
 _lock = threading.Lock()
 _cached_file_id: str | None = None
@@ -64,7 +64,7 @@ def _prune_entries(rows: Any) -> List[Dict[str, str]]:
 
 
 def _empty_state() -> Dict[str, List[Dict[str, str]]]:
-    return {"instagram": [], "seo_images": []}
+    return {"instagram": [], "instagram_video": [], "seo_images": []}
 
 
 def _normalize_state(raw: Any) -> Dict[str, List[Dict[str, str]]]:

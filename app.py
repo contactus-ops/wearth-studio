@@ -524,11 +524,18 @@ def api_ads_improve_copy():
 
 @app.route("/api/drive/images", methods=["GET"])
 def list_drive_images():
-    """List images from META_AD_IMAGES_DRIVE_FOLDER_ID (or ?folder_id=)."""
+    """List images: ?source=instagram → INSTAGRAM_IMAGES_FOLDER; else SEO_IMAGES_FOLDER (?folder_id= overrides)."""
     try:
         if not GOOGLE_DRIVE_API_KEY:
             return jsonify({"ok": False, "error": "GOOGLE_DRIVE_API_KEY not set"}), 500
-        folder_id = (request.args.get("folder_id") or META_AD_IMAGES_DRIVE_FOLDER_ID or "").strip()
+        src = (request.args.get("source") or "").strip().lower()
+        explicit = (request.args.get("folder_id") or "").strip()
+        if explicit:
+            folder_id = explicit
+        elif src == "instagram":
+            folder_id = INSTAGRAM_IMAGES_FOLDER
+        else:
+            folder_id = SEO_IMAGES_FOLDER or META_AD_IMAGES_DRIVE_FOLDER_ID
         if not folder_id:
             return jsonify({"ok": True, "count": 0, "images": [], "folder_id": ""})
         imgs = _list_drive_folder_images(folder_id)
@@ -552,6 +559,101 @@ def list_drive_images():
         return jsonify({"ok": True, "folder_id": folder_id, "count": len(imgs), "images": imgs})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e), "trace": traceback.format_exc()}), 500
+
+
+@app.route('/api/drive/instagram-media', methods=['GET'])
+def instagram_unified_media():
+    """
+    One pick for Instagram automation: 70% image / 30% video from Drive when pools allow.
+    Marks instagram or instagram_video used after selection.
+    """
+    try:
+        if not GOOGLE_DRIVE_API_KEY:
+            return jsonify({'ok': False, 'error': 'GOOGLE_DRIVE_API_KEY not set'}), 500
+        img_f = INSTAGRAM_IMAGES_FOLDER
+        vid_f = VIDEOS_FOLDER
+        try:
+            imgs = _list_drive_folder_images(img_f) if img_f else []
+        except Exception:
+            imgs = []
+        try:
+            vids = _list_drive_folder_videos(vid_f) if vid_f else []
+        except Exception:
+            vids = []
+        umt = _used_media_tracker()
+        used_i = set(umt.get_used_ids('instagram'))
+        used_v = set(umt.get_used_ids('instagram_video'))
+        free_img = [x for x in imgs if str(x.get('id') or '').strip() not in used_i]
+        free_vid = [x for x in vids if str(x.get('id') or '').strip() not in used_v]
+        r = random.random()
+        pick = None
+        media_type = None
+        source_folder = None
+        cat = None
+        if r < 0.7 and free_img:
+            pick = random.choice(free_img)
+            media_type = 'image'
+            source_folder = 'instagram_images'
+            cat = 'instagram'
+        elif free_vid:
+            pick = random.choice(free_vid)
+            media_type = 'video'
+            source_folder = 'videos'
+            cat = 'instagram_video'
+        elif free_img:
+            pick = random.choice(free_img)
+            media_type = 'image'
+            source_folder = 'instagram_images'
+            cat = 'instagram'
+        elif free_vid:
+            pick = random.choice(free_vid)
+            media_type = 'video'
+            source_folder = 'videos'
+            cat = 'instagram_video'
+        if not pick and imgs:
+            try:
+                umt.reset_category('instagram')
+            except Exception:
+                pass
+            free_img = list(imgs)
+            if free_img:
+                pick = random.choice(free_img)
+                media_type = 'image'
+                source_folder = 'instagram_images'
+                cat = 'instagram'
+        if not pick and vids:
+            try:
+                umt.reset_category('instagram_video')
+            except Exception:
+                pass
+            free_vid = list(vids)
+            if free_vid:
+                pick = random.choice(free_vid)
+                media_type = 'video'
+                source_folder = 'videos'
+                cat = 'instagram_video'
+        if not pick:
+            return jsonify({
+                'ok': False,
+                'error': 'No media in INSTAGRAM_IMAGES_FOLDER or VIDEOS_FOLDER',
+                'images_folder': img_f,
+                'videos_folder': vid_f,
+            }), 404
+        mid = str(pick.get('id') or '').strip()
+        url = _drive_file_download_url(mid)
+        try:
+            umt.mark_used(cat, mid)
+        except Exception:
+            pass
+        return jsonify({
+            'ok': True,
+            'media_id': mid,
+            'media_type': media_type,
+            'url': url,
+            'source_folder': source_folder,
+        })
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e), 'trace': traceback.format_exc()}), 500
 
 
 @app.route("/api/ads/publish/<ad_id>", methods=["POST", "OPTIONS"])
@@ -1002,6 +1104,108 @@ def api_jobs_status_append():
 @app.route("/health", methods=["GET"])
 def health():
     return jsonify({"status": "ok", "engine": "infinite"})
+
+
+def _shopify_rest_next_url(link_header: str) -> str:
+    """Parse Shopify Admin REST Link header for rel="next" URL."""
+    if not link_header:
+        return ''
+    for part in link_header.split(','):
+        p = part.strip()
+        if 'rel="next"' in p:
+            u = p.split(';')[0].strip()
+            if u.startswith('<') and u.endswith('>'):
+                return u[1:-1]
+    return ''
+
+
+@app.route('/api/klaviyo/seed-image-tracker', methods=['POST'])
+def klaviyo_seed_image_tracker():
+    """
+    One-shot: walk Shopify News blog articles, extract hero image URLs, mark Unsplash
+    (photo-* slug) and Drive (uc?id=) ids in seo_images used tracker for historical dedup.
+    """
+    host = _shopify_admin_host()
+    tok = (SHOPIFY_TOKEN or '').strip()
+    if not host or not tok:
+        return jsonify({'ok': False, 'error': 'SHOPIFY_STORE and SHOPIFY_TOKEN required'}), 500
+    blog_id = '84314751156'
+    base = f'https://{host}/admin/api/{SHOPIFY_API_VERSION}/blogs/{blog_id}/articles.json'
+    headers = {
+        'X-Shopify-Access-Token': tok,
+        'Content-Type': 'application/json',
+    }
+    umt = _used_media_tracker()
+    next_url = f'{base}?limit=250&fields=id,title,image'
+    articles_fetched = 0
+    marked_unsplash = 0
+    marked_drive = 0
+    skipped_no_image = 0
+    skipped_unknown = 0
+    errors: list = []
+    while next_url:
+        r = requests.get(next_url, headers=headers, timeout=90)
+        if r.status_code != 200:
+            return jsonify({
+                'ok': False,
+                'error': f'Shopify HTTP {r.status_code}',
+                'detail': (r.text or '')[:1200],
+                'articles_fetched': articles_fetched,
+            }), 502
+        data = r.json() or {}
+        batch = data.get('articles') or []
+        articles_fetched += len(batch)
+        for art in batch:
+            img = art.get('image') or {}
+            src = (img.get('src') or '').strip()
+            if not src:
+                skipped_no_image += 1
+                continue
+            src_l = src.lower()
+            mid = ''
+            kind = ''
+            if 'unsplash.com' in src_l or '/photo-' in src_l:
+                m = re.search(r'photo-([^/?#]+)', src, re.I)
+                if m:
+                    mid, kind = m.group(1).strip(), 'unsplash'
+            if not mid and 'drive.google.com' in src_l and 'uc' in src_l:
+                q = parse_qs(urlparse(src).query)
+                ids = q.get('id') or []
+                if ids and str(ids[0]).strip():
+                    mid, kind = str(ids[0]).strip(), 'drive'
+            if not mid:
+                skipped_unknown += 1
+                continue
+            try:
+                umt.mark_used('seo_images', mid)
+            except Exception as e:
+                errors.append(f"{art.get('id')}:{str(e)[:200]}")
+                continue
+            if kind == 'unsplash':
+                marked_unsplash += 1
+            else:
+                marked_drive += 1
+        nxt = _shopify_rest_next_url(r.headers.get('Link') or '')
+        next_url = nxt if nxt else ''
+    skipped = skipped_no_image + skipped_unknown
+    log_line = (
+        f'[seed-image-tracker] articles={articles_fetched} unsplash={marked_unsplash} '
+        f'drive={marked_drive} skipped_no_image={skipped_no_image} '
+        f'skipped_unknown={skipped_unknown}'
+    )
+    print(log_line, flush=True)
+    return jsonify({
+        'ok': True,
+        'articles_fetched': articles_fetched,
+        'marked_unsplash': marked_unsplash,
+        'marked_drive': marked_drive,
+        'skipped_no_image': skipped_no_image,
+        'skipped_unknown': skipped_unknown,
+        'skipped': skipped,
+        'errors': errors[:20],
+        'log': log_line,
+    })
+
 
 @app.route("/generate-article", methods=["POST"])
 def generate_article_endpoint():
@@ -2193,11 +2397,13 @@ def delete_logo():
 
 # ── META ADVANTAGE+ CREATIVE GENERATOR ──
 GOOGLE_DRIVE_API_KEY = os.environ.get('GOOGLE_DRIVE_API_KEY', '')
-META_AD_VIDEOS_DRIVE_FOLDER_ID = '1Zpi1G_zK9o4WrTQkFL9v-yS9K4yxvvMl'
-# Optional: Drive folder with ad images (mime image/*). Falls back to video folder if unset (often empty).
-META_AD_IMAGES_DRIVE_FOLDER_ID = os.environ.get(
-    "META_AD_IMAGES_DRIVE_FOLDER_ID", ""
-).strip() or META_AD_VIDEOS_DRIVE_FOLDER_ID
+# Drive folders (ROAS ops): no hardcoded folder IDs — set on Railway.
+SEO_IMAGES_FOLDER = (os.environ.get('SEO_IMAGES_FOLDER') or '').strip()
+INSTAGRAM_IMAGES_FOLDER = (os.environ.get('INSTAGRAM_IMAGES_FOLDER') or '').strip()
+VIDEOS_FOLDER = (os.environ.get('VIDEOS_FOLDER') or '').strip()
+# Legacy alias used in a few internal call sites — same as VIDEOS_FOLDER.
+META_AD_VIDEOS_DRIVE_FOLDER_ID = VIDEOS_FOLDER
+META_AD_IMAGES_DRIVE_FOLDER_ID = (os.environ.get('META_AD_IMAGES_DRIVE_FOLDER_ID') or '').strip()
 
 
 def _used_media_tracker():
@@ -3297,14 +3503,22 @@ def debug_download_test():
 
 @app.route('/api/drive/videos', methods=['GET'])
 def list_drive_videos():
-    """List videos from META AD VIDEOS Google Drive folder."""
+    """List videos from VIDEOS_FOLDER only (no fallback to image folders)."""
     try:
         if not GOOGLE_DRIVE_API_KEY:
             return jsonify({'error': 'GOOGLE_DRIVE_API_KEY not set'}), 500
-        videos = _list_drive_folder_videos(META_AD_VIDEOS_DRIVE_FOLDER_ID)
+        folder_id = (request.args.get('folder_id') or '').strip() or VIDEOS_FOLDER
+        if not folder_id:
+            return jsonify({
+                'ok': False,
+                'error': 'VIDEOS_FOLDER not set',
+                'count': 0,
+                'videos': [],
+            }), 400
+        videos = _list_drive_folder_videos(folder_id)
         return jsonify({
             'ok': True,
-            'folder_id': META_AD_VIDEOS_DRIVE_FOLDER_ID,
+            'folder_id': folder_id,
             'count': len(videos),
             'videos': videos
         })
@@ -4352,105 +4566,6 @@ def klaviyo_active_count():
         return jsonify({'ok': False, 'error': str(e), 'trace': traceback.format_exc()}), 500
 
 
-def _shopify_rest_next_url(link_header: str) -> str:
-    """Parse Shopify Admin REST Link header for rel="next" URL."""
-    if not link_header:
-        return ''
-    for part in link_header.split(','):
-        p = part.strip()
-        if 'rel="next"' in p:
-            u = p.split(';')[0].strip()
-            if u.startswith('<') and u.endswith('>'):
-                return u[1:-1]
-    return ''
-
-
-@app.route('/api/klaviyo/seed-image-tracker', methods=['POST'])
-def klaviyo_seed_image_tracker():
-    """
-    One-shot: walk Shopify News blog articles, extract hero image URLs, mark Unsplash
-    (photo-* slug) and Drive (uc?id=) ids in seo_images used tracker for historical dedup.
-    """
-    host = _shopify_admin_host()
-    tok = (SHOPIFY_TOKEN or '').strip()
-    if not host or not tok:
-        return jsonify({'ok': False, 'error': 'SHOPIFY_STORE and SHOPIFY_TOKEN required'}), 500
-    blog_id = '84314751156'
-    base = f'https://{host}/admin/api/{SHOPIFY_API_VERSION}/blogs/{blog_id}/articles.json'
-    headers = {
-        'X-Shopify-Access-Token': tok,
-        'Content-Type': 'application/json',
-    }
-    umt = _used_media_tracker()
-    next_url = f'{base}?limit=250&fields=id,title,image'
-    articles_fetched = 0
-    marked_unsplash = 0
-    marked_drive = 0
-    skipped_no_image = 0
-    skipped_unknown = 0
-    errors: list = []
-    while next_url:
-        r = requests.get(next_url, headers=headers, timeout=90)
-        if r.status_code != 200:
-            return jsonify({
-                'ok': False,
-                'error': f'Shopify HTTP {r.status_code}',
-                'detail': (r.text or '')[:1200],
-                'articles_fetched': articles_fetched,
-            }), 502
-        data = r.json() or {}
-        batch = data.get('articles') or []
-        articles_fetched += len(batch)
-        for art in batch:
-            img = art.get('image') or {}
-            src = (img.get('src') or '').strip()
-            if not src:
-                skipped_no_image += 1
-                continue
-            src_l = src.lower()
-            mid = ''
-            kind = ''
-            if 'unsplash.com' in src_l or '/photo-' in src_l:
-                m = re.search(r'photo-([^/?#]+)', src, re.I)
-                if m:
-                    mid, kind = m.group(1).strip(), 'unsplash'
-            if not mid and 'drive.google.com' in src_l and 'uc' in src_l:
-                q = parse_qs(urlparse(src).query)
-                ids = q.get('id') or []
-                if ids and str(ids[0]).strip():
-                    mid, kind = str(ids[0]).strip(), 'drive'
-            if not mid:
-                skipped_unknown += 1
-                continue
-            try:
-                umt.mark_used('seo_images', mid)
-            except Exception as e:
-                errors.append(f"{art.get('id')}:{str(e)[:200]}")
-                continue
-            if kind == 'unsplash':
-                marked_unsplash += 1
-            else:
-                marked_drive += 1
-        nxt = _shopify_rest_next_url(r.headers.get('Link') or '')
-        next_url = nxt if nxt else ''
-    log_line = (
-        f'[seed-image-tracker] articles={articles_fetched} unsplash={marked_unsplash} '
-        f'drive={marked_drive} skipped_no_image={skipped_no_image} '
-        f'skipped_unknown={skipped_unknown}'
-    )
-    print(log_line, flush=True)
-    return jsonify({
-        'ok': True,
-        'articles_fetched': articles_fetched,
-        'marked_unsplash': marked_unsplash,
-        'marked_drive': marked_drive,
-        'skipped_no_image': skipped_no_image,
-        'skipped_unknown': skipped_unknown,
-        'errors': errors[:20],
-        'log': log_line,
-    })
-
-
 def _klaviyo_collect_flow_actions_via_flows_include(max_pages: int = 200, cap: int = 200):
     """Klaviyo does not allow GET /api/flow-actions/ as a collection; use flows?include=flow-actions."""
     by_id = {}
@@ -5002,8 +5117,11 @@ def n8n_workflows_status():
     })
 
 
-@app.route('/<path:path>')
+@app.route('/<path:path>', methods=['GET', 'HEAD'])
 def static_files(path):
+    """Never shadow /api/* — POST routes must not hit this rule (405) on Railway."""
+    if str(path or '').startswith('api/'):
+        return '', 404
     try:
         return send_file(path)
     except Exception:
