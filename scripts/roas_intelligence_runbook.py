@@ -6,6 +6,7 @@ import json
 import os
 import pathlib
 import re
+import shutil
 import subprocess
 import sys
 from typing import Any, Dict, List, Optional, Tuple
@@ -343,12 +344,22 @@ def step_git_deploy() -> Dict[str, Any]:
     if p2.returncode != 0:
         update_status("deploy", "ERROR", (p2.stdout + p2.stderr)[:800])
         return {"ok": False, "step": "push"}
-    pr = subprocess.run(
-        ["railway", "up", "--service", "web"],
-        cwd=str(REPO_ROOT),
-        capture_output=True,
-        text=True,
-    )
+    rsh = shutil.which("railway") or shutil.which("railway.cmd")
+    if rsh:
+        pr = subprocess.run(
+            [rsh, "up", "--service", "web"],
+            cwd=str(REPO_ROOT),
+            capture_output=True,
+            text=True,
+        )
+    else:
+        pr = subprocess.run(
+            "railway up --service web",
+            cwd=str(REPO_ROOT),
+            shell=True,
+            capture_output=True,
+            text=True,
+        )
     print("railway up ->", pr.returncode, (pr.stdout + pr.stderr)[:600])
     rev = subprocess.run(
         ["git", "rev-parse", "HEAD"],
