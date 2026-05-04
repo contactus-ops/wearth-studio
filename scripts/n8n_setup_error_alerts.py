@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # TARGET ROAS 4:1 AT ₹15K/MONTH SPEND — Global failure emails for WEARTH n8n workflows.
 """
-Creates (or updates) workflow "WEARTH n8n Error Alert" with Error Trigger → format → POST mail,
+Creates (or updates) workflow "WEARTH n8n Error Alert" with Error Trigger → format → Gmail send,
 then sets settings.errorWorkflow on each target workflow so failures notify contactus@wearthactive.com.
 
 Run with Railway env: N8N_BASE_URL, N8N_API_KEY.
@@ -19,11 +19,17 @@ from typing import Any, Dict, List, Tuple
 import pathlib
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from n8n_api_common import load_n8n_api_key, prune_minimal_put, req, sanitize_settings, try_activate_workflow
+from n8n_api_common import (
+    load_n8n_api_key,
+    prune_minimal_put,
+    req,
+    resolve_gmail_oauth2_credential,
+    sanitize_settings,
+    try_activate_workflow,
+)
 
 ERROR_HANDLER_NAME = "WEARTH n8n Error Alert"
 APP_BASE = "https://web-production-448c1.up.railway.app"
-N8N_MAIL_BRIDGE_HEADER = "wearthn8ncommute"
 
 # Default: Friday loop, Monday generator, Instagram Auto (override via N8N_ERROR_ALERT_TARGET_IDS).
 DEFAULT_TARGET_IDS = "3GUAuIiPvyxZK09s,AeZlTxTmAcOHjAek,cGbp1fEkP5DoIIsZ"
@@ -77,7 +83,7 @@ def _nid() -> str:
     return str(uuid.uuid4())
 
 
-def build_error_handler_workflow() -> Dict[str, Any]:
+def build_error_handler_workflow(*, gmail_cred_id: str, gmail_cred_name: str) -> Dict[str, Any]:
     n1, n2, n3 = _nid(), _nid(), _nid()
     y = 320
     return {
@@ -101,29 +107,23 @@ def build_error_handler_workflow() -> Dict[str, Any]:
             },
             {
                 "parameters": {
-                    "method": "POST",
-                    "url": f"{APP_BASE}/api/n8n/send-mail",
-                    "authentication": "none",
-                    "sendHeaders": True,
-                    "headerParameters": {
-                        "parameters": [
-                            {"name": "Content-Type", "value": "application/json"},
-                            {
-                                "name": "X-Wearth-N8n-Mail",
-                                "value": N8N_MAIL_BRIDGE_HEADER,
-                            },
-                        ]
-                    },
-                    "sendBody": True,
-                    "specifyBody": "json",
-                    "jsonBody": "={{ JSON.stringify({ to: $json.to, subject: $json.subject, text: $json.text }) }}",
-                    "options": {"timeout": 60000},
+                    "authentication": "oAuth2",
+                    "resource": "message",
+                    "operation": "send",
+                    "sendTo": "contactus@wearthactive.com",
+                    "subject": "={{ $json.subject }}",
+                    "emailType": "text",
+                    "message": "={{ $json.text }}",
+                    "options": {"appendAttribution": False},
                 },
                 "id": n3,
-                "name": "Send Alert Email",
-                "type": "n8n-nodes-base.httpRequest",
-                "typeVersion": 4.2,
+                "name": "Send Alert Email (Gmail)",
+                "type": "n8n-nodes-base.gmail",
+                "typeVersion": 2.2,
                 "position": [800, y],
+                "credentials": {
+                    "gmailOAuth2": {"id": gmail_cred_id, "name": gmail_cred_name}
+                },
             },
         ],
         "connections": {
@@ -131,7 +131,7 @@ def build_error_handler_workflow() -> Dict[str, Any]:
                 "main": [[{"node": "Format Alert Email", "type": "main", "index": 0}]]
             },
             "Format Alert Email": {
-                "main": [[{"node": "Send Alert Email", "type": "main", "index": 0}]]
+                "main": [[{"node": "Send Alert Email (Gmail)", "type": "main", "index": 0}]]
             },
         },
         "settings": sanitize_settings(
@@ -169,7 +169,9 @@ def main() -> None:
         print(json.dumps({"error": "N8N_API_KEY missing"}))
         sys.exit(1)
 
-    eh = build_error_handler_workflow()
+    pref = (os.environ.get("N8N_GMAIL_CREDENTIAL_NAME") or "Gmail account").strip()
+    gid, gname = resolve_gmail_oauth2_credential(base, key, preferred_name=pref)
+    eh = build_error_handler_workflow(gmail_cred_id=gid, gmail_cred_name=gname)
     list_url = f"{base}/api/v1/workflows"
     code, wid = _find_workflow_id_by_name(base, key, ERROR_HANDLER_NAME)
     body = json.dumps({k: v for k, v in eh.items() if k != "active"}).encode("utf-8")

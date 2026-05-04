@@ -18,6 +18,8 @@ type PendingAd = {
   reasoning?: string;
   predicted_roas?: number;
   creative_url?: string;
+  /** Meta CDN URL from GET /api/ads/pending when video_id is set (server-resolved). */
+  thumbnail_url?: string;
   video_id?: string;
   feedback_worked?: string;
   feedback_didnt?: string;
@@ -403,7 +405,11 @@ function PendingCard({
       ? `https://drive.google.com/thumbnail?id=${draftVideoId}&sz=w800`
       : "");
   const previewUrl =
-    metaVideoThumb || metaLive?.thumbnail_url || driveThumb || "";
+    (ad.thumbnail_url && ad.thumbnail_url.trim()) ||
+    metaVideoThumb ||
+    metaLive?.thumbnail_url ||
+    driveThumb ||
+    "";
 
   const cardHeadline =
     (metaLive?.headline && metaLive.headline.length > 0
@@ -420,6 +426,11 @@ function PendingCard({
       ) : null}
       <div className="ad-headline">{cardHeadline}</div>
       <div className="ad-body">{cardBody}</div>
+      {previewUrl ? (
+        <div className="pending-creative-hero">
+          <img src={previewUrl} alt="" className="pending-creative-hero-img" />
+        </div>
+      ) : null}
       <div className="pills-row">
         {ad.audience_summary && (
           <span className="tag">{ad.audience_summary}</span>

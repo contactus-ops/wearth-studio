@@ -103,6 +103,23 @@
   margin-bottom: 16px;
 }
 
+.pending-creative-hero {
+  margin: 0 0 18px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #1a1a18;
+  max-height: 240px;
+  border: 1px solid #e8e3da;
+}
+
+.pending-creative-hero-img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 240px;
+  object-fit: cover;
+}
+
 .pills-row {
   display: flex;
   gap: 8px;

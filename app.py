@@ -23,6 +23,8 @@ app = Flask(__name__)
 
 # TARGET ROAS 4:1 AT ₹15K/MONTH SPEND — approval queue + n8n mail bridge (WEARTH Friday / Monday loops).
 PENDING_ADS_PATH = os.environ.get("WEARTH_PENDING_ADS_PATH", "/tmp/pending_ads.json")
+JOBS_STATUS_PATH = os.environ.get("WEARTH_JOBS_STATUS_PATH", "/tmp/cursor_status.json")
+JOBS_STATUS_TOKEN = os.environ.get("WEARTH_JOBS_STATUS_TOKEN", "").strip()
 WEARTH_N8N_MAIL_TOKEN = os.environ.get("WEARTH_N8N_MAIL_TOKEN", "")
 GMAIL_USER_MAIL = os.environ.get("GMAIL_USER", "")
 GMAIL_APP_PASSWORD_MAIL = os.environ.get("GMAIL_APP_PASSWORD", "")
@@ -325,14 +327,21 @@ def api_ads_pending():
                     str(r.get("body") or ""),
                     str(r.get("video_id") or ""),
                     str(r.get("creative_url") or ""),
+                    str(r.get("thumbnail_url") or ""),
                 )
                 r2 = _enrich_pending_row_from_meta(_normalize_pending_ad_id(dict(r)))
+                vid = str(r2.get("video_id") or "").strip()
+                if vid and _meta_numeric_node_id(vid) and not str(r2.get("thumbnail_url") or "").strip():
+                    tu = _meta_video_thumbnail_uri_first(vid)
+                    if tu:
+                        r2["thumbnail_url"] = tu
                 after = (
                     str(r2.get("ad_id") or ""),
                     str(r2.get("headline") or ""),
                     str(r2.get("body") or ""),
                     str(r2.get("video_id") or ""),
                     str(r2.get("creative_url") or ""),
+                    str(r2.get("thumbnail_url") or ""),
                 )
                 if after != before:
                     changed = True
@@ -370,6 +379,7 @@ def api_ads_pending():
         "reasoning": str(data.get("reasoning") or "").strip(),
         "predicted_roas": data.get("predicted_roas"),
         "creative_url": str(data.get("creative_url") or "").strip(),
+        "thumbnail_url": str(data.get("thumbnail_url") or "").strip(),
         "created_at": str(data.get("created_at") or prior.get("created_at") or "").strip()
         or datetime.now(timezone.utc).isoformat(),
         "status": str(data.get("status") or "pending").strip().lower() or "pending",
@@ -576,11 +586,7 @@ def api_meta_video_thumbnail():
     if not _meta_numeric_node_id(vid):
         return jsonify({"ok": False, "error": "video_id must be a numeric Meta video id"}), 400
     try:
-        j = _meta_request("GET", f"{vid}/thumbnails")
-        data = j.get("data") or []
-        url = ""
-        if isinstance(data, list) and data and isinstance(data[0], dict):
-            url = str(data[0].get("uri") or data[0].get("url") or "").strip()
+        url = _meta_video_thumbnail_uri_first(vid)
         return jsonify({"ok": True, "thumbnail_url": url or None})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
@@ -890,6 +896,71 @@ def api_meta_adsets_live():
         payload["chart"] = []
 
     return jsonify(payload)
+
+
+def _jobs_status_append(step: str, status: str, evidence: str) -> dict:
+    """Append one verification row to WEARTH_JOBS_STATUS_PATH (TARGET ROAS 4:1)."""
+    now_utc = datetime.now(timezone.utc)
+    now_ist = now_utc.astimezone(timezone(timedelta(hours=5, minutes=30)))
+    ist_label = now_ist.strftime("%Y-%m-%d %H:%M:%S IST")
+    try:
+        with open(JOBS_STATUS_PATH, encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        data = {"steps": [], "session_start": ist_label}
+    if not isinstance(data, dict):
+        data = {"steps": [], "session_start": ist_label}
+    steps = data.get("steps")
+    if not isinstance(steps, list):
+        steps = []
+    steps.append(
+        {
+            "step": step,
+            "status": status,
+            "evidence": str(evidence)[:800],
+            "timestamp_ist": ist_label,
+            "timestamp_unix": int(now_utc.timestamp()),
+        }
+    )
+    data["steps"] = steps
+    data["last_updated_ist"] = ist_label
+    parent = os.path.dirname(os.path.abspath(JOBS_STATUS_PATH))
+    if parent and not os.path.isdir(parent):
+        os.makedirs(parent, exist_ok=True)
+    with open(JOBS_STATUS_PATH, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+    return data["steps"][-1]
+
+
+@app.route("/api/jobs/status", methods=["GET"])
+def api_jobs_status():
+    """Read verification session log (WEARTH_JOBS_STATUS_PATH)."""
+    try:
+        with open(JOBS_STATUS_PATH, encoding="utf-8") as f:
+            return jsonify(json.load(f))
+    except Exception:
+        return jsonify({"steps": [], "session_start": None, "note": "no status file yet"})
+
+
+@app.route("/api/jobs/status/append", methods=["POST"])
+def api_jobs_status_append():
+    """Append a step row (optional WEARTH_JOBS_STATUS_TOKEN via X-Wearth-Status-Token)."""
+    if JOBS_STATUS_TOKEN:
+        tok = (request.headers.get("X-Wearth-Status-Token") or "").strip()
+        if not tok:
+            auth = (request.headers.get("Authorization") or "").strip()
+            if auth.lower().startswith("bearer "):
+                tok = auth[7:].strip()
+        if tok != JOBS_STATUS_TOKEN:
+            return jsonify({"ok": False, "error": "unauthorized"}), 401
+    body = request.json or {}
+    step = str(body.get("step") or "").strip()
+    status = str(body.get("status") or "").strip()
+    ev = str(body.get("evidence") or "")
+    if not step or not status:
+        return jsonify({"ok": False, "error": "step and status required"}), 400
+    row = _jobs_status_append(step, status, ev)
+    return jsonify({"ok": True, "row": row})
 
 
 @app.route("/health", methods=["GET"])
@@ -2378,6 +2449,21 @@ def _meta_request(method: str, path: str, *, params=None, data=None, files=None)
     if resp.status_code not in [200, 201]:
         raise Exception(_meta_error_message(resp))
     return resp.json()
+
+
+def _meta_video_thumbnail_uri_first(video_id: str) -> str:
+    """First preview image URI from Meta Video thumbnails edge (empty if unavailable)."""
+    vid = str(video_id or "").strip()
+    if not META_ACCESS_TOKEN or not _meta_numeric_node_id(vid):
+        return ""
+    try:
+        j = _meta_request("GET", f"{vid}/thumbnails")
+        data = j.get("data") or []
+        if isinstance(data, list) and data and isinstance(data[0], dict):
+            return str(data[0].get("uri") or data[0].get("url") or "").strip()
+    except Exception:
+        return ""
+    return ""
 
 
 def _enrich_pending_row_from_meta(row: dict) -> dict:
