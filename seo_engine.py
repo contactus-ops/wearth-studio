@@ -8,8 +8,11 @@ Runs via n8n every Monday & Thursday 8am IST.
 import os
 import sys
 import json
+import re
+import random
 import requests
 from datetime import datetime
+from urllib.parse import quote_plus
 
 # ─── CONFIG ───────────────────────────────────────────────────────────────────
 
@@ -17,6 +20,8 @@ SHOPIFY_STORE = "wearthactive.myshopify.com"
 SHOPIFY_TOKEN = os.environ.get("SHOPIFY_TOKEN", "")
 ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 UNSPLASH_KEY = os.environ.get("UNSPLASH_ACCESS_KEY", "")
+GOOGLE_DRIVE_API_KEY = (os.environ.get("GOOGLE_DRIVE_API_KEY") or "").strip()
+DRIVE_IMAGES_FOLDER = (os.environ.get("DRIVE_IMAGES_FOLDER") or "").strip()
 
 SHOPIFY_BASE = f"https://{SHOPIFY_STORE}/admin/api/2024-01"
 HEADERS_SHOPIFY = {
@@ -129,14 +134,19 @@ def get_existing_articles() -> list:
 
 def publish_article(blog_id: str, article: dict) -> dict:
     """Publish article to Shopify blog."""
+    article_title = article["title"]
+    image_alt = f"{article_title} — plant-based activewear by WEARTH Active India"
     payload = {
         "article": {
-            "title": article["title"],
+            "title": article_title,
             "body_html": article["body_html"],
             "summary_html": f"<p>{article['meta_description']}</p>",
             "tags": ", ".join(article.get("tags", [])),
             "published": True,
-            "image": {"src": article.get("image_url", "")},
+            "image": {
+                "src": article.get("image_url", ""),
+                "alt": image_alt,
+            },
             "metafields": [
                 {
                     "key": "description_tag",
@@ -188,61 +198,146 @@ def _used_media_tracker():
     return importlib.import_module("used_media_tracker")
 
 
-def fetch_unsplash_image(keyword: str) -> str:
-    """Fetch a relevant image from Unsplash with variety."""
-    import random as _random
+def _list_seo_drive_folder_images(folder_id: str) -> list:
+    """Same Drive v3 list logic as app /api/drive/images (folder images via API key)."""
+    if not GOOGLE_DRIVE_API_KEY or not folder_id:
+        return []
     try:
-        # Try multiple search terms for variety
-        search_options = [
-            keyword.replace(" ", "+"),
-            "plant+based+activewear+india",
-            "fitness+india+workout",
-            "yoga+india+natural",
-            "running+india+outdoor",
-            "gym+india+woman",
+        params = {
+            "key": GOOGLE_DRIVE_API_KEY,
+            "q": f"'{folder_id}' in parents and trashed=false and mimeType contains 'image/'",
+            "fields": "files(id,name,mimeType)",
+            "pageSize": 100,
+        }
+        resp = requests.get(
+            "https://www.googleapis.com/drive/v3/files", params=params, timeout=20
+        )
+        if resp.status_code != 200:
+            return []
+        files = resp.json().get("files", [])
+        return [
+            {"id": f.get("id", ""), "name": f.get("name", "")}
+            for f in files
+            if f.get("id")
         ]
-        search_terms = _random.choice(search_options)
-        page = _random.randint(1, 8)
+    except Exception:
+        return []
+
+
+def _unsplash_track_id_from_src(src: str) -> str:
+    """Stable id for dedup: path segment after photo- (matches Shopify-stored Unsplash URLs)."""
+    m = re.search(r"photo-([^/?#]+)", src or "", re.I)
+    return m.group(1).strip() if m else ""
+
+
+def _unsplash_track_id_from_photo(photo: dict) -> str:
+    urls = photo.get("urls") or {}
+    reg = str(urls.get("regular") or urls.get("small") or urls.get("full") or "")
+    tid = _unsplash_track_id_from_src(reg)
+    if tid:
+        return tid
+    return str(photo.get("id") or "").strip()
+
+
+def _unsplash_search_results(unsplash_query: str) -> list:
+    """Return Unsplash search `results` list (up to 30) or []."""
+    q = (unsplash_query or "").strip() or "calm natural morning light movement"
+    if not (UNSPLASH_KEY or "").strip():
+        return []
+    try:
+        page = random.randint(1, 8)
+        query_enc = quote_plus(q)
         r = requests.get(
-            f"https://api.unsplash.com/search/photos?query={search_terms}&orientation=landscape&page={page}&per_page=15",
+            f"https://api.unsplash.com/search/photos?query={query_enc}"
+            f"&orientation=landscape&content_filter=high&page={page}&per_page=30",
             headers={"Authorization": f"Client-ID {UNSPLASH_KEY}"},
-            timeout=10
+            timeout=15,
         )
         if r.status_code == 200:
-            results = r.json().get("results", [])
-            used_ids: list = []
-            try:
-                used_ids = _used_media_tracker().get_used_ids("seo_images")
-            except Exception:
-                used_ids = []
-            used_set = set(used_ids)
-            for photo in results:
-                pid = str(photo.get("id") or "").strip()
-                if not pid:
-                    continue
-                if pid not in used_set:
-                    url = photo["urls"]["regular"]
-                    try:
-                        _used_media_tracker().mark_used("seo_images", pid)
-                    except Exception:
-                        pass
-                    print(f"Unsplash image: {url[:60]}...")
-                    return url
-            if results:
-                photo = results[0]
-                pid = str(photo.get("id") or "").strip()
-                url = photo["urls"]["regular"]
-                if pid:
-                    try:
-                        _used_media_tracker().mark_used("seo_images", pid)
-                    except Exception:
-                        pass
-                print(f"Unsplash image (fallback first): {url[:60]}...")
-                return url
+            return r.json().get("results") or []
     except Exception as e:
         print(f"Unsplash fetch failed: {e}")
-    url = _random.choice(FALLBACK_IMAGES)
-    return url
+    return []
+
+
+def fetch_seo_image(unsplash_query: str, article_title: str) -> str:
+    """
+    Drive-first hero image: unused file from DRIVE_IMAGES_FOLDER, else Unsplash search
+    (per_page=30, first unused by track id). If all 30 Unsplash hits are used, reset
+    seo_images in the tracker and use the first result. Marks seo_images for the winner.
+    """
+    umt = _used_media_tracker()
+    title_hint = (article_title or "").strip() or "article"
+    print(f"SEO hero image for: {title_hint[:70]}...")
+
+    if DRIVE_IMAGES_FOLDER and GOOGLE_DRIVE_API_KEY:
+        try:
+            rows = _list_seo_drive_folder_images(DRIVE_IMAGES_FOLDER)
+            used_ids = umt.get_used_ids("seo_images")
+        except Exception:
+            rows, used_ids = [], []
+        used_set = set(used_ids or [])
+        unused_drive = [
+            str(row["id"]).strip()
+            for row in rows
+            if str(row.get("id") or "").strip() not in used_set
+        ]
+        if unused_drive:
+            fid = random.choice(unused_drive)
+            drive_url = f"https://drive.google.com/uc?export=download&id={fid}"
+            try:
+                umt.mark_used("seo_images", fid)
+            except Exception:
+                pass
+            print(f"SEO hero: Drive image {fid[:24]}...")
+            return drive_url
+
+    results = _unsplash_search_results(unsplash_query)
+    if not results:
+        url = random.choice(FALLBACK_IMAGES)
+        tid = _unsplash_track_id_from_src(url)
+        if tid:
+            try:
+                umt.mark_used("seo_images", tid)
+            except Exception:
+                pass
+        print(f"SEO hero: static fallback {url[:60]}...")
+        return url
+
+    try:
+        used_ids = umt.get_used_ids("seo_images")
+    except Exception:
+        used_ids = []
+    used_set = set(used_ids or [])
+
+    for photo in results:
+        tid = _unsplash_track_id_from_photo(photo)
+        if not tid or tid in used_set:
+            continue
+        url = (photo.get("urls") or {}).get("regular") or ""
+        if not url:
+            continue
+        try:
+            umt.mark_used("seo_images", tid)
+        except Exception:
+            pass
+        print(f"SEO hero: Unsplash {url[:60]}...")
+        return url
+
+    photo0 = results[0]
+    try:
+        umt.reset_category("seo_images")
+    except Exception:
+        pass
+    tid0 = _unsplash_track_id_from_photo(photo0)
+    url0 = (photo0.get("urls") or {}).get("regular") or random.choice(FALLBACK_IMAGES)
+    if tid0:
+        try:
+            umt.mark_used("seo_images", tid0)
+        except Exception:
+            pass
+    print(f"SEO hero: Unsplash after tracker reset {url0[:60]}...")
+    return url0
 
 # ─── CLAUDE CALLER ────────────────────────────────────────────────────────────
 
@@ -321,6 +416,17 @@ No markdown. No explanation. Start with {{ and end with }}."""
 def generate_article(brief: dict) -> dict:
     """Generate full SEO article based on brief."""
 
+    article_topic = brief["title"]
+    unsplash_guidance = (
+        'The WEARTH tribe is not a gym person. They are quietly disciplined, ingredient-aware, '
+        "self-motivated. They move for themselves not for an audience. The image should feel calm, "
+        "natural, unhurried, confident. Think: woman in natural light near a window, person stretching "
+        "outdoors in minimal clothing, soft morning movement, earthy tones, solo figure, peaceful focus, "
+        "South Asian appearance preferred, natural textures, NOT a gym, NOT weights, NOT group fitness, "
+        "NOT neon, NOT performance sport. Return a 4-6 word Unsplash search query that would find this "
+        f"kind of image for an article about: {article_topic}."
+    )
+
     prompt = f"""You are writing a blog article for WEARTH Active (wearthactive.com).
 
 {BRAND_CONTEXT}
@@ -331,6 +437,9 @@ Primary Keyword: {brief['primary_keyword']}
 Secondary Keywords: {', '.join(brief['secondary_keywords'])}
 Content Angle: {brief['angle']}
 Target Word Count: {brief.get('word_count', 900)}
+
+IMAGE SEARCH (required second output field):
+{unsplash_guidance}
 
 WRITING RULES:
 - Use the primary keyword naturally in: title, first paragraph, 2-3 subheadings, conclusion
@@ -350,14 +459,22 @@ Return ONLY a JSON object:
   "meta_description": "compelling meta description under 160 chars with primary keyword",
   "body_html": "complete article HTML with proper h2, h3, p tags",
   "tags": ["tag1", "tag2", "tag3", "tag4", "tag5"],
-  "word_count": approximate_number
+  "word_count": approximate_number,
+  "unsplash_query": "4-6 words only, per the image search guidance above"
 }}
 
 No markdown fences. Start with {{ and end with }}."""
 
     raw = call_claude(prompt, max_tokens=4000)
     cleaned = raw.replace("```json", "").replace("```", "").strip()
-    return json.loads(cleaned)
+    data = json.loads(cleaned)
+    uq = (data.get("unsplash_query") or "").strip()
+    title_for_fallback = (data.get("title") or article_topic or "").strip()
+    if not uq:
+        data["unsplash_query"] = " ".join(title_for_fallback.split()[:6])
+    else:
+        data["unsplash_query"] = uq
+    return data
 
 # ─── MAIN RUNNER ──────────────────────────────────────────────────────────────
 
@@ -368,7 +485,7 @@ def run_seo_engine(dry_run: bool = False, article_index: int = None) -> dict:
     1. Fetch existing articles from Shopify
     2. Ask Claude to research best keyword opportunity
     3. Generate full article
-    4. Fetch image from Unsplash
+    4. Fetch hero image (Drive-first, then Unsplash)
     5. Publish to Shopify
     """
     print(f"\n{'='*60}")
@@ -396,18 +513,12 @@ def run_seo_engine(dry_run: bool = False, article_index: int = None) -> dict:
     print(f"Meta: {article['meta_description']}")
     print(f"Words: ~{article.get('word_count', 'unknown')}\n")
 
-    # Step 4: Fetch image
-    print("Fetching image from Unsplash...")
-    # Build gender-aware image search query
-    angle = brief.get("content_angle_type", "")
-    keyword = brief["primary_keyword"]
-    if "male" in angle or "men" in keyword.lower() or "man" in keyword.lower():
-        image_query = keyword + " men fitness india"
-    elif "female" in angle or "women" in keyword.lower() or "woman" in keyword.lower():
-        image_query = keyword + " women fitness india"
-    else:
-        image_query = keyword + " fitness india"
-    article["image_url"] = fetch_unsplash_image(image_query)
+    # Step 4: Hero image (Drive pool first, then Unsplash with 30-result dedup)
+    print("Fetching hero image (Drive / Unsplash)...")
+    article["image_url"] = fetch_seo_image(
+        article.get("unsplash_query") or article["title"],
+        article.get("title") or "",
+    )
     print(f"Image: {article['image_url']}\n")
 
     if dry_run:

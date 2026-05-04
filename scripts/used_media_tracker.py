@@ -267,3 +267,21 @@ def mark_used(category: str, media_id: str) -> None:
                 _record_verification_once()
         except Exception:
             return
+
+
+def reset_category(category: str) -> None:
+    """Overwrite a category's usage list with [] and persist to Drive (no-op on failure)."""
+    cat = (category or "").strip()
+    if cat not in _CATEGORIES or not GOOGLE_DRIVE_API_KEY:
+        return
+    with _lock:
+        try:
+            state, fid = _load_state_unlocked()
+            if not fid:
+                fid = _try_create_tracker_file()
+            if not fid:
+                return
+            state[cat] = []
+            _save_state_unlocked(state, fid)
+        except Exception:
+            return

@@ -78,6 +78,25 @@ FABRIC_PHRASES = [
     "breathes because it was grown, not made in a lab",
 ]
 
+# Instagram /api/generate — 8-perspective caption engine (TARGET ROAS 4:1 at ₹15k spend).
+INSTAGRAM_CAPTION_ENGINE_PROMPT = '''You write Instagram captions for WEARTH Active — premium Indian activewear made from plant-based eucalyptus fabric. The tribe is all-India: Mumbai (Bandra, Worli, South Bombay), Delhi, Bangalore, Pune, Hyderabad. Age 25-40. Ingredient-aware. Self-motivated. Moves for themselves not for an audience. Wakes up early because they want to. Reads labels. Switched to clean food, clean skincare — activewear is the last thing they haven't switched yet. Silent but ferocious. Does not follow the crowd.
+
+Every caption takes a completely different angle from the last. Use `perspective_number` (0-7) to pick:
+0 — Identity: describe this person's morning, their choices, their standards — before any product mention. Make them feel so seen they screenshot it.
+1 — The exact second: not why they switched but the precise physical moment their skin knew WEARTH was different. Sensory, specific, present tense.
+2 — Ingredient awareness: they read food labels, skincare labels — but never thought about what their workout clothes are actually made of. That realisation landing quietly.
+3 — The city: Mumbai humidity and sea air, Delhi winter mornings, Bangalore drizzle, the AC shock after a run. Real Indian physical context that only this tribe recognises.
+4 — Quiet confidence: not performing wellness for anyone. Moving because it feels good. WEARTH as the thing that fits that frequency.
+5 — What you used to accept: the gap between what you now expect from everything you consume — and what you were still tolerating in activewear. No competitor names.
+6 — One science fact: a single specific truth about plant fibre told like a personal discovery, not a lecture. Short. Surprising. Real.
+7 — Someone else noticing: a pilates instructor, a friend, a stranger. The moment an outside eye confirmed what you already felt.
+
+Voice — non-negotiable: real person thinking out loud. Short sentences. Uneven rhythm. No exclamation marks. No rhetorical questions. Never use: TENCEL, lyocell, garment, conscious, ritual, sacred, intentional, journey, game-changer, sustainable, eco-friendly, em dashes, tricolon patterns (word. word. word.).
+Fabric language — rotate: plant-based fabric, fabric from trees, botanical fibre, closed-loop plant fibre, fabric grown not made, eucalyptus fibre.
+Geographic references — use specific cities, not generic India.
+End with 6-8 hashtags including #WearthActive.
+North star: 'I literally live in WEARTH now. It's hard to go back.' — Aisha, Bandra. Every caption must earn that reaction or it doesn't ship.'''
+
 WEARTH_PROMPT = (
     "You are writing Instagram content for WEARTH — Indian activewear made from plant-based eucalyptus. Founded by Shai in India.\n\n"
     "The WEARTH tribe: wakes up early because they want to. reads ingredient labels without being asked. "
@@ -1741,13 +1760,15 @@ def generate():
         image_url = data.get('image_url', '')
         skip_composite = data.get('skip_composite', False)
 
-        # Pick 3 different fabric phrases randomly
-        phrases = random.sample(FABRIC_PHRASES, 3)
-        prompt = (WEARTH_PROMPT
-            .replace('MOOD_PLACEHOLDER', mood)
-            .replace('FABRIC_A', phrases[0])
-            .replace('FABRIC_B', phrases[1])
-            .replace('FABRIC_C', phrases[2])
+        perspective_number = random.randint(0, 7)
+        prompt = (
+            INSTAGRAM_CAPTION_ENGINE_PROMPT
+            + f"\n\nFor this generation only, perspective_number = {perspective_number}.\n"
+            + "Optional mood from client (weave lightly when it strengthens the angle): "
+            + json.dumps(mood)
+            + "\n\nReturn ONLY a JSON object. No markdown. No code fences. No explanation.\n"
+            "Start with { and end with }.\n"
+            "Use exactly these keys: headline, tagline, captions (array of exactly 3 strings)."
         )
 
         claude_resp = requests.post(
@@ -4329,6 +4350,105 @@ def klaviyo_active_count():
         return jsonify({'ok': False, 'error': f'Klaviyo timeout: {e}'}), 504
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e), 'trace': traceback.format_exc()}), 500
+
+
+def _shopify_rest_next_url(link_header: str) -> str:
+    """Parse Shopify Admin REST Link header for rel="next" URL."""
+    if not link_header:
+        return ''
+    for part in link_header.split(','):
+        p = part.strip()
+        if 'rel="next"' in p:
+            u = p.split(';')[0].strip()
+            if u.startswith('<') and u.endswith('>'):
+                return u[1:-1]
+    return ''
+
+
+@app.route('/api/klaviyo/seed-image-tracker', methods=['POST'])
+def klaviyo_seed_image_tracker():
+    """
+    One-shot: walk Shopify News blog articles, extract hero image URLs, mark Unsplash
+    (photo-* slug) and Drive (uc?id=) ids in seo_images used tracker for historical dedup.
+    """
+    host = _shopify_admin_host()
+    tok = (SHOPIFY_TOKEN or '').strip()
+    if not host or not tok:
+        return jsonify({'ok': False, 'error': 'SHOPIFY_STORE and SHOPIFY_TOKEN required'}), 500
+    blog_id = '84314751156'
+    base = f'https://{host}/admin/api/{SHOPIFY_API_VERSION}/blogs/{blog_id}/articles.json'
+    headers = {
+        'X-Shopify-Access-Token': tok,
+        'Content-Type': 'application/json',
+    }
+    umt = _used_media_tracker()
+    next_url = f'{base}?limit=250&fields=id,title,image'
+    articles_fetched = 0
+    marked_unsplash = 0
+    marked_drive = 0
+    skipped_no_image = 0
+    skipped_unknown = 0
+    errors: list = []
+    while next_url:
+        r = requests.get(next_url, headers=headers, timeout=90)
+        if r.status_code != 200:
+            return jsonify({
+                'ok': False,
+                'error': f'Shopify HTTP {r.status_code}',
+                'detail': (r.text or '')[:1200],
+                'articles_fetched': articles_fetched,
+            }), 502
+        data = r.json() or {}
+        batch = data.get('articles') or []
+        articles_fetched += len(batch)
+        for art in batch:
+            img = art.get('image') or {}
+            src = (img.get('src') or '').strip()
+            if not src:
+                skipped_no_image += 1
+                continue
+            src_l = src.lower()
+            mid = ''
+            kind = ''
+            if 'unsplash.com' in src_l or '/photo-' in src_l:
+                m = re.search(r'photo-([^/?#]+)', src, re.I)
+                if m:
+                    mid, kind = m.group(1).strip(), 'unsplash'
+            if not mid and 'drive.google.com' in src_l and 'uc' in src_l:
+                q = parse_qs(urlparse(src).query)
+                ids = q.get('id') or []
+                if ids and str(ids[0]).strip():
+                    mid, kind = str(ids[0]).strip(), 'drive'
+            if not mid:
+                skipped_unknown += 1
+                continue
+            try:
+                umt.mark_used('seo_images', mid)
+            except Exception as e:
+                errors.append(f"{art.get('id')}:{str(e)[:200]}")
+                continue
+            if kind == 'unsplash':
+                marked_unsplash += 1
+            else:
+                marked_drive += 1
+        nxt = _shopify_rest_next_url(r.headers.get('Link') or '')
+        next_url = nxt if nxt else ''
+    log_line = (
+        f'[seed-image-tracker] articles={articles_fetched} unsplash={marked_unsplash} '
+        f'drive={marked_drive} skipped_no_image={skipped_no_image} '
+        f'skipped_unknown={skipped_unknown}'
+    )
+    print(log_line, flush=True)
+    return jsonify({
+        'ok': True,
+        'articles_fetched': articles_fetched,
+        'marked_unsplash': marked_unsplash,
+        'marked_drive': marked_drive,
+        'skipped_no_image': skipped_no_image,
+        'skipped_unknown': skipped_unknown,
+        'errors': errors[:20],
+        'log': log_line,
+    })
 
 
 def _klaviyo_collect_flow_actions_via_flows_include(max_pages: int = 200, cap: int = 200):
