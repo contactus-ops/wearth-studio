@@ -8,6 +8,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from datetime import datetime, timedelta, timezone
 
 FRIDAY_WORKFLOW_ID = "3GUAuIiPvyxZK09s"
 WEBHOOK_PATH = "wearth-friday-performance-test"
@@ -45,9 +46,16 @@ def _post_webhook(base: str, path: str) -> tuple[int, str]:
         return e.code, e.read().decode("utf-8", errors="replace")
 
 
+def _parse_iso(s: str):
+    if not s:
+        return None
+    return datetime.fromisoformat(s.replace("Z", "+00:00"))
+
+
 def main() -> int:
     base = (os.environ.get("N8N_BASE_URL") or "https://wearthactive.app.n8n.cloud").rstrip("/")
     key = _key()
+    t_before = datetime.now(timezone.utc) - timedelta(seconds=3)
     code, body = _post_webhook(base, WEBHOOK_PATH)
     print(json.dumps({"step": "webhook_post", "http": code, "body_preview": body[:400]}, indent=2))
     if code not in (200, 201):
@@ -56,7 +64,7 @@ def main() -> int:
     last = None
     while time.time() < deadline:
         time.sleep(3)
-        q = f"/api/v1/executions?workflowId={FRIDAY_WORKFLOW_ID}&limit=3"
+        q = f"/api/v1/executions?workflowId={FRIDAY_WORKFLOW_ID}&limit=15"
         c2, raw = _get(base, q, key)
         if c2 != 200:
             print(json.dumps({"step": "executions_list", "http": c2, "raw": raw[:500]}))
@@ -70,11 +78,32 @@ def main() -> int:
         rows = data.get("data") if isinstance(data, dict) else data
         if not isinstance(rows, list) or not rows:
             continue
-        ex = rows[0]
+        fresh = []
+        for ex in rows:
+            if not isinstance(ex, dict):
+                continue
+            st_iso = ex.get("startedAt") or ex.get("createdAt") or ""
+            ts = _parse_iso(str(st_iso))
+            if ts and ts >= t_before:
+                fresh.append(ex)
+        if not fresh:
+            continue
+        fresh.sort(key=lambda x: str(x.get("id") or ""), reverse=True)
+        ex = fresh[0]
         last = ex
         st = str(ex.get("status") or "")
         fid = str(ex.get("finished") or "")
-        print(json.dumps({"step": "poll", "execution_id": ex.get("id"), "status": st, "finished": fid}))
+        print(
+            json.dumps(
+                {
+                    "step": "poll",
+                    "execution_id": ex.get("id"),
+                    "status": st,
+                    "finished": fid,
+                    "startedAt": ex.get("startedAt"),
+                }
+            )
+        )
         if st in ("success", "error", "crashed", "canceled"):
             ok = st == "success"
             print(json.dumps({"final_status": st, "pass": ok}, indent=2))
