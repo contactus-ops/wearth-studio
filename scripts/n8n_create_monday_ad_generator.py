@@ -3,7 +3,9 @@
 """
 Schedule: Monday 7:00 Asia/Kolkata (cron 0 7 * * 1).
 
-Anthropic/Meta tokens are read from Railway at push time and embedded into workflow nodes (n8n Cloud free has no env vars). Mail bridge header is fixed.
+Anthropic/Meta tokens are read from Railway at push time and embedded into workflow nodes (n8n Cloud free has no env vars).
+
+Shai notification uses **native Gmail** (`N8N_GMAIL_CREDENTIAL_NAME`, default `WEARTH Gmail`) — not Railway send-mail.
 """
 from __future__ import annotations
 
@@ -15,13 +17,18 @@ import uuid
 from typing import Any, Dict, List
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from n8n_api_common import load_n8n_api_key, sanitize_settings, upsert_workflow
+from n8n_api_common import (
+    load_n8n_api_key,
+    resolve_gmail_oauth2_credential,
+    sanitize_settings,
+    upsert_workflow,
+)
 
 WORKFLOW_NAME = "WEARTH Monday Ad Generator"
 APP_BASE = "https://web-production-448c1.up.railway.app"
 CAMPAIGN_ID = "120245108704880305"
 META_V = "v19.0"
-N8N_MAIL_BRIDGE_HEADER = "wearthn8ncommute"
+ADS_DASHBOARD_URL = "https://wearth-ads-dashboard-production.up.railway.app/"
 
 
 def _nid() -> str:
@@ -39,7 +46,13 @@ def _meta_q(meta_token: str) -> List[Dict[str, str]]:
     ]
 
 
-def build_workflow(anthropic_key: str, meta_token: str) -> Dict[str, Any]:
+def build_workflow(
+    anthropic_key: str,
+    meta_token: str,
+    *,
+    gmail_cred_id: str,
+    gmail_cred_name: str,
+) -> Dict[str, Any]:
     n0, n1, n2, n3, n4, n5, n6, n7, n8, n9, n10 = (_nid() for _ in range(11))
     y, x0, dx = 300, 100, 220
     pos = lambda i: [x0 + i * dx, y]
@@ -191,15 +204,14 @@ return await (async () => {{
   status: 'pending'
 }) }}"""
 
-    mail_body = """={{ JSON.stringify({
-  to: 'contactus@wearthactive.com',
-  subject: 'New WEARTH ad ready for approval — ' + $now.setZone('Asia/Kolkata').toFormat('dd MMM yyyy'),
-  text:
-    'Shai, your weekly ad is ready. Review and approve it at https://wearth-ads.up.railway.app.\\n\\nThe AI recommends this ad because: ' +
-    ($('Publish Paused Video Sync Graph').first().json.plan.reasoning || '') +
-    '\\n\\nPredicted ROAS: ' +
-    String($('Publish Paused Video Sync Graph').first().json.plan.predicted_roas ?? '')
-}) }}"""
+    monday_email_body = (
+        "={{ 'Shai, your weekly ad is ready. Review and approve it at "
+        + ADS_DASHBOARD_URL.rstrip("/")
+        + "\\n\\nThe AI recommends this ad because: ' + "
+        "($('Publish Paused Video Sync Graph').first().json.plan.reasoning || '') + "
+        "'\\n\\nPredicted ROAS: ' + "
+        "String($('Publish Paused Video Sync Graph').first().json.plan.predicted_roas ?? '') }}"
+    )
 
     nodes: List[Dict[str, Any]] = [
         {
@@ -343,29 +355,29 @@ return await (async () => {{
         },
         {
             "parameters": {
-                "method": "POST",
-                "url": f"{APP_BASE}/api/n8n/send-mail",
-                "authentication": "none",
-                "sendHeaders": True,
-                "headerParameters": {
-                    "parameters": [
-                        {"name": "Content-Type", "value": "application/json"},
-                        {
-                            "name": "X-Wearth-N8n-Mail",
-                            "value": N8N_MAIL_BRIDGE_HEADER,
-                        },
-                    ]
-                },
-                "sendBody": True,
-                "specifyBody": "json",
-                "jsonBody": mail_body,
-                "options": {"timeout": 120000},
+                "authentication": "oAuth2",
+                "resource": "message",
+                "operation": "send",
+                "sendTo": "contactus@wearthactive.com",
+                "subject": (
+                    "={{ 'New WEARTH ad ready for approval — ' + "
+                    "$now.setZone('Asia/Kolkata').toFormat('dd MMM yyyy') }}"
+                ),
+                "emailType": "text",
+                "message": monday_email_body,
+                "options": {"appendAttribution": False},
             },
             "id": n10,
             "name": "Email Shai",
-            "type": "n8n-nodes-base.httpRequest",
-            "typeVersion": 4.2,
+            "type": "n8n-nodes-base.gmail",
+            "typeVersion": 2.2,
             "position": pos(10),
+            "credentials": {
+                "gmailOAuth2": {
+                    "id": gmail_cred_id,
+                    "name": gmail_cred_name,
+                }
+            },
         },
     ]
 
@@ -435,7 +447,20 @@ def main() -> None:
             )
         )
         sys.exit(1)
-    wf = build_workflow(anthropic_key, meta_token)
+    gmail_pref = (os.environ.get("N8N_GMAIL_CREDENTIAL_NAME") or "Gmail account").strip()
+    try:
+        gmail_id, gmail_name = resolve_gmail_oauth2_credential(
+            base, key, preferred_name=gmail_pref
+        )
+    except Exception as e:
+        print(json.dumps({"error": f"Gmail credential: {e}"}))
+        sys.exit(1)
+    wf = build_workflow(
+        anthropic_key,
+        meta_token,
+        gmail_cred_id=gmail_id,
+        gmail_cred_name=gmail_name,
+    )
     try:
         wf_id, activated = upsert_workflow(base, key, wf, WORKFLOW_NAME)
     except RuntimeError as e:
@@ -448,6 +473,8 @@ def main() -> None:
                 "workflow_id": wf_id,
                 "workflow_name": WORKFLOW_NAME,
                 "active": activated,
+                "gmail_credential_id": gmail_id,
+                "gmail_credential_name": gmail_name,
             },
             indent=2,
         )

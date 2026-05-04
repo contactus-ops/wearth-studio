@@ -4,25 +4,31 @@
 Creates / updates workflow "WEARTH Friday Performance Loop" on wearthactive.app.n8n.cloud.
 
 Requires `railway run` so ANTHROPIC_API_KEY and META_ACCESS_TOKEN are read from Railway and **embedded
-into the workflow JSON** (n8n Cloud free tier has no env vars). Mail bridge header is fixed to match web.
+into the workflow JSON** (n8n Cloud free tier has no env vars).
+
+Report email uses **native Gmail node** (OAuth2). `N8N_GMAIL_CREDENTIAL_NAME` picks which credential
+(default `Gmail account`); id is resolved via n8n API. No Railway `/api/n8n/send-mail` for this workflow.
 
 Schedule: cron 0 8 * * 5, timezone Asia/Kolkata.
+Manual API test: POST {N8N_BASE}/webhook/wearth-friday-performance-test (active workflow).
 """
 from __future__ import annotations
 
 import json
 import os
+import pathlib
 import sys
 import urllib.error
 import urllib.request
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from n8n_api_common import resolve_gmail_oauth2_credential
+
 WORKFLOW_NAME = "WEARTH Friday Performance Loop"
 APP_BASE = "https://web-production-448c1.up.railway.app"
 META_V = "v19.0"
-# Must match WEARTH_N8N_MAIL_TOKEN on Railway web for /api/n8n/send-mail (not a Meta/Anthropic secret).
-N8N_MAIL_BRIDGE_HEADER = "wearthn8ncommute"
 CAMPAIGN_ID = "120245108704880305"
 WOMEN_ADSET = "120245108705080305"
 MEN_ADSET = "120245228295720305"
@@ -135,6 +141,38 @@ def _http_get_node(
     }
 
 
+def _gmail_send_report_email(
+    nid: str, pos: List[int], *, gmail_cred_id: str, gmail_cred_name: str
+) -> Dict[str, Any]:
+    """Native Gmail send — avoids n8n Cloud → Railway HTTP (errno 101 / 502)."""
+    return {
+        "parameters": {
+            "authentication": "oAuth2",
+            "resource": "message",
+            "operation": "send",
+            "sendTo": "contactus@wearthactive.com",
+            "subject": (
+                "={{ 'WEARTH weekly performance — ' + "
+                "$now.setZone('Asia/Kolkata').toFormat('dd MMM yyyy') }}"
+            ),
+            "emailType": "text",
+            "message": "={{ $json.text }}",
+            "options": {"appendAttribution": False},
+        },
+        "id": nid,
+        "name": "Send Report Email",
+        "type": "n8n-nodes-base.gmail",
+        "typeVersion": 2.2,
+        "position": pos,
+        "credentials": {
+            "gmailOAuth2": {
+                "id": gmail_cred_id,
+                "name": gmail_cred_name,
+            }
+        },
+    }
+
+
 def _http_get_simple(nid: str, name: str, url: str, pos: List[int]) -> Dict[str, Any]:
     return {
         "parameters": {
@@ -151,8 +189,11 @@ def _http_get_simple(nid: str, name: str, url: str, pos: List[int]) -> Dict[str,
     }
 
 
-def build_workflow(anthropic_key: str, meta_token: str) -> Dict[str, Any]:
+def build_workflow(
+    anthropic_key: str, meta_token: str, *, gmail_cred_id: str, gmail_cred_name: str
+) -> Dict[str, Any]:
     # Stable ids for connections
+    n_webhook = _nid()
     n_sched = _nid()
     n_k1 = _nid()
     n_k2 = _nid()
@@ -337,6 +378,20 @@ return await (async () => {{
     nodes: List[Dict[str, Any]] = [
         {
             "parameters": {
+                "multipleMethods": False,
+                "httpMethod": "POST",
+                "path": "wearth-friday-performance-test",
+                "responseMode": "onReceived",
+                "options": {},
+            },
+            "id": n_webhook,
+            "name": "Manual Test Webhook (POST)",
+            "type": "n8n-nodes-base.webhook",
+            "typeVersion": 2.1,
+            "position": [x0 - 300, y],
+        },
+        {
+            "parameters": {
                 "rule": {
                     "interval": [
                         {
@@ -449,35 +504,18 @@ return await (async () => {{
             "typeVersion": 2,
             "position": pos(11),
         },
-        {
-            "parameters": {
-                "method": "POST",
-                "url": f"{APP_BASE}/api/n8n/send-mail",
-                "authentication": "none",
-                "sendHeaders": True,
-                "headerParameters": {
-                    "parameters": [
-                        {"name": "Content-Type", "value": "application/json"},
-                        {
-                            "name": "X-Wearth-N8n-Mail",
-                            "value": N8N_MAIL_BRIDGE_HEADER,
-                        },
-                    ]
-                },
-                "sendBody": True,
-                "specifyBody": "json",
-                "jsonBody": "={{ JSON.stringify({ to: $json.to, subject: $json.subject, text: $json.text }) }}",
-                "options": {"timeout": 120000},
-            },
-            "id": n_mail,
-            "name": "Send Report Email",
-            "type": "n8n-nodes-base.httpRequest",
-            "typeVersion": 4.2,
-            "position": pos(12),
-        },
+        _gmail_send_report_email(
+            n_mail,
+            pos(12),
+            gmail_cred_id=gmail_cred_id,
+            gmail_cred_name=gmail_cred_name,
+        ),
     ]
 
     connections: Dict[str, Any] = {
+        "Manual Test Webhook (POST)": {
+            "main": [[{"node": "Klaviyo Active Count", "type": "main", "index": 0}]]
+        },
         "Every Friday 8am IST": {
             "main": [[{"node": "Klaviyo Active Count", "type": "main", "index": 0}]]
         },
@@ -553,7 +591,18 @@ def main() -> None:
         )
         sys.exit(1)
 
-    wf = build_workflow(anthropic_key, meta_token)
+    gmail_pref = (os.environ.get("N8N_GMAIL_CREDENTIAL_NAME") or "Gmail account").strip()
+    try:
+        gmail_id, gmail_name = resolve_gmail_oauth2_credential(
+            base, n8n_key, preferred_name=gmail_pref
+        )
+    except Exception as e:
+        print(json.dumps({"error": f"Gmail credential: {e}"}))
+        sys.exit(1)
+
+    wf = build_workflow(
+        anthropic_key, meta_token, gmail_cred_id=gmail_id, gmail_cred_name=gmail_name
+    )
     list_url = f"{base}/api/v1/workflows"
     code, raw_list = _req("GET", list_url, n8n_key=n8n_key)
     if code != 200:
@@ -695,7 +744,9 @@ def main() -> None:
                 "workflow_id": wf_id,
                 "workflow_name": WORKFLOW_NAME,
                 "active": activated,
-                "note": "Anthropic/Meta literals baked from Railway env at push time (n8n Cloud free has no env vars).",
+                "gmail_credential_id": gmail_id,
+                "gmail_credential_name": gmail_name,
+                "note": "Report email via Gmail node; Anthropic/Meta from Railway env.",
             },
             indent=2,
         )

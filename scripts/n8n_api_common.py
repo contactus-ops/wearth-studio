@@ -153,3 +153,43 @@ def upsert_workflow(base: str, n8n_key: str, wf: Dict[str, Any], workflow_name: 
 
     activated = try_activate_workflow(base, wf_id, n8n_key)
     return wf_id, activated
+
+
+def resolve_gmail_oauth2_credential(
+    base: str,
+    n8n_key: str,
+    *,
+    preferred_name: str = "Gmail account",
+) -> tuple[str, str]:
+    """
+    Return (credential_id, credential_name) for a gmailOAuth2 credential so workflows
+    can be published (n8n rejects empty credential id).
+    Prefers exact name match, else first gmailOAuth2 in the workspace.
+    """
+    url = f"{base.rstrip('/')}/api/v1/credentials"
+    r = urllib.request.Request(
+        url,
+        headers={"X-N8N-API-KEY": n8n_key, "Accept": "application/json"},
+    )
+    with urllib.request.urlopen(r, timeout=120) as resp:
+        raw = resp.read().decode("utf-8", errors="replace")
+    data = json.loads(raw)
+    rows = data.get("data") if isinstance(data, dict) else data
+    if not isinstance(rows, list):
+        raise RuntimeError(f"unexpected credentials response: {raw[:800]}")
+    gmail: list[tuple[str, str]] = []
+    for c in rows:
+        if not isinstance(c, dict):
+            continue
+        if str(c.get("type") or "") != "gmailOAuth2":
+            continue
+        cid = str(c.get("id") or "").strip()
+        cname = str(c.get("name") or "").strip()
+        if cid and cname:
+            gmail.append((cid, cname))
+    if not gmail:
+        raise RuntimeError("no gmailOAuth2 credentials in n8n — add Gmail OAuth2 in n8n UI")
+    for cid, cname in gmail:
+        if cname == preferred_name.strip():
+            return cid, cname
+    return gmail[0]
