@@ -34,6 +34,8 @@ _active_count_cache: dict[str, tuple[float, dict]] = {}
 WEARTH_META_CAMPAIGN_ID_DEFAULT = os.environ.get("WEARTH_META_CAMPAIGN_ID", "120245108704880305")
 WEARTH_WOMEN_ADSET_ID = os.environ.get("WEARTH_WOMEN_ADSET_ID", "120245108705080305")
 WEARTH_MEN_ADSET_ID = os.environ.get("WEARTH_MEN_ADSET_ID", "120245228295720305")
+# Live Meta ad id for the women's queue row (dashboard fetches creative when ad_id is numeric).
+WEARTH_WOMEN_META_AD_ID = os.environ.get("WEARTH_WOMEN_META_AD_ID", "120245108707140305")
 
 COMPOSITOR_URL = 'https://web-production-48b5f.up.railway.app/compose'
 ANTHROPIC_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
@@ -182,6 +184,26 @@ def _wearth_cors(resp):
     return resp
 
 
+def _normalize_pending_ad_id(row: dict) -> dict:
+    """Expose a numeric Meta ad_id to the dashboard when the queue row used a placeholder."""
+    if not isinstance(row, dict):
+        return row
+    out = dict(row)
+    aid = str(out.get("ad_id") or "").strip()
+    if aid.isdigit():
+        return out
+    meta_ad = str(out.get("meta_ad_id") or "").strip()
+    if meta_ad.isdigit():
+        out["ad_id"] = meta_ad
+        return out
+    adset = str(out.get("adset_id") or "").strip()
+    aud = (str(out.get("audience_summary") or "") + " " + str(out.get("reasoning") or "")).lower()
+    wid = str(WEARTH_WOMEN_META_AD_ID or "").strip()
+    if wid.isdigit() and (adset == WEARTH_WOMEN_ADSET_ID or "women" in aud):
+        out["ad_id"] = wid
+    return out
+
+
 def _read_pending_ads_raw() -> list:
     path = PENDING_ADS_PATH
     if not os.path.isfile(path):
@@ -289,7 +311,9 @@ def api_ads_pending():
         with _pending_ads_lock:
             rows = _read_pending_ads_raw()
         pending = [
-            r for r in rows if isinstance(r, dict) and (r.get("status") or "").lower() == "pending"
+            _normalize_pending_ad_id(r)
+            for r in rows
+            if isinstance(r, dict) and (r.get("status") or "").lower() == "pending"
         ]
         return jsonify({"ok": True, "ads": pending, "count": len(pending)})
 
@@ -713,13 +737,14 @@ def api_meta_activate_campaign():
 
 @app.route("/api/meta/adsets-live", methods=["GET"])
 def api_meta_adsets_live():
-    """Campaign snapshot + last-7d Meta insights for women/men ad sets + 7d daily chart series."""
+    """Campaign snapshot + all-time + today Meta insights per ad set + 7d daily chart series."""
     if not META_ACCESS_TOKEN:
         return jsonify({"ok": False, "error": "META_ACCESS_TOKEN not set"}), 500
     cid = WEARTH_META_CAMPAIGN_ID_DEFAULT
     payload = {
         "ok": True,
-        "date_preset": "last_7d",
+        "insights_adset_alltime_preset": "maximum",
+        "insights_adset_today_preset": "today",
         "campaign_id": cid,
         "campaign": None,
         "today_spend": None,
@@ -769,15 +794,35 @@ def api_meta_adsets_live():
     for label, aid in (("women", WEARTH_WOMEN_ADSET_ID), ("men", WEARTH_MEN_ADSET_ID)):
         try:
             st = _meta_request("GET", aid, params={"fields": "name,status,effective_status"})
-            ins = _meta_request(
+            ins_max = _meta_request(
                 "GET",
                 f"{aid}/insights",
                 params={
                     "fields": "spend,clicks,action_values,actions,impressions,cpm,cpc",
-                    "date_preset": "last_7d",
+                    "date_preset": "maximum",
                 },
             )
-            m = _adset_roas_from_insights(ins)
+            ins_today = _meta_request(
+                "GET",
+                f"{aid}/insights",
+                params={
+                    "fields": "spend,clicks,impressions",
+                    "date_preset": "today",
+                },
+            )
+            m = _adset_roas_from_insights(ins_max)
+            t0 = ((ins_today or {}).get("data") or [{}])[0] if isinstance(ins_today, dict) else {}
+            spend_today = float((t0 or {}).get("spend") or 0)
+            impressions_today = int(float((t0 or {}).get("impressions") or 0))
+            clicks_today = int(float((t0 or {}).get("clicks") or 0))
+            spend_alltime = float(m.get("spend") or 0)
+            m["spend_alltime"] = spend_alltime
+            m["spend_today"] = spend_today
+            m["impressions_today"] = impressions_today
+            m["clicks_today"] = clicks_today
+            m["impressions_alltime"] = int(m.get("impressions") or 0)
+            m["clicks_alltime"] = int(m.get("clicks") or 0)
+            m["spend"] = spend_alltime
             daily = _daily_adset_series(aid)
             if label == "women":
                 women_daily = daily

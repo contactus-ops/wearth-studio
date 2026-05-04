@@ -30,6 +30,12 @@ type LiveAdset = {
   name?: string;
   status?: string;
   spend?: number;
+  spend_alltime?: number;
+  spend_today?: number;
+  impressions_today?: number;
+  clicks_today?: number;
+  impressions_alltime?: number;
+  clicks_alltime?: number;
   clicks?: number;
   impressions?: number;
   roas?: number | null;
@@ -41,6 +47,8 @@ type LiveAdset = {
 
 type LivePayload = {
   ok: boolean;
+  insights_adset_alltime_preset?: string;
+  insights_adset_today_preset?: string;
   campaign?: {
     name?: string;
     status?: string;
@@ -976,38 +984,61 @@ export default function App() {
                   </div>
                 )}
                 {!a.error && (
-                  <div className="metrics-grid">
-                    <div className="metric">
-                      <div className="metric-val">{fmtInr(a.spend)}</div>
-                      <div className="metric-label">7d spend</div>
-                    </div>
-                    <div className="metric">
-                      <div className="metric-val">{a.clicks ?? 0}</div>
-                      <div className="metric-label">Clicks</div>
-                    </div>
-                    <div className="metric">
-                      <div className="metric-val">
-                        {a.roas != null ? a.roas.toFixed(2) : "—"}
+                  <>
+                    <div className="live-spend-hero">
+                      <div className="live-spend-today">
+                        {fmtInr(a.spend_today ?? 0)}
                       </div>
-                      <div className="metric-label">ROAS</div>
-                    </div>
-                    <div className="metric">
-                      <div className="metric-val">
-                        {a.cpm != null ? fmtInr(a.cpm, 2) : "—"}
+                      <div className="live-spend-today-cap">Today</div>
+                      <div className="live-spend-alltime">
+                        {fmtInr(
+                          a.spend_alltime ??
+                            a.spend ??
+                            0,
+                        )}{" "}
+                        <span className="live-spend-alltime-tag">all-time</span>
                       </div>
-                      <div className="metric-label">CPM</div>
-                    </div>
-                    <div className="metric">
-                      <div className="metric-val">
-                        {a.cpc != null ? fmtInr(a.cpc, 2) : "—"}
+                      <div className="live-intraday">
+                        {(a.impressions_today ?? 0).toLocaleString("en-IN")} imps
+                        today · {(a.clicks_today ?? 0).toLocaleString("en-IN")}{" "}
+                        clicks today
                       </div>
-                      <div className="metric-label">CPC</div>
                     </div>
-                    <div className="metric">
-                      <div className="metric-val">{a.impressions ?? 0}</div>
-                      <div className="metric-label">Impressions</div>
+                    <div className="metrics-grid">
+                      <div className="metric">
+                        <div className="metric-val">
+                          {(a.impressions_alltime ?? a.impressions ?? 0).toLocaleString(
+                            "en-IN",
+                          )}
+                        </div>
+                        <div className="metric-label">Impressions (all-time)</div>
+                      </div>
+                      <div className="metric">
+                        <div className="metric-val">
+                          {(a.clicks_alltime ?? a.clicks ?? 0).toLocaleString("en-IN")}
+                        </div>
+                        <div className="metric-label">Clicks (all-time)</div>
+                      </div>
+                      <div className="metric">
+                        <div className="metric-val">
+                          {a.roas != null ? a.roas.toFixed(2) : "—"}
+                        </div>
+                        <div className="metric-label">ROAS</div>
+                      </div>
+                      <div className="metric">
+                        <div className="metric-val">
+                          {a.cpm != null ? fmtInr(a.cpm, 2) : "—"}
+                        </div>
+                        <div className="metric-label">CPM</div>
+                      </div>
+                      <div className="metric">
+                        <div className="metric-val">
+                          {a.cpc != null ? fmtInr(a.cpc, 2) : "—"}
+                        </div>
+                        <div className="metric-label">CPC</div>
+                      </div>
                     </div>
-                  </div>
+                  </>
                 )}
                 {a.ads_manager_url && (
                   <a
