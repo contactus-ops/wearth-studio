@@ -6,6 +6,7 @@ Runs via n8n every Monday & Thursday 8am IST.
 """
 
 import os
+import sys
 import json
 import requests
 from datetime import datetime
@@ -177,13 +178,19 @@ FALLBACK_IMAGES = [
     "https://images.unsplash.com/photo-1552196563-55cd4e45efb3?w=1200",
 ]
 
-# Track used images to avoid repeats within same session
-_used_images = set()
+def _used_media_tracker():
+    _root = os.path.dirname(os.path.abspath(__file__))
+    _scripts = os.path.join(_root, "scripts")
+    if _scripts not in sys.path:
+        sys.path.insert(0, _scripts)
+    import importlib
+
+    return importlib.import_module("used_media_tracker")
+
 
 def fetch_unsplash_image(keyword: str) -> str:
     """Fetch a relevant image from Unsplash with variety."""
     import random as _random
-    import time as _time
     try:
         # Try multiple search terms for variety
         search_options = [
@@ -203,22 +210,38 @@ def fetch_unsplash_image(keyword: str) -> str:
         )
         if r.status_code == 200:
             results = r.json().get("results", [])
-            # Filter out already used images
-            unused = [p for p in results if p["urls"]["regular"] not in _used_images]
-            if unused:
-                photo = _random.choice(unused)
+            used_ids: list = []
+            try:
+                used_ids = _used_media_tracker().get_used_ids("seo_images")
+            except Exception:
+                used_ids = []
+            used_set = set(used_ids)
+            for photo in results:
+                pid = str(photo.get("id") or "").strip()
+                if not pid:
+                    continue
+                if pid not in used_set:
+                    url = photo["urls"]["regular"]
+                    try:
+                        _used_media_tracker().mark_used("seo_images", pid)
+                    except Exception:
+                        pass
+                    print(f"Unsplash image: {url[:60]}...")
+                    return url
+            if results:
+                photo = results[0]
+                pid = str(photo.get("id") or "").strip()
                 url = photo["urls"]["regular"]
-                _used_images.add(url)
-                print(f"Unsplash image: {url[:60]}...")
+                if pid:
+                    try:
+                        _used_media_tracker().mark_used("seo_images", pid)
+                    except Exception:
+                        pass
+                print(f"Unsplash image (fallback first): {url[:60]}...")
                 return url
     except Exception as e:
         print(f"Unsplash fetch failed: {e}")
-    # Use fallback pool — pick unused one
-    unused_fallbacks = [img for img in FALLBACK_IMAGES if img not in _used_images]
-    if not unused_fallbacks:
-        unused_fallbacks = FALLBACK_IMAGES  # reset if all used
-    url = _random.choice(unused_fallbacks)
-    _used_images.add(url)
+    url = _random.choice(FALLBACK_IMAGES)
     return url
 
 # ─── CLAUDE CALLER ────────────────────────────────────────────────────────────
@@ -248,12 +271,13 @@ def research_best_keyword(existing_articles: list) -> dict:
     existing_titles = [a["title"] for a in existing_articles]
     existing_handles = [a["handle"] for a in existing_articles]
 
+    titles_list = json.dumps(existing_titles, indent=2)
     prompt = f"""You are an SEO strategist for WEARTH Active, an Indian plant-based activewear brand.
 
 {BRAND_CONTEXT}
 
 ALREADY PUBLISHED ARTICLES (do NOT repeat these topics):
-{json.dumps(existing_titles, indent=2)}
+{titles_list}
 
 KEYWORD SEED IDEAS (expand beyond these):
 {json.dumps(KEYWORD_SEEDS, indent=2)}
@@ -271,6 +295,8 @@ Consider:
 
 Think about long-tail keywords, question-based searches, comparison searches,
 India-specific fitness/lifestyle trends, ingredient curiosity searches.
+
+The following article titles already exist — do not pick any topic that is the same as or closely similar to any of these: {titles_list}. Pick a topic that is clearly distinct.
 
 Return ONLY a JSON object with this exact structure:
 {{

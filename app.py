@@ -513,6 +513,23 @@ def list_drive_images():
         if not folder_id:
             return jsonify({"ok": True, "count": 0, "images": [], "folder_id": ""})
         imgs = _list_drive_folder_images(folder_id)
+        if str(request.args.get("omit_used_instagram") or "").lower() in ("1", "true", "yes"):
+            try:
+                umt = _used_media_tracker()
+                used = set(umt.get_used_ids("instagram"))
+                if used:
+                    full = list(imgs)
+                    filtered = [im for im in imgs if str(im.get("id") or "") not in used]
+                    if not filtered and full:
+                        print(
+                            "[used_media_tracker] instagram: all Drive images recently used — "
+                            "returning full pool for this request"
+                        )
+                        imgs = full
+                    else:
+                        imgs = filtered
+            except Exception:
+                pass
         return jsonify({"ok": True, "folder_id": folder_id, "count": len(imgs), "images": imgs})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e), "trace": traceback.format_exc()}), 500
@@ -1772,6 +1789,15 @@ def generate():
         if logo_url:
             stable_url = composite_logo(stable_url, logo_url, FAL_API_KEY)
 
+        drive_mark_id = str(data.get("drive_image_id") or "").strip()
+        if not drive_mark_id and image_url:
+            drive_mark_id = (_extract_drive_file_id(image_url) or "").strip()
+        if drive_mark_id:
+            try:
+                _used_media_tracker().mark_used("instagram", drive_mark_id)
+            except Exception:
+                pass
+
         return jsonify({'image_url': stable_url, 'headline': headline, 'tagline': tagline, 'captions': captions})
 
     except Exception as e:
@@ -2151,6 +2177,19 @@ META_AD_VIDEOS_DRIVE_FOLDER_ID = '1Zpi1G_zK9o4WrTQkFL9v-yS9K4yxvvMl'
 META_AD_IMAGES_DRIVE_FOLDER_ID = os.environ.get(
     "META_AD_IMAGES_DRIVE_FOLDER_ID", ""
 ).strip() or META_AD_VIDEOS_DRIVE_FOLDER_ID
+
+
+def _used_media_tracker():
+    """Lazy import — `scripts/used_media_tracker.py` on sys.path."""
+    import importlib
+    import sys
+
+    _root = os.path.dirname(os.path.abspath(__file__))
+    _scripts = os.path.join(_root, "scripts")
+    if _scripts not in sys.path:
+        sys.path.insert(0, _scripts)
+    return importlib.import_module("used_media_tracker")
+
 
 META_AB_PROMPT = (
     "You are generating Meta Advantage+ ad copy variants for WEARTH Active.\n\n"
@@ -3130,6 +3169,23 @@ def generate_meta_advantage_creatives():
             return jsonify({'error': 'ANTHROPIC_API_KEY not set'}), 500
 
         images = _resolve_drive_images(data)
+        if str(data.get("omit_used_instagram") or "").lower() in ("1", "true", "yes"):
+            try:
+                umt = _used_media_tracker()
+                used = set(umt.get_used_ids("instagram"))
+                if used:
+                    full = list(images)
+                    filtered = [im for im in images if str(im.get("id") or "") not in used]
+                    if not filtered and full:
+                        print(
+                            "[used_media_tracker] instagram: all images used for Advantage+ — "
+                            "using full pool for this request"
+                        )
+                        images = full
+                    else:
+                        images = filtered
+            except Exception:
+                pass
         if not images:
             return jsonify({
                 'error': 'No images found. Send google_drive_links, image_urls, or a Google Drive folder.',
