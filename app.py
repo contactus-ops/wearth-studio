@@ -561,24 +561,77 @@ def list_drive_images():
         return jsonify({"ok": False, "error": str(e), "trace": traceback.format_exc()}), 500
 
 
+def _instagram_drive_folder_query(folder_id: str, *, video: bool) -> tuple[list, int | None, str]:
+    """List Drive children; returns (rows, http_status_or_None, body_snippet_for_debug)."""
+    gid = (folder_id or "").strip()
+    key = (os.environ.get("GOOGLE_DRIVE_API_KEY") or "").strip()
+    if not key or not gid:
+        return [], None, "missing_GOOGLE_DRIVE_API_KEY_or_folder_id"
+    mime = "mimeType contains 'video/'" if video else "mimeType contains 'image/'"
+    params = {
+        "key": key,
+        "q": f"'{gid}' in parents and trashed=false and {mime}",
+        "fields": "files(id,name,mimeType)",
+        "pageSize": 100,
+    }
+    try:
+        resp = requests.get(
+            "https://www.googleapis.com/drive/v3/files", params=params, timeout=20
+        )
+        snip = (resp.text or "")[:1500]
+        if resp.status_code != 200:
+            print(
+                f"[instagram-media] Drive list HTTP {resp.status_code} folder={gid} "
+                f"video={video} body={snip}",
+                flush=True,
+            )
+            return [], resp.status_code, snip
+        rows = []
+        for f in (resp.json().get("files") or []):
+            if isinstance(f, dict) and f.get("id"):
+                rows.append({"id": f.get("id", ""), "name": f.get("name", "")})
+        return rows, resp.status_code, snip
+    except Exception as e:
+        msg = repr(e)
+        print(
+            f"[instagram-media] Drive list exception folder={gid} video={video} err={msg}",
+            flush=True,
+        )
+        return [], -1, msg
+
+
 @app.route('/api/drive/instagram-media', methods=['GET'])
 def instagram_unified_media():
     """
     One pick for Instagram automation: 70% image / 30% video from Drive when pools allow.
     Marks instagram or instagram_video used after selection.
+    Always HTTP 200 with ok true/false so clients see failure detail (no bare 404).
     """
     try:
-        if not GOOGLE_DRIVE_API_KEY:
-            return jsonify({'ok': False, 'error': 'GOOGLE_DRIVE_API_KEY not set'}), 500
-        img_f = INSTAGRAM_IMAGES_FOLDER
-        vid_f = VIDEOS_FOLDER
-        try:
-            imgs = _list_drive_folder_images(img_f) if img_f else []
-        except Exception:
+        img_f = (os.environ.get("INSTAGRAM_IMAGES_FOLDER") or "").strip()
+        vid_f = (os.environ.get("VIDEOS_FOLDER") or "").strip()
+        gkey = (os.environ.get("GOOGLE_DRIVE_API_KEY") or "").strip()
+        if not gkey:
+            return jsonify(
+                {
+                    "ok": False,
+                    "reason": "missing_google_drive_api_key",
+                    "detail": "Set GOOGLE_DRIVE_API_KEY on Railway",
+                    "INSTAGRAM_IMAGES_FOLDER": img_f or None,
+                    "VIDEOS_FOLDER": vid_f or None,
+                }
+            ), 200
+        img_http: int | None = None
+        img_body = ""
+        vid_http: int | None = None
+        vid_body = ""
+        if img_f:
+            imgs, img_http, img_body = _instagram_drive_folder_query(img_f, video=False)
+        else:
             imgs = []
-        try:
-            vids = _list_drive_folder_videos(vid_f) if vid_f else []
-        except Exception:
+        if vid_f:
+            vids, vid_http, vid_body = _instagram_drive_folder_query(vid_f, video=True)
+        else:
             vids = []
         umt = _used_media_tracker()
         used_i = set(umt.get_used_ids('instagram'))
@@ -633,27 +686,49 @@ def instagram_unified_media():
                 source_folder = 'videos'
                 cat = 'instagram_video'
         if not pick:
-            return jsonify({
-                'ok': False,
-                'error': 'No media in INSTAGRAM_IMAGES_FOLDER or VIDEOS_FOLDER',
-                'images_folder': img_f,
-                'videos_folder': vid_f,
-            }), 404
+            return jsonify(
+                {
+                    "ok": False,
+                    "reason": "no_selectable_media",
+                    "detail": "No unused image/video after filters, or Drive lists empty",
+                    "INSTAGRAM_IMAGES_FOLDER": img_f or None,
+                    "VIDEOS_FOLDER": vid_f or None,
+                    "image_count": len(imgs),
+                    "video_count": len(vids),
+                    "free_image_count": len(free_img),
+                    "free_video_count": len(free_vid),
+                    "drive_images_http": img_http,
+                    "drive_images_body_preview": img_body[:800] if img_body else "",
+                    "drive_videos_http": vid_http,
+                    "drive_videos_body_preview": vid_body[:800] if vid_body else "",
+                }
+            ), 200
         mid = str(pick.get('id') or '').strip()
         url = _drive_file_download_url(mid)
         try:
             umt.mark_used(cat, mid)
         except Exception:
             pass
-        return jsonify({
-            'ok': True,
-            'media_id': mid,
-            'media_type': media_type,
-            'url': url,
-            'source_folder': source_folder,
-        })
+        return jsonify(
+            {
+                "ok": True,
+                "media_id": mid,
+                "media_type": media_type,
+                "url": url,
+                "source_folder": source_folder,
+                "INSTAGRAM_IMAGES_FOLDER": img_f or None,
+                "VIDEOS_FOLDER": vid_f or None,
+            }
+        ), 200
     except Exception as e:
-        return jsonify({'ok': False, 'error': str(e), 'trace': traceback.format_exc()}), 500
+        return jsonify(
+            {
+                "ok": False,
+                "reason": "server_exception",
+                "detail": str(e)[:800],
+                "trace": traceback.format_exc()[:1200],
+            }
+        ), 200
 
 
 @app.route("/api/ads/publish/<ad_id>", methods=["POST", "OPTIONS"])
@@ -1055,7 +1130,7 @@ def _jobs_status_append(step: str, status: str, evidence: str) -> dict:
         {
             "step": step,
             "status": status,
-            "evidence": str(evidence)[:800],
+            "evidence": str(evidence)[:16000],
             "timestamp_ist": ist_label,
             "timestamp_unix": int(now_utc.timestamp()),
         }
