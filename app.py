@@ -1016,131 +1016,177 @@ def api_instagram_post():
             return jsonify(
                 {
                     "ok": False,
-                    "reason": "meta_config",
-                    "detail": "META_PAGE_ID and META_ACCESS_TOKEN required",
+                    "reason": "META_PAGE_ID and META_ACCESS_TOKEN required",
                 }
             ), 200
 
-        publish_token = token
+        # Step 1: derive page token + instagram_business_account.id (ig_user_id)
         try:
-            page_meta = requests.get(
+            page_token = token
+            page_token_resp = requests.get(
                 f"{META_GRAPH_BASE.rstrip('/')}/{page_id}",
                 params={"fields": "access_token", "access_token": token},
                 timeout=60,
             )
-            if page_meta.status_code == 200:
-                pmj = page_meta.json() or {}
-                page_token = str(pmj.get("access_token") or "").strip()
-                if page_token:
-                    publish_token = page_token
+            if page_token_resp.status_code == 200:
+                page_token_json = page_token_resp.json() or {}
+                page_token = str(page_token_json.get("access_token") or token).strip()
+            page_resp = requests.get(
+                f"{META_GRAPH_BASE.rstrip('/')}/{page_id}",
+                params={
+                    "fields": "instagram_business_account",
+                    "access_token": page_token,
+                },
+                timeout=60,
+            )
+            page_json = page_resp.json() if page_resp.content else {}
+            ig_user_id = str(
+                ((page_json or {}).get("instagram_business_account") or {}).get("id") or ""
+            ).strip()
+            if page_resp.status_code != 200 or not ig_user_id:
+                msg = (
+                    (((page_json or {}).get("error") or {}).get("message"))
+                    or page_resp.text[:800]
+                    or "instagram_business_account missing"
+                )
+                _safe_send_failure_alert(
+                    "Instagram Auto Post",
+                    "ig_user_lookup",
+                    msg,
+                    {"page_id": page_id, "http": page_resp.status_code},
+                )
+                return jsonify({"ok": False, "reason": msg[:1200]}), 200
         except Exception as e:
             _safe_send_failure_alert(
                 "Instagram Auto Post",
-                "meta_page_token_lookup",
+                "ig_user_lookup",
                 str(e),
                 {"page_id": page_id},
             )
+            return jsonify({"ok": False, "reason": str(e)[:1200]}), 200
 
-        graph_url = f"{META_GRAPH_BASE.rstrip('/')}/{page_id}/photos"
-        graph_video_url = f"{META_GRAPH_BASE.rstrip('/')}/{page_id}/videos"
+        # Step 2/4: create IG media container
         try:
+            media_url = f"{META_GRAPH_BASE.rstrip('/')}/{ig_user_id}/media"
             if media_type == "image":
-                r = requests.post(
-                    graph_url,
-                    data={
-                        "url": drive_url,
-                        "caption": full_caption,
-                        "access_token": publish_token,
-                    },
-                    timeout=120,
-                )
+                create_params = {
+                    "image_url": drive_url,
+                    "caption": full_caption,
+                    "access_token": page_token,
+                }
             elif media_type == "video":
-                r = requests.post(
-                    graph_video_url,
-                    data={
-                        "file_url": drive_url,
-                        "description": full_caption,
-                        "access_token": publish_token,
-                    },
-                    timeout=180,
-                )
+                create_params = {
+                    "media_type": "REELS",
+                    "video_url": drive_url,
+                    "caption": full_caption,
+                    "access_token": page_token,
+                }
             else:
+                msg = f"unsupported media_type {media_type}"
+                _safe_send_failure_alert(
+                    "Instagram Auto Post", "container_create", msg, {"media_id": file_id}
+                )
+                return jsonify({"ok": False, "reason": msg}), 200
+
+            create_resp = requests.post(media_url, params=create_params, timeout=180)
+            create_json = create_resp.json() if create_resp.content else {}
+            creation_id = str((create_json or {}).get("id") or "").strip()
+            if create_resp.status_code not in (200, 201) or not creation_id:
+                msg = (
+                    (((create_json or {}).get("error") or {}).get("message"))
+                    or create_resp.text[:1200]
+                    or "container creation failed"
+                )
                 _safe_send_failure_alert(
                     "Instagram Auto Post",
-                    "meta_publish",
-                    f"unsupported media_type {media_type}",
-                    {"media_id": file_id},
+                    "container_create",
+                    msg,
+                    {"media_type": media_type, "media_id": file_id, "http": create_resp.status_code},
                 )
-                return jsonify(
-                    {
-                        "ok": False,
-                        "reason": "meta_publish",
-                        "detail": f"unsupported media_type {media_type}",
-                    }
-                ), 200
+                return jsonify({"ok": False, "reason": msg[:1200]}), 200
         except Exception as e:
             _safe_send_failure_alert(
                 "Instagram Auto Post",
-                "meta_publish",
+                "container_create",
                 str(e),
                 {"media_type": media_type, "media_id": file_id},
             )
-            return jsonify(
-                {"ok": False, "reason": "meta_publish", "detail": str(e)[:1200]}
-            ), 200
+            return jsonify({"ok": False, "reason": str(e)[:1200]}), 200
 
+        # Step 4 video readiness: poll container status_code up to 30s
+        if media_type == "video":
+            try:
+                status_url = f"{META_GRAPH_BASE.rstrip('/')}/{creation_id}"
+                ready = False
+                status_detail = ""
+                for _ in range(6):
+                    st_resp = requests.get(
+                        status_url,
+                        params={"fields": "status_code,status", "access_token": page_token},
+                        timeout=45,
+                    )
+                    st_json = st_resp.json() if st_resp.content else {}
+                    code = str((st_json or {}).get("status_code") or "").upper()
+                    status_detail = code or str((st_json or {}).get("status") or "")
+                    if code == "FINISHED":
+                        ready = True
+                        break
+                    if code in ("ERROR", "EXPIRED"):
+                        break
+                    time.sleep(5)
+                if not ready:
+                    msg = f"video container not ready: {status_detail or 'unknown'}"
+                    _safe_send_failure_alert(
+                        "Instagram Auto Post",
+                        "video_status_wait",
+                        msg,
+                        {"creation_id": creation_id, "media_id": file_id},
+                    )
+                    return jsonify({"ok": False, "reason": msg}), 200
+            except Exception as e:
+                _safe_send_failure_alert(
+                    "Instagram Auto Post",
+                    "video_status_wait",
+                    str(e),
+                    {"creation_id": creation_id, "media_id": file_id},
+                )
+                return jsonify({"ok": False, "reason": str(e)[:1200]}), 200
+
+        # Step 3: publish container
         try:
-            jd = r.json()
-        except Exception:
-            jd = {"raw": r.text[:1200]}
-        if r.status_code not in (200, 201) or (
-            isinstance(jd, dict) and jd.get("error")
-        ):
-            err_body = (
-                jd.get("error", {}).get("message", "")
-                if isinstance(jd, dict) and isinstance(jd.get("error"), dict)
-                else str(jd)[:1200]
+            publish_resp = requests.post(
+                f"{META_GRAPH_BASE.rstrip('/')}/{ig_user_id}/media_publish",
+                params={"creation_id": creation_id, "access_token": page_token},
+                timeout=120,
             )
+            publish_json = publish_resp.json() if publish_resp.content else {}
+            instagram_id = str((publish_json or {}).get("id") or "").strip()
+            if publish_resp.status_code not in (200, 201) or not instagram_id:
+                msg = (
+                    (((publish_json or {}).get("error") or {}).get("message"))
+                    or publish_resp.text[:1200]
+                    or "media_publish failed"
+                )
+                _safe_send_failure_alert(
+                    "Instagram Auto Post",
+                    "media_publish",
+                    msg,
+                    {"creation_id": creation_id, "media_id": file_id, "http": publish_resp.status_code},
+                )
+                return jsonify({"ok": False, "reason": msg[:1200]}), 200
+        except Exception as e:
             _safe_send_failure_alert(
                 "Instagram Auto Post",
-                "meta_publish",
-                err_body or r.text[:800],
-                {"media_type": media_type, "media_id": file_id, "http": r.status_code},
+                "media_publish",
+                str(e),
+                {"creation_id": creation_id, "media_id": file_id},
             )
-            return jsonify(
-                {
-                    "ok": False,
-                    "reason": "meta_publish",
-                    "detail": err_body or r.text[:1200],
-                    "meta_status": r.status_code,
-                    "meta_body": jd if isinstance(jd, dict) else str(jd)[:800],
-                }
-            ), 200
-
-        post_id = None
-        if isinstance(jd, dict):
-            post_id = jd.get("post_id") or jd.get("id")
-        post_id = str(post_id or "").strip()
-        if not post_id:
-            _safe_send_failure_alert(
-                "Instagram Auto Post",
-                "meta_publish",
-                "missing post id in Meta response",
-                {"meta_body": jd},
-            )
-            return jsonify(
-                {
-                    "ok": False,
-                    "reason": "meta_publish",
-                    "detail": "Meta returned no id",
-                    "meta_body": jd,
-                }
-            ), 200
+            return jsonify({"ok": False, "reason": str(e)[:1200]}), 200
 
         return jsonify(
             {
                 "ok": True,
-                "post_id": post_id,
+                "post_id": instagram_id,
                 "media_type": media_type,
                 "media_id": file_id,
                 "caption_preview": full_caption[:120],
