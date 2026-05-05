@@ -78,9 +78,13 @@ def main() -> int:
             "main": [[{"node": "Post to Instagram", "type": "main", "index": 0}]]
         }
 
-    wf["nodes"] = new_nodes
-    wf["connections"] = connections
-    put_body = json.dumps(wf).encode("utf-8")
+    put_payload = {
+        "name": wf.get("name") or "Instagram workflow",
+        "nodes": new_nodes,
+        "connections": connections,
+        "settings": {},
+    }
+    put_body = json.dumps(put_payload).encode("utf-8")
     put_req = urllib.request.Request(
         get_url,
         data=put_body,

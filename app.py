@@ -1021,6 +1021,26 @@ def api_instagram_post():
                 }
             ), 200
 
+        publish_token = token
+        try:
+            page_meta = requests.get(
+                f"{META_GRAPH_BASE.rstrip('/')}/{page_id}",
+                params={"fields": "access_token", "access_token": token},
+                timeout=60,
+            )
+            if page_meta.status_code == 200:
+                pmj = page_meta.json() or {}
+                page_token = str(pmj.get("access_token") or "").strip()
+                if page_token:
+                    publish_token = page_token
+        except Exception as e:
+            _safe_send_failure_alert(
+                "Instagram Auto Post",
+                "meta_page_token_lookup",
+                str(e),
+                {"page_id": page_id},
+            )
+
         graph_url = f"{META_GRAPH_BASE.rstrip('/')}/{page_id}/photos"
         graph_video_url = f"{META_GRAPH_BASE.rstrip('/')}/{page_id}/videos"
         try:
@@ -1030,7 +1050,7 @@ def api_instagram_post():
                     data={
                         "url": drive_url,
                         "caption": full_caption,
-                        "access_token": token,
+                        "access_token": publish_token,
                     },
                     timeout=120,
                 )
@@ -1040,7 +1060,7 @@ def api_instagram_post():
                     data={
                         "file_url": drive_url,
                         "description": full_caption,
-                        "access_token": token,
+                        "access_token": publish_token,
                     },
                     timeout=180,
                 )
@@ -2926,6 +2946,23 @@ def _used_media_tracker():
     if _scripts not in sys.path:
         sys.path.insert(0, _scripts)
     return importlib.import_module("used_media_tracker")
+
+
+@app.route("/api/debug/used-media", methods=["GET"])
+def api_debug_used_media():
+    """Inspect local used-media tracker file state (dedup diagnostics)."""
+    try:
+        umt = _used_media_tracker()
+        if hasattr(umt, "debug_state"):
+            return jsonify({"ok": True, **umt.debug_state()}), 200
+        out = {
+            "instagram": umt.get_used_ids("instagram"),
+            "instagram_video": umt.get_used_ids("instagram_video"),
+            "seo_images": umt.get_used_ids("seo_images"),
+        }
+        return jsonify({"ok": True, "storage": "local_file", "state": out}), 200
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e), "trace": traceback.format_exc()}), 200
 
 
 META_AB_PROMPT = (
