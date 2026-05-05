@@ -1152,26 +1152,41 @@ def api_instagram_post():
                 )
                 return jsonify({"ok": False, "reason": str(e)[:1200]}), 200
 
-        # Step 3: publish container
+        # Step 3: publish container (retry if IG says media not yet available)
         try:
-            publish_resp = requests.post(
-                f"{META_GRAPH_BASE.rstrip('/')}/{ig_user_id}/media_publish",
-                params={"creation_id": creation_id, "access_token": page_token},
-                timeout=120,
-            )
-            publish_json = publish_resp.json() if publish_resp.content else {}
-            instagram_id = str((publish_json or {}).get("id") or "").strip()
-            if publish_resp.status_code not in (200, 201) or not instagram_id:
+            publish_resp = None
+            publish_json = {}
+            instagram_id = ""
+            msg = ""
+            for _ in range(6):
+                publish_resp = requests.post(
+                    f"{META_GRAPH_BASE.rstrip('/')}/{ig_user_id}/media_publish",
+                    params={"creation_id": creation_id, "access_token": page_token},
+                    timeout=120,
+                )
+                publish_json = publish_resp.json() if publish_resp.content else {}
+                instagram_id = str((publish_json or {}).get("id") or "").strip()
+                if publish_resp.status_code in (200, 201) and instagram_id:
+                    break
                 msg = (
                     (((publish_json or {}).get("error") or {}).get("message"))
                     or publish_resp.text[:1200]
                     or "media_publish failed"
                 )
+                if "Media ID is not available" in msg:
+                    time.sleep(5)
+                    continue
+                break
+            if not instagram_id:
                 _safe_send_failure_alert(
                     "Instagram Auto Post",
                     "media_publish",
                     msg,
-                    {"creation_id": creation_id, "media_id": file_id, "http": publish_resp.status_code},
+                    {
+                        "creation_id": creation_id,
+                        "media_id": file_id,
+                        "http": (publish_resp.status_code if publish_resp else None),
+                    },
                 )
                 return jsonify({"ok": False, "reason": msg[:1200]}), 200
         except Exception as e:
