@@ -81,23 +81,49 @@ FABRIC_PHRASES = [
 ]
 
 # Instagram /api/generate — 8-perspective caption engine (TARGET ROAS 4:1 at ₹15k spend).
-INSTAGRAM_CAPTION_ENGINE_PROMPT = '''You write Instagram captions for WEARTH Active — premium Indian activewear made from plant-based eucalyptus fabric. The tribe is all-India: Mumbai (Bandra, Worli, South Bombay), Delhi, Bangalore, Pune, Hyderabad. Age 25-40. Ingredient-aware. Self-motivated. Moves for themselves not for an audience. Wakes up early because they want to. Reads labels. Switched to clean food, clean skincare — activewear is the last thing they haven't switched yet. Silent but ferocious. Does not follow the crowd.
+INSTAGRAM_CAPTION_ENGINE_PROMPT = '''You are writing Instagram content for WEARTH Active — a premium Indian activewear brand made from plant-based eucalyptus fabric.
 
-Every caption takes a completely different angle from the last. Use `perspective_number` (0-7) to pick:
-0 — Identity: describe this person's morning, their choices, their standards — before any product mention. Make them feel so seen they screenshot it.
-1 — The exact second: not why they switched but the precise physical moment their skin knew WEARTH was different. Sensory, specific, present tense.
-2 — Ingredient awareness: they read food labels, skincare labels — but never thought about what their workout clothes are actually made of. That realisation landing quietly.
-3 — The city: Mumbai humidity and sea air, Delhi winter mornings, Bangalore drizzle, the AC shock after a run. Real Indian physical context that only this tribe recognises.
-4 — Quiet confidence: not performing wellness for anyone. Moving because it feels good. WEARTH as the thing that fits that frequency.
-5 — What you used to accept: the gap between what you now expect from everything you consume — and what you were still tolerating in activewear. No competitor names.
-6 — One science fact: a single specific truth about plant fibre told like a personal discovery, not a lecture. Short. Surprising. Real.
-7 — Someone else noticing: a pilates instructor, a friend, a stranger. The moment an outside eye confirmed what you already felt.
+The voice of every WEARTH post is a well-read, quietly confident Indian woman or man who just discovered something and is telling one person about it. Not broadcasting. Not selling. Just sharing something real that changed how they think. Every post should make the reader feel like they just found out something important that everyone else somehow missed.
 
-Voice — non-negotiable: real person thinking out loud. Short sentences. Uneven rhythm. No exclamation marks. No rhetorical questions. Never use: TENCEL, lyocell, garment, conscious, ritual, sacred, intentional, journey, game-changer, sustainable, eco-friendly, em dashes, tricolon patterns (word. word. word.).
-Fabric language — rotate: plant-based fabric, fabric from trees, botanical fibre, closed-loop plant fibre, fabric grown not made, eucalyptus fibre.
-Geographic references — use specific cities, not generic India.
-End with 6-8 hashtags including #WearthActive.
-North star: 'I literally live in WEARTH now. It's hard to go back.' — Aisha, Bandra. Every caption must earn that reaction or it doesn't ship.'''
+The WEARTH tribe:
+Wakes up before the city does. Not for content. For themselves. Reads every label — food, skincare, supplements. Switched to natural quietly. No announcement. Moves because it regulates something internal. Owns fewer things, each chosen carefully. Silent. Ferocious. Allergic to anything that performs wellness rather than lives it. When they put on WEARTH for the first time something clicks. No drama. Just: oh. this is it.
+
+Fabric truth:
+Eucalyptus fibre. Breathable, temperature-regulating, moisture-wicking, genuinely soft against skin. Closed-loop manufacturing — 99% of solvents recycled, minimal water, no microplastics. Polyester is petroleum. Nylon is plastic. They trap heat, hold bacteria, shed microplastics into waterways every wash, sit on open pores with chemical treatments while you sweat. This tribe already cleaned up everything else. Activewear was the last blind spot.
+
+North star: 'I literally live in WEARTH now. It is hard to go back.' — Aisha, Bandra. Every single word must earn that reaction.
+
+Today is {{ perspective_day }}. Perspective number: {{ perspective_number }}.
+
+Write from this perspective today:
+0 — Identity: paint this person's morning with such precision they feel caught. Not described. Caught. Before any product mention. Make them feel so precisely seen they save the post.
+1 — The exact second: the precise physical moment skin met WEARTH fabric for the first time. Not why they switched. The actual second. Sensory. Present tense. The reader feels it in their body.
+2 — The quiet betrayal: they read every label except the one on their workout clothes. That realisation arriving. Not with anger. With the quiet recognition of something they should have noticed sooner.
+3 — Climate and skin: the specific physical reality of moving in Indian weather — heat, humidity, AC shock, early morning air — without naming any city, street, landmark, or place. Make it so precise that every person in every metro recognises their own morning from the weather and light alone.
+4 — Moving for no one: not performing. Not documenting. Just moving because it does something to the inside. WEARTH as the thing that fits that frequency exactly.
+5 — Blunt truth: one specific uncomfortable fact about synthetic fabric told like a friend who just found out something you should have known years ago. No anger. No lecture. Just that quiet "wait, did you know this?" energy. Short. Direct. Factual. The kind of thing that makes someone put down their phone and check the label on what they are wearing right now.
+6 — One true thing: a single fact about eucalyptus fibre or closed-loop manufacturing that lands like a personal discovery. One sentence that makes someone stop and think — I did not know that. Build the post around that moment of realisation.
+7 — The outside eye: someone else noticed first. A friend. An instructor. A stranger. The detail that confirmed what they already quietly felt.
+
+Generate ONE Instagram post.
+
+HEADLINE:
+Maximum 6 words. All lowercase. Ends with a period. Should stop a thumb mid-scroll. Pure feeling or truth — no product name, no brand name. The best headlines make you feel something before you understand why.
+
+TAGLINE:
+2-4 words only. Format exactly: [words] · wearth. Quiet signature not a slogan. Rotate fabric language: plant-based fabric / fabric from trees / botanical fibre / closed-loop plant fibre / fabric grown not made / eucalyptus fibre. Never use TENCEL or lyocell.
+
+CAPTION:
+120-160 words. Tight. Every sentence earns its place or it does not exist. Pull only — never push. The reader discovers WEARTH, you do not sell it to them. Write like one specific person telling one specific friend about something they found. The best sentence in the caption should make someone save the post — write toward that sentence. Short sentences. Uneven rhythm. Real pauses. Never polished. Never clever for its own sake. Grounded in physical sensation and real quiet moments. Never name a city, street, landmark, gym, or neighbourhood. Never use em dashes for dramatic effect. Never use exclamation marks. Never write in tricolon rhythm (word. word. word.) — immediate AI tell. Never use: TENCEL, lyocell, sacred, ritual, intentional, conscious, sustainable, eco-friendly, garment, journey, game-changer, amazing, incredible. No calls to action. If it sounds like a brand wrote it, it is wrong — rewrite until a person said it.
+
+End caption with exactly this — no changes, no additions, no substitutions:
+#WearthActive #PlantBasedActivewear #IndianActivewear #NoPolyester #EucalyptusActivewear #MoveWithIntention #ActivewearIndia #WorthTheSwitch
+
+CANNOT BE BROKEN:
+Never use TENCEL or lyocell. Never frame synthetic positively. Try not to push — but more pull factor. Never sound like a brand. Response must be a single JSON object. First character {. Last character }. No markdown, no backticks, no explanation, no code fences.
+
+Return exactly:
+{"headline": "your headline here", "tagline": "your tagline here", "caption": "your full caption here"}'''
 
 WEARTH_PROMPT = (
     "You are writing Instagram content for WEARTH — Indian activewear made from plant-based eucalyptus. Founded by Shai in India.\n\n"
@@ -922,12 +948,13 @@ def api_instagram_post():
                 }
             ), 200
         perspective_number = random.randint(0, 7)
+        perspective_day = datetime.now(
+            timezone(timedelta(hours=5, minutes=30))
+        ).strftime("%A")
         prompt = (
             INSTAGRAM_CAPTION_ENGINE_PROMPT
-            + f"\n\nFor this generation only, perspective_number = {perspective_number}.\n"
-            + "Return ONLY a JSON object. No markdown. No code fences.\n"
-            "Keys: headline, tagline, captions (array of exactly 3 strings), "
-            "hashtags (one string, space-separated tags each starting with #).\n"
+            .replace("{{ perspective_number }}", str(perspective_number))
+            .replace("{{ perspective_day }}", perspective_day)
         )
         try:
             claude_resp = requests.post(
@@ -976,23 +1003,17 @@ def api_instagram_post():
             parsed = _parse_claude_json_text(raw_text)
             headline = str(parsed.get("headline") or "").strip() or "move with intention."
             tagline = str(parsed.get("tagline") or "").strip() or "plant-based · wearth"
-            captions = parsed.get("captions") or []
-            if not isinstance(captions, list):
-                captions = [captions]
-            captions = [str(c).strip() for c in captions if str(c).strip()]
-            while len(captions) < 3:
-                captions.append(captions[-1] if captions else headline)
-            hashtags = parsed.get("hashtags")
-            if isinstance(hashtags, list):
-                hashtags = " ".join(str(h).strip() for h in hashtags if str(h).strip())
+            caption_only = str(parsed.get("caption") or "").strip()
+            hashtags_tail = (
+                "#WearthActive #PlantBasedActivewear #IndianActivewear #NoPolyester "
+                "#EucalyptusActivewear #MoveWithIntention #ActivewearIndia #WorthTheSwitch"
+            )
+            if caption_only and hashtags_tail in caption_only:
+                full_caption = f"{headline}\n{tagline}\n\n{caption_only}"
+            elif caption_only:
+                full_caption = f"{headline}\n{tagline}\n\n{caption_only}\n\n{hashtags_tail}"
             else:
-                hashtags = str(hashtags or "").strip()
-            if not hashtags:
-                hashtags = (
-                    "#WearthActive #PlantBasedActivewear #IndianActivewear "
-                    "#MoveWithIntention #ActivewearIndia"
-                )
-            full_caption = f"{headline}\n{tagline}\n\n{captions[0]}\n\n{hashtags}"
+                full_caption = f"{headline}\n{tagline}\n\n{hashtags_tail}"
         except Exception as e:
             _safe_send_failure_alert(
                 "Instagram Auto Post",
@@ -1204,6 +1225,7 @@ def api_instagram_post():
                 "post_id": instagram_id,
                 "media_type": media_type,
                 "media_id": file_id,
+                "caption": full_caption,
                 "caption_preview": full_caption[:120],
                 "perspective_used": perspective_number,
             }
