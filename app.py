@@ -15,8 +15,10 @@ import sys
 import subprocess
 import tempfile
 from datetime import datetime, timezone, timedelta
+import hashlib
 import smtplib
 from email.mime.text import MIMEText
+from html import escape
 import threading as _threading
 
 app = Flask(__name__)
@@ -258,6 +260,86 @@ def _send_gmail_plain(to_addr: str, subject: str, body: str) -> None:
         smtp.sendmail(GMAIL_USER_MAIL, [to_addr], msg.as_string())
 
 
+def _send_gmail_html(to_addr: str, subject: str, html_body: str) -> None:
+    if not GMAIL_USER_MAIL or not GMAIL_APP_PASSWORD_MAIL:
+        raise RuntimeError("GMAIL_USER / GMAIL_APP_PASSWORD not set on this service")
+    msg = MIMEText(html_body, "html", "utf-8")
+    msg["Subject"] = subject
+    msg["From"] = GMAIL_USER_MAIL
+    msg["To"] = to_addr
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=45) as smtp:
+        smtp.login(GMAIL_USER_MAIL, GMAIL_APP_PASSWORD_MAIL)
+        smtp.sendmail(GMAIL_USER_MAIL, [to_addr], msg.as_string())
+
+
+_FAILURE_ALERT_LOCK = _threading.Lock()
+_FAILURE_ALERT_RECENT: dict[str, float] = {}
+_FAILURE_ALERT_TTL_SEC = 600.0
+FAILURE_ALERT_RECIPIENT = "contactus@wearthactive.com"
+
+
+def _failure_alert_dedupe_key(workflow_name: str, step_name: str, error_detail: str) -> str:
+    raw = f"{workflow_name}|{step_name}|{error_detail[:800]}"
+    return hashlib.sha256(raw.encode("utf-8", errors="replace")).hexdigest()
+
+
+def _failure_alert_should_send(key: str) -> bool:
+    now = time.time()
+    with _FAILURE_ALERT_LOCK:
+        stale = [k for k, ts in _FAILURE_ALERT_RECENT.items() if now - ts > _FAILURE_ALERT_TTL_SEC]
+        for k in stale:
+            del _FAILURE_ALERT_RECENT[k]
+        if key in _FAILURE_ALERT_RECENT:
+            return False
+        _FAILURE_ALERT_RECENT[key] = now
+        return True
+
+
+def send_failure_alert(
+    workflow_name: str,
+    step_name: str,
+    error_detail: str,
+    context=None,
+) -> None:
+    """SMTP alert to ops — deduped; raises only if Gmail not configured or send fails."""
+    ctx = context if isinstance(context, dict) else {}
+    detail = str(error_detail or "")[:4000]
+    key = _failure_alert_dedupe_key(workflow_name, step_name, detail)
+    if not _failure_alert_should_send(key):
+        return
+    if not GMAIL_USER_MAIL or not GMAIL_APP_PASSWORD_MAIL:
+        raise RuntimeError("GMAIL_USER / GMAIL_APP_PASSWORD not set on this service")
+    ist = datetime.now(timezone(timedelta(hours=5, minutes=30))).strftime(
+        "%Y-%m-%d %H:%M:%S IST"
+    )
+    ctx_fmt = escape(json.dumps(ctx, indent=2, ensure_ascii=False)[:8000])
+    html = f"""<div style="font-family:sans-serif;max-width:600px;padding:24px">
+  <h2 style="color:#162318">⚠️ WEARTH Automation Alert</h2>
+  <table style="width:100%;border-collapse:collapse">
+    <tr><td style="padding:8px;color:#6B6357">Workflow</td><td style="padding:8px;font-weight:500">{escape(workflow_name)}</td></tr>
+    <tr><td style="padding:8px;color:#6B6357">Failed step</td><td style="padding:8px;font-weight:500">{escape(step_name)}</td></tr>
+    <tr><td style="padding:8px;color:#6B6357">Time (IST)</td><td style="padding:8px">{escape(ist)}</td></tr>
+    <tr><td style="padding:8px;color:#6B6357">Error</td><td style="padding:8px;color:#cc0000">{escape(detail)}</td></tr>
+    <tr><td style="padding:8px;color:#6B6357">Context</td><td style="padding:8px"><pre style="white-space:pre-wrap;font-size:12px">{ctx_fmt}</pre></td></tr>
+  </table>
+  <p style="margin-top:24px"><a href="https://web-production-448c1.up.railway.app/api/jobs/status" style="color:#9E7B4F">View Railway status</a></p>
+</div>"""
+    subj = f"⚠️ WEARTH Automation Failed — {workflow_name}"
+    _send_gmail_html(FAILURE_ALERT_RECIPIENT, subj, html)
+
+
+def _safe_send_failure_alert(
+    workflow_name: str,
+    step_name: str,
+    error_detail: str,
+    context=None,
+) -> None:
+    try:
+        send_failure_alert(workflow_name, step_name, error_detail, context or {})
+    except Exception as e:
+        print(f"[failure_alert] suppressed: {e}", flush=True)
+
+
 @app.route("/api/n8n/send-mail", methods=["POST", "OPTIONS"])
 def api_n8n_send_mail():
     """n8n-friendly Gmail bridge (same SMTP as manual sends). Requires X-Wearth-N8n-Mail if WEARTH_N8N_MAIL_TOKEN is set."""
@@ -329,50 +411,65 @@ def api_n8n_health():
 def api_ads_pending():
     """Flask keeps one rule per path — GET lists pending rows; POST upserts one."""
     if request.method == "GET":
-        with _pending_ads_lock:
-            rows = _read_pending_ads_raw()
-            new_rows = []
-            changed = False
-            for r in rows:
-                if not isinstance(r, dict):
-                    new_rows.append(r)
-                    continue
-                if (r.get("status") or "").lower() != "pending":
-                    new_rows.append(r)
-                    continue
-                before = (
-                    str(r.get("ad_id") or ""),
-                    str(r.get("headline") or ""),
-                    str(r.get("body") or ""),
-                    str(r.get("video_id") or ""),
-                    str(r.get("creative_url") or ""),
-                    str(r.get("thumbnail_url") or ""),
-                )
-                r2 = _enrich_pending_row_from_meta(_normalize_pending_ad_id(dict(r)))
-                vid = str(r2.get("video_id") or "").strip()
-                if vid and _meta_numeric_node_id(vid) and not str(r2.get("thumbnail_url") or "").strip():
-                    tu = _meta_video_thumbnail_uri_first(vid)
-                    if tu:
-                        r2["thumbnail_url"] = tu
-                after = (
-                    str(r2.get("ad_id") or ""),
-                    str(r2.get("headline") or ""),
-                    str(r2.get("body") or ""),
-                    str(r2.get("video_id") or ""),
-                    str(r2.get("creative_url") or ""),
-                    str(r2.get("thumbnail_url") or ""),
-                )
-                if after != before:
-                    changed = True
-                new_rows.append(r2)
-            if changed:
-                _write_pending_ads_raw(new_rows)
-            pending = [
-                dict(x)
-                for x in new_rows
-                if isinstance(x, dict) and (x.get("status") or "").lower() == "pending"
-            ]
-        return jsonify({"ok": True, "ads": pending, "count": len(pending)})
+        try:
+            with _pending_ads_lock:
+                rows = _read_pending_ads_raw()
+                new_rows = []
+                changed = False
+                for r in rows:
+                    if not isinstance(r, dict):
+                        new_rows.append(r)
+                        continue
+                    if (r.get("status") or "").lower() != "pending":
+                        new_rows.append(r)
+                        continue
+                    before = (
+                        str(r.get("ad_id") or ""),
+                        str(r.get("headline") or ""),
+                        str(r.get("body") or ""),
+                        str(r.get("video_id") or ""),
+                        str(r.get("creative_url") or ""),
+                        str(r.get("thumbnail_url") or ""),
+                    )
+                    r2 = _enrich_pending_row_from_meta(_normalize_pending_ad_id(dict(r)))
+                    vid = str(r2.get("video_id") or "").strip()
+                    if vid and _meta_numeric_node_id(vid) and not str(r2.get("thumbnail_url") or "").strip():
+                        tu = _meta_video_thumbnail_uri_first(vid)
+                        if tu:
+                            r2["thumbnail_url"] = tu
+                    after = (
+                        str(r2.get("ad_id") or ""),
+                        str(r2.get("headline") or ""),
+                        str(r2.get("body") or ""),
+                        str(r2.get("video_id") or ""),
+                        str(r2.get("creative_url") or ""),
+                        str(r2.get("thumbnail_url") or ""),
+                    )
+                    if after != before:
+                        changed = True
+                    new_rows.append(r2)
+                if changed:
+                    _write_pending_ads_raw(new_rows)
+                pending = [
+                    dict(x)
+                    for x in new_rows
+                    if isinstance(x, dict) and (x.get("status") or "").lower() == "pending"
+                ]
+            return jsonify({"ok": True, "ads": pending, "count": len(pending)})
+        except Exception as e:
+            _safe_send_failure_alert(
+                "Monday Ad Generator",
+                "api_ads_pending_get",
+                str(e),
+                {"route": "GET /api/ads/pending"},
+            )
+            return jsonify(
+                {
+                    "ok": False,
+                    "error": str(e),
+                    "trace": traceback.format_exc(),
+                }
+            ), 200
 
     data = request.json or {}
     ad_id = str(data.get("ad_id") or "").strip()
@@ -600,6 +697,124 @@ def _instagram_drive_folder_query(folder_id: str, *, video: bool) -> tuple[list,
         return [], -1, msg
 
 
+def get_unused_instagram_media():
+    """
+    Select one unused image (INSTAGRAM_IMAGES_FOLDER) or video (VIDEOS_FOLDER) with 70/30 split.
+    Marks tracker category after selection. No compositor; Drive URLs only.
+    Returns media dict or {"ok": False, "reason", "detail", ...}.
+    """
+    img_f = (os.environ.get("INSTAGRAM_IMAGES_FOLDER") or "").strip()
+    vid_f = (os.environ.get("VIDEOS_FOLDER") or "").strip()
+    gkey = (os.environ.get("GOOGLE_DRIVE_API_KEY") or "").strip()
+    if not gkey:
+        return {
+            "ok": False,
+            "reason": "missing_google_drive_api_key",
+            "detail": "Set GOOGLE_DRIVE_API_KEY on Railway",
+        }
+    img_http = None
+    img_body = ""
+    vid_http = None
+    vid_body = ""
+    if img_f:
+        imgs, img_http, img_body = _instagram_drive_folder_query(img_f, video=False)
+    else:
+        imgs = []
+    if vid_f:
+        vids, vid_http, vid_body = _instagram_drive_folder_query(vid_f, video=True)
+    else:
+        vids = []
+    umt = _used_media_tracker()
+    used_i = set(umt.get_used_ids("instagram"))
+    used_v = set(umt.get_used_ids("instagram_video"))
+    free_img = [x for x in imgs if str(x.get("id") or "").strip() not in used_i]
+    free_vid = [x for x in vids if str(x.get("id") or "").strip() not in used_v]
+    r = random.random()
+    pick = None
+    media_type = None
+    source_folder = None
+    cat = None
+    if r < 0.7 and free_img:
+        pick = random.choice(free_img)
+        media_type = "image"
+        source_folder = "instagram_images"
+        cat = "instagram"
+    elif free_vid:
+        pick = random.choice(free_vid)
+        media_type = "video"
+        source_folder = "videos"
+        cat = "instagram_video"
+    elif free_img:
+        pick = random.choice(free_img)
+        media_type = "image"
+        source_folder = "instagram_images"
+        cat = "instagram"
+    elif free_vid:
+        pick = random.choice(free_vid)
+        media_type = "video"
+        source_folder = "videos"
+        cat = "instagram_video"
+    if not pick and imgs:
+        try:
+            umt.reset_category("instagram")
+        except Exception:
+            pass
+        free_img = list(imgs)
+        if free_img:
+            pick = random.choice(free_img)
+            media_type = "image"
+            source_folder = "instagram_images"
+            cat = "instagram"
+    if not pick and vids:
+        try:
+            umt.reset_category("instagram_video")
+        except Exception:
+            pass
+        free_vid = list(vids)
+        if free_vid:
+            pick = random.choice(free_vid)
+            media_type = "video"
+            source_folder = "videos"
+            cat = "instagram_video"
+    if not pick:
+        return {
+            "ok": False,
+            "reason": "no_selectable_media",
+            "detail": "No unused image/video after filters, or Drive lists empty",
+            "image_count": len(imgs),
+            "video_count": len(vids),
+            "free_image_count": len(free_img),
+            "free_video_count": len(free_vid),
+            "drive_images_http": img_http,
+            "drive_images_body_preview": img_body[:800] if img_body else "",
+            "drive_videos_http": vid_http,
+            "drive_videos_body_preview": vid_body[:800] if vid_body else "",
+        }
+    mid = str(pick.get("id") or "").strip()
+    url = _drive_file_download_url(mid)
+    try:
+        umt.mark_used(cat, mid)
+    except Exception:
+        pass
+    return {
+        "media_id": mid,
+        "media_type": media_type,
+        "url": url,
+        "source_folder": source_folder,
+    }
+
+
+def _parse_claude_json_text(raw_text: str) -> dict:
+    t = (raw_text or "").strip()
+    if "```" in t:
+        parts = t.split("```")
+        t = parts[1] if len(parts) > 1 else parts[0]
+        if t.startswith("json"):
+            t = t[4:]
+        t = t.strip()
+    return json.loads(t)
+
+
 @app.route('/api/drive/instagram-media', methods=['GET'])
 def instagram_unified_media():
     """
@@ -610,112 +825,29 @@ def instagram_unified_media():
     try:
         img_f = (os.environ.get("INSTAGRAM_IMAGES_FOLDER") or "").strip()
         vid_f = (os.environ.get("VIDEOS_FOLDER") or "").strip()
-        gkey = (os.environ.get("GOOGLE_DRIVE_API_KEY") or "").strip()
-        if not gkey:
+        sel = get_unused_instagram_media()
+        if isinstance(sel, dict) and sel.get("ok") is False:
             return jsonify(
                 {
-                    "ok": False,
-                    "reason": "missing_google_drive_api_key",
-                    "detail": "Set GOOGLE_DRIVE_API_KEY on Railway",
+                    **sel,
                     "INSTAGRAM_IMAGES_FOLDER": img_f or None,
                     "VIDEOS_FOLDER": vid_f or None,
                 }
             ), 200
-        img_http: int | None = None
-        img_body = ""
-        vid_http: int | None = None
-        vid_body = ""
-        if img_f:
-            imgs, img_http, img_body = _instagram_drive_folder_query(img_f, video=False)
-        else:
-            imgs = []
-        if vid_f:
-            vids, vid_http, vid_body = _instagram_drive_folder_query(vid_f, video=True)
-        else:
-            vids = []
-        umt = _used_media_tracker()
-        used_i = set(umt.get_used_ids('instagram'))
-        used_v = set(umt.get_used_ids('instagram_video'))
-        free_img = [x for x in imgs if str(x.get('id') or '').strip() not in used_i]
-        free_vid = [x for x in vids if str(x.get('id') or '').strip() not in used_v]
-        r = random.random()
-        pick = None
-        media_type = None
-        source_folder = None
-        cat = None
-        if r < 0.7 and free_img:
-            pick = random.choice(free_img)
-            media_type = 'image'
-            source_folder = 'instagram_images'
-            cat = 'instagram'
-        elif free_vid:
-            pick = random.choice(free_vid)
-            media_type = 'video'
-            source_folder = 'videos'
-            cat = 'instagram_video'
-        elif free_img:
-            pick = random.choice(free_img)
-            media_type = 'image'
-            source_folder = 'instagram_images'
-            cat = 'instagram'
-        elif free_vid:
-            pick = random.choice(free_vid)
-            media_type = 'video'
-            source_folder = 'videos'
-            cat = 'instagram_video'
-        if not pick and imgs:
-            try:
-                umt.reset_category('instagram')
-            except Exception:
-                pass
-            free_img = list(imgs)
-            if free_img:
-                pick = random.choice(free_img)
-                media_type = 'image'
-                source_folder = 'instagram_images'
-                cat = 'instagram'
-        if not pick and vids:
-            try:
-                umt.reset_category('instagram_video')
-            except Exception:
-                pass
-            free_vid = list(vids)
-            if free_vid:
-                pick = random.choice(free_vid)
-                media_type = 'video'
-                source_folder = 'videos'
-                cat = 'instagram_video'
-        if not pick:
+        if not isinstance(sel, dict) or "media_id" not in sel:
             return jsonify(
                 {
                     "ok": False,
-                    "reason": "no_selectable_media",
-                    "detail": "No unused image/video after filters, or Drive lists empty",
+                    "reason": "invalid_selection",
+                    "detail": "get_unused_instagram_media returned unexpected payload",
                     "INSTAGRAM_IMAGES_FOLDER": img_f or None,
                     "VIDEOS_FOLDER": vid_f or None,
-                    "image_count": len(imgs),
-                    "video_count": len(vids),
-                    "free_image_count": len(free_img),
-                    "free_video_count": len(free_vid),
-                    "drive_images_http": img_http,
-                    "drive_images_body_preview": img_body[:800] if img_body else "",
-                    "drive_videos_http": vid_http,
-                    "drive_videos_body_preview": vid_body[:800] if vid_body else "",
                 }
             ), 200
-        mid = str(pick.get('id') or '').strip()
-        url = _drive_file_download_url(mid)
-        try:
-            umt.mark_used(cat, mid)
-        except Exception:
-            pass
         return jsonify(
             {
                 "ok": True,
-                "media_id": mid,
-                "media_type": media_type,
-                "url": url,
-                "source_folder": source_folder,
+                **sel,
                 "INSTAGRAM_IMAGES_FOLDER": img_f or None,
                 "VIDEOS_FOLDER": vid_f or None,
             }
@@ -727,6 +859,286 @@ def instagram_unified_media():
                 "reason": "server_exception",
                 "detail": str(e)[:800],
                 "trace": traceback.format_exc()[:1200],
+            }
+        ), 200
+
+
+@app.route("/api/instagram/post", methods=["POST"])
+def api_instagram_post():
+    """Guaranteed Instagram publish path: Drive → Claude caption → Meta Graph (no compositor)."""
+    try:
+        try:
+            sel = get_unused_instagram_media()
+        except Exception as e:
+            _safe_send_failure_alert(
+                "Instagram Auto Post",
+                "media_selection",
+                str(e),
+                {"stage": "get_unused_instagram_media_exception"},
+            )
+            return jsonify(
+                {"ok": False, "reason": "media_selection", "detail": str(e)[:1200]}
+            ), 200
+
+        if isinstance(sel, dict) and sel.get("ok") is False:
+            _safe_send_failure_alert(
+                "Instagram Auto Post",
+                "media_selection",
+                str(sel.get("reason") or "unknown"),
+                {"detail": sel.get("detail"), **{k: v for k, v in sel.items() if k != "ok"}},
+            )
+            return jsonify(sel), 200
+
+        if not isinstance(sel, dict) or "media_id" not in sel:
+            _safe_send_failure_alert(
+                "Instagram Auto Post",
+                "media_selection",
+                "invalid_payload",
+                {"sel": str(sel)[:500]},
+            )
+            return jsonify(
+                {
+                    "ok": False,
+                    "reason": "media_selection",
+                    "detail": "invalid selection payload",
+                }
+            ), 200
+
+        drive_url = str(sel.get("url") or "").strip()
+        media_type = str(sel.get("media_type") or "").strip().lower()
+        file_id = str(sel.get("media_id") or "").strip()
+        if not (ANTHROPIC_KEY or "").strip():
+            _safe_send_failure_alert(
+                "Instagram Auto Post",
+                "anthropic_config",
+                "ANTHROPIC_API_KEY not set",
+                {"media_id": file_id},
+            )
+            return jsonify(
+                {
+                    "ok": False,
+                    "reason": "anthropic_config",
+                    "detail": "ANTHROPIC_API_KEY not set",
+                }
+            ), 200
+        perspective_number = random.randint(0, 7)
+        prompt = (
+            INSTAGRAM_CAPTION_ENGINE_PROMPT
+            + f"\n\nFor this generation only, perspective_number = {perspective_number}.\n"
+            + "Return ONLY a JSON object. No markdown. No code fences.\n"
+            "Keys: headline, tagline, captions (array of exactly 3 strings), "
+            "hashtags (one string, space-separated tags each starting with #).\n"
+        )
+        try:
+            claude_resp = requests.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "Content-Type": "application/json",
+                    "x-api-key": ANTHROPIC_KEY,
+                    "anthropic-version": "2023-06-01",
+                },
+                json={
+                    "model": "claude-sonnet-4-20250514",
+                    "max_tokens": 2000,
+                    "messages": [{"role": "user", "content": prompt}],
+                },
+                timeout=90,
+            )
+        except Exception as e:
+            _safe_send_failure_alert(
+                "Instagram Auto Post",
+                "claude_request",
+                str(e),
+                {"media_id": file_id, "media_type": media_type},
+            )
+            return jsonify(
+                {"ok": False, "reason": "claude_request", "detail": str(e)[:1200]}
+            ), 200
+
+        try:
+            if claude_resp.status_code != 200:
+                _safe_send_failure_alert(
+                    "Instagram Auto Post",
+                    "claude_http",
+                    f"HTTP {claude_resp.status_code}: {claude_resp.text[:800]}",
+                    {"media_id": file_id},
+                )
+                return jsonify(
+                    {
+                        "ok": False,
+                        "reason": "claude_http",
+                        "detail": claude_resp.text[:1200],
+                        "status_code": claude_resp.status_code,
+                    }
+                ), 200
+            claude_data = claude_resp.json()
+            raw_text = claude_data["content"][0]["text"].strip()
+            parsed = _parse_claude_json_text(raw_text)
+            headline = str(parsed.get("headline") or "").strip() or "move with intention."
+            tagline = str(parsed.get("tagline") or "").strip() or "plant-based · wearth"
+            captions = parsed.get("captions") or []
+            if not isinstance(captions, list):
+                captions = [captions]
+            captions = [str(c).strip() for c in captions if str(c).strip()]
+            while len(captions) < 3:
+                captions.append(captions[-1] if captions else headline)
+            hashtags = parsed.get("hashtags")
+            if isinstance(hashtags, list):
+                hashtags = " ".join(str(h).strip() for h in hashtags if str(h).strip())
+            else:
+                hashtags = str(hashtags or "").strip()
+            if not hashtags:
+                hashtags = (
+                    "#WearthActive #PlantBasedActivewear #IndianActivewear "
+                    "#MoveWithIntention #ActivewearIndia"
+                )
+            full_caption = f"{headline}\n{tagline}\n\n{captions[0]}\n\n{hashtags}"
+        except Exception as e:
+            _safe_send_failure_alert(
+                "Instagram Auto Post",
+                "claude_parse",
+                str(e),
+                {"media_id": file_id, "trace": traceback.format_exc()[:600]},
+            )
+            return jsonify(
+                {"ok": False, "reason": "claude_parse", "detail": str(e)[:1200]}
+            ), 200
+
+        page_id = (META_PAGE_ID or "").strip()
+        token = (META_ACCESS_TOKEN or "").strip()
+        if not page_id or not token:
+            _safe_send_failure_alert(
+                "Instagram Auto Post",
+                "meta_config",
+                "META_PAGE_ID or META_ACCESS_TOKEN missing",
+                {},
+            )
+            return jsonify(
+                {
+                    "ok": False,
+                    "reason": "meta_config",
+                    "detail": "META_PAGE_ID and META_ACCESS_TOKEN required",
+                }
+            ), 200
+
+        graph_url = f"{META_GRAPH_BASE.rstrip('/')}/{page_id}/photos"
+        graph_video_url = f"{META_GRAPH_BASE.rstrip('/')}/{page_id}/videos"
+        try:
+            if media_type == "image":
+                r = requests.post(
+                    graph_url,
+                    data={
+                        "url": drive_url,
+                        "caption": full_caption,
+                        "access_token": token,
+                    },
+                    timeout=120,
+                )
+            elif media_type == "video":
+                r = requests.post(
+                    graph_video_url,
+                    data={
+                        "file_url": drive_url,
+                        "description": full_caption,
+                        "access_token": token,
+                    },
+                    timeout=180,
+                )
+            else:
+                _safe_send_failure_alert(
+                    "Instagram Auto Post",
+                    "meta_publish",
+                    f"unsupported media_type {media_type}",
+                    {"media_id": file_id},
+                )
+                return jsonify(
+                    {
+                        "ok": False,
+                        "reason": "meta_publish",
+                        "detail": f"unsupported media_type {media_type}",
+                    }
+                ), 200
+        except Exception as e:
+            _safe_send_failure_alert(
+                "Instagram Auto Post",
+                "meta_publish",
+                str(e),
+                {"media_type": media_type, "media_id": file_id},
+            )
+            return jsonify(
+                {"ok": False, "reason": "meta_publish", "detail": str(e)[:1200]}
+            ), 200
+
+        try:
+            jd = r.json()
+        except Exception:
+            jd = {"raw": r.text[:1200]}
+        if r.status_code not in (200, 201) or (
+            isinstance(jd, dict) and jd.get("error")
+        ):
+            err_body = (
+                jd.get("error", {}).get("message", "")
+                if isinstance(jd, dict) and isinstance(jd.get("error"), dict)
+                else str(jd)[:1200]
+            )
+            _safe_send_failure_alert(
+                "Instagram Auto Post",
+                "meta_publish",
+                err_body or r.text[:800],
+                {"media_type": media_type, "media_id": file_id, "http": r.status_code},
+            )
+            return jsonify(
+                {
+                    "ok": False,
+                    "reason": "meta_publish",
+                    "detail": err_body or r.text[:1200],
+                    "meta_status": r.status_code,
+                    "meta_body": jd if isinstance(jd, dict) else str(jd)[:800],
+                }
+            ), 200
+
+        post_id = None
+        if isinstance(jd, dict):
+            post_id = jd.get("post_id") or jd.get("id")
+        post_id = str(post_id or "").strip()
+        if not post_id:
+            _safe_send_failure_alert(
+                "Instagram Auto Post",
+                "meta_publish",
+                "missing post id in Meta response",
+                {"meta_body": jd},
+            )
+            return jsonify(
+                {
+                    "ok": False,
+                    "reason": "meta_publish",
+                    "detail": "Meta returned no id",
+                    "meta_body": jd,
+                }
+            ), 200
+
+        return jsonify(
+            {
+                "ok": True,
+                "post_id": post_id,
+                "media_type": media_type,
+                "media_id": file_id,
+                "caption_preview": full_caption[:120],
+                "perspective_used": perspective_number,
+            }
+        ), 200
+    except Exception as e:
+        _safe_send_failure_alert(
+            "Instagram Auto Post",
+            "unexpected",
+            str(e),
+            {"trace": traceback.format_exc()[:800]},
+        )
+        return jsonify(
+            {
+                "ok": False,
+                "reason": "server_exception",
+                "detail": str(e)[:1200],
             }
         ), 200
 
@@ -1292,7 +1704,9 @@ def generate_article_endpoint():
         dry_run = bool(dry_run_raw)
     index = data.get("index", None)
     if not os.environ.get("ANTHROPIC_API_KEY"):
-        return jsonify({"error": "ANTHROPIC_API_KEY not set"}), 500
+        return jsonify(
+            {"ok": False, "error": "ANTHROPIC_API_KEY not set", "reason": "config"}
+        ), 200
     job_id = str(int(time.time()))
     _seo_job_update(job_id, {"status": "running"})
     def run():
@@ -1302,16 +1716,22 @@ def generate_article_endpoint():
             _seo_job_update(
                 job_id,
                 {
-                    "status": "complete",
-                    "article": r if isinstance(r, dict) else {},
-                    "title": r.get("title", "") if isinstance(r, dict) else "",
-                    "handle": r.get("handle", "") if isinstance(r, dict) else "",
-                    "url": f"https://wearthactive.com/blogs/news/{r.get('handle', '')}" if isinstance(r, dict) else "",
-                    "image": r.get("image", {}).get("src", "") if isinstance(r, dict) else "",
+                "status": "complete",
+                "article": r if isinstance(r, dict) else {},
+                "title": r.get("title", "") if isinstance(r, dict) else "",
+                "handle": r.get("handle", "") if isinstance(r, dict) else "",
+                "url": f"https://wearthactive.com/blogs/news/{r.get('handle', '')}" if isinstance(r, dict) else "",
+                "image": r.get("image", {}).get("src", "") if isinstance(r, dict) else "",
                     "summary": r.get("summary_html", "") if isinstance(r, dict) else "",
                 },
             )
         except Exception as e:
+            _safe_send_failure_alert(
+                "SEO Auto Publisher",
+                "run_seo_engine",
+                str(e),
+                {"job_id": job_id, "dry_run": dry_run, "index": index},
+            )
             _seo_job_update(job_id, {"status": "error", "error": str(e)})
     t = _threading.Thread(target=run)
     t.daemon = True
@@ -1324,13 +1744,28 @@ def seo_job_status(job_id):
 
 @app.route("/seo-status", methods=["GET"])
 def seo_status():
-    from seo_engine import get_existing_articles
-    published = get_existing_articles()
-    return jsonify({
-        "published": len(published),
-        "engine": "infinite",
-        "next_up": "Claude researches and picks automatically"
-    })
+    try:
+        from seo_engine import get_existing_articles
+        published = get_existing_articles()
+        return jsonify({
+            "published": len(published),
+            "engine": "infinite",
+            "next_up": "Claude researches and picks automatically"
+        })
+    except Exception as e:
+        _safe_send_failure_alert(
+            "Friday Performance Loop",
+            "seo_status",
+            str(e),
+            {"route": "/seo-status"},
+        )
+        return jsonify(
+            {
+                "ok": False,
+                "error": str(e),
+                "trace": traceback.format_exc(),
+            }
+        ), 200
 
 
 def _dt_parse(value):
@@ -3946,7 +4381,13 @@ def publish_meta_advantage_video_from_drive():
                 _parse_drive_video_publish_payload(data)
             )
         except ValueError as e:
-            return jsonify({'error': str(e)}), 400
+            _safe_send_failure_alert(
+                "Meta Video Publisher",
+                "parse_payload",
+                str(e),
+                {"route": "/api/meta-advantage/publish-video-from-drive"},
+            )
+            return jsonify({'ok': False, 'error': str(e)}), 200
 
         run_async = data.get('async', True)
         if isinstance(run_async, str):
@@ -3955,10 +4396,25 @@ def publish_meta_advantage_video_from_drive():
             run_async = bool(run_async)
 
         if not run_async:
-            result = _run_drive_video_meta_pipeline(
-                drive_file_id, variant_id, headline, primary_text, cta, daily_budget, auto_captions
-            )
-            return jsonify({'ok': True, 'status': 'complete', **result})
+            try:
+                result = _run_drive_video_meta_pipeline(
+                    drive_file_id, variant_id, headline, primary_text, cta, daily_budget, auto_captions
+                )
+                return jsonify({'ok': True, 'status': 'complete', **result})
+            except Exception as e:
+                _safe_send_failure_alert(
+                    "Meta Video Publisher",
+                    "drive_to_meta_pipeline_sync",
+                    str(e),
+                    {"drive_file_id": drive_file_id},
+                )
+                return jsonify(
+                    {
+                        'ok': False,
+                        'error': str(e),
+                        'trace': traceback.format_exc(),
+                    }
+                ), 200
 
         # Avoid Gunicorn timeout by running heavy pipeline in background.
         job_id = str(int(time.time() * 1000))
@@ -3983,6 +4439,12 @@ def publish_meta_advantage_video_from_drive():
                     }
                 }
             except Exception as e:
+                _safe_send_failure_alert(
+                    "Meta Video Publisher",
+                    "drive_to_meta_pipeline",
+                    str(e),
+                    {"job_id": job_id, "drive_file_id": drive_file_id},
+                )
                 _drive_video_jobs[job_id] = {
                     'status': 'error',
                     'mode': 'drive_to_meta_video',
@@ -4001,7 +4463,13 @@ def publish_meta_advantage_video_from_drive():
             'message': 'Poll /api/meta-advantage/publish-video-from-drive-job/<job_id> for status'
         })
     except Exception as e:
-        return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
+        _safe_send_failure_alert(
+            "Meta Video Publisher",
+            "publish_video_from_drive",
+            str(e),
+            {"route": "/api/meta-advantage/publish-video-from-drive"},
+        )
+        return jsonify({'ok': False, 'error': str(e), 'trace': traceback.format_exc()}), 200
 
 
 @app.route('/api/meta-advantage/publish-video-async', methods=['POST'])
@@ -4523,9 +4991,21 @@ def klaviyo_suppress_cold():
     try:
         return _klaviyo_suppress_cold_run(dry_run=False)
     except ValueError as e:
-        return jsonify({'ok': False, 'error': str(e)}), 400
+        _safe_send_failure_alert(
+            "Klaviyo Laundry",
+            "suppress_cold_validation",
+            str(e),
+            {"route": "/api/klaviyo/suppress-cold"},
+        )
+        return jsonify({'ok': False, 'error': str(e), 'reason': 'validation'}), 200
     except Exception as e:
-        return jsonify({'ok': False, 'error': str(e), 'trace': traceback.format_exc()}), 500
+        _safe_send_failure_alert(
+            "Klaviyo Laundry",
+            "suppress_cold",
+            str(e),
+            {"route": "/api/klaviyo/suppress-cold"},
+        )
+        return jsonify({'ok': False, 'error': str(e), 'trace': traceback.format_exc()}), 200
 
 
 def _shopify_admin_host() -> str:
