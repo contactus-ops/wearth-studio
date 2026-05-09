@@ -33,6 +33,10 @@ def create_personalised_discount():
     first_name = (data.get('first_name') or '').strip()
     cart_items = data.get('cart_items') or []
     cart_value = float(data.get('cart_value') or 0)
+    discount_pct = float(data.get('discount_pct') or 20)
+    expiry_hours = int(data.get('expiry_hours') or 24)
+    event_name = (data.get('event_name') or 'Personalised Offer Created').strip()
+    product_hint_override = (data.get('product_hint') or '').strip()
 
     if not email or not first_name:
         return jsonify({'ok': False, 'error': 'email and first_name are required'}), 400
@@ -44,7 +48,7 @@ def create_personalised_discount():
 
         code = _bce_generate_code(first_name)
         starts_at = datetime.now(timezone.utc).isoformat()
-        ends_at = (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat()
+        ends_at = (datetime.now(timezone.utc) + timedelta(hours=expiry_hours)).isoformat()
 
         # 1. Shopify price rule — 20% off, 2+ items, 1 use, 24h
         sh_h = {'X-Shopify-Access-Token': SHOPIFY_TOKEN_VAL, 'Content-Type': 'application/json'}
@@ -54,7 +58,7 @@ def create_personalised_discount():
                 'title': f'PERSONALISED_{code}',
                 'target_type': 'line_item', 'target_selection': 'all',
                 'allocation_method': 'across', 'value_type': 'percentage',
-                'value': '-20.0', 'customer_selection': 'all',
+                'value': f'-{discount_pct:.1f}', 'customer_selection': 'all',
                 'starts_at': starts_at, 'ends_at': ends_at,
                 'usage_limit': 1, 'once_per_customer': True,
             }},
@@ -97,14 +101,14 @@ def create_personalised_discount():
                                   'attributes': {'properties': {
                                       'custom_code': code,
                                       'discount_expiry': expiry_display,
-                                      'discount_pct': '20',
+                                      'discount_pct': str(int(discount_pct)),
                                   }}}},
                     headers=kv_h, timeout=15
                 )
 
         # 4. Klaviyo event — triggers Personalised Offer Created flow
         items = cart_items or []
-        product_hint = (
+        product_hint = product_hint_override or (
             items[0] if len(items) == 1 else
             f"{items[0]} and {items[1]}" if len(items) >= 2 else
             'What you left in your cart'
@@ -112,7 +116,7 @@ def create_personalised_discount():
         requests.post(
             'https://a.klaviyo.com/api/events/',
             json={'data': {'type': 'event', 'attributes': {
-                'metric': {'data': {'type': 'metric', 'attributes': {'name': 'Personalised Offer Created'}}},
+                'metric': {'data': {'type': 'metric', 'attributes': {'name': event_name}}},
                 'profile': {'data': {'type': 'profile', 'attributes': {'email': email, 'first_name': first_name}}},
                 'properties': {
                     'discount_code': code, 'expiry_date': expiry_display,
