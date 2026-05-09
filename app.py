@@ -5803,6 +5803,11 @@ def static_files(path):
         return '', 404
 
 
+# Behavioural Commerce Engine — auto-generated May 9 2026
+from behavioural_commerce import create_personalised_discount as _bce_handler
+app.add_url_rule('/api/klaviyo/create-personalised-discount', 'create_personalised_discount', _bce_handler, methods=['POST'])
+
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
