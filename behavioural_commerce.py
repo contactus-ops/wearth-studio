@@ -121,7 +121,7 @@ def create_personalised_discount():
                 'properties': {
                     'discount_code': code, 'expiry_date': expiry_display,
                     'product_hint': product_hint, 'cart_value': cart_value,
-                    'cart_items': items,
+                    'cart_items': items, 'other_colors': data.get('other_colors') or [], 'bought_product': data.get('bought_product') or '', 'bought_color': data.get('bought_color') or '',
                 },
                 'time': datetime.now(timezone.utc).isoformat(),
                 'unique_id': f'{email}_{code}',
