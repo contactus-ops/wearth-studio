@@ -57,7 +57,6 @@ def create_personalised_discount():
                 'value': '-20.0', 'customer_selection': 'all',
                 'starts_at': starts_at, 'ends_at': ends_at,
                 'usage_limit': 1, 'once_per_customer': True,
-                'prerequisite_quantity_range': {'greater_than_or_equal_to': 2},
             }},
             headers=sh_h, timeout=30
         )
