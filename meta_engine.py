@@ -134,6 +134,42 @@ def _creative_video(video_url, variant, image_hash=None):
 
 def _ad_set(name):
     template = _campaign_adset_template() or {}
+    template_id = str(template.get("id") or "").strip()
+    if template_id:
+        try:
+            rc = requests.post(
+                f"{GRAPH}/{template_id}/copies",
+                headers=_h(),
+                json={
+                    "rename_options": {"rename_strategy": "DEEP_RENAME"},
+                    "deep_copy": True,
+                },
+                timeout=60,
+            )
+            if rc.status_code in [200, 201]:
+                jd = rc.json() or {}
+                copied_id = (
+                    jd.get("copied_adset_id")
+                    or jd.get("id")
+                    or ((jd.get("data") or {}).get("id") if isinstance(jd.get("data"), dict) else None)
+                )
+                copied_id = str(copied_id or "").strip()
+                if copied_id:
+                    # Rename and activate the duplicated adset.
+                    requests.post(
+                        f"{GRAPH}/{copied_id}",
+                        headers=_h(),
+                        json={
+                            "name": name,
+                            "daily_budget": int(template.get("daily_budget") or 35000),
+                            "status": "ACTIVE",
+                        },
+                        timeout=40,
+                    )
+                    return copied_id, None
+        except Exception:
+            pass
+
     targeting = template.get("targeting") if isinstance(template, dict) else None
     if not isinstance(targeting, dict):
         targeting = TARGETING
