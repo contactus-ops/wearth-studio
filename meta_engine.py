@@ -183,28 +183,77 @@ def _act_id_clean() -> str:
     return (META_AD_ACCOUNT or "").strip().replace("act_", "")
 
 
-def _income_demographics_class_search():
+def _income_demographics_class_search(extra_params=None):
     """
-    Meta /search with type=adTargetingCategory&class=income returns income / household-income bands.
-    (act_/targetingsearch with limit_type alone often returns unrelated interests — see Marketing API targeting search.)
+    Meta /search with type=adTargetingCategory&class=income returns income bands (locale/country may vary).
     """
+    params = {"type": "adTargetingCategory", "class": "income", "limit": 500}
+    if extra_params:
+        params.update(extra_params)
+    r = requests.get(f"{GRAPH}/search", headers=_h(), params=params, timeout=55)
+    if r.status_code != 200:
+        return None, (r.text or "")[:700]
+    return r.json() or {}, None
+
+
+def _act_targetingsearch(q: str, limit_type: str):
+    aid = _act_id_clean()
+    if not aid:
+        return None, "META_AD_ACCOUNT_ID missing"
     r = requests.get(
-        f"{GRAPH}/search",
+        f"{GRAPH}/act_{aid}/targetingsearch",
         headers=_h(),
-        params={"type": "adTargetingCategory", "class": "income", "limit": 500},
-        timeout=55,
+        params={"q": q, "limit_type": limit_type, "limit": 100},
+        timeout=50,
     )
     if r.status_code != 200:
         return None, (r.text or "")[:700]
     return r.json() or {}, None
 
 
+def _collect_income_candidate_rows():
+    """Merge income-related rows from several API shapes (India tiers appear on different surfaces)."""
+    by_id = {}
+
+    def take(data):
+        for row in (data or {}).get("data") or []:
+            rid = str(row.get("id") or "").strip()
+            if rid:
+                by_id[rid] = row
+
+    for ep in (
+        None,
+        {"country_code": "IN"},
+        {"locale": "en_IN"},
+    ):
+        data, err = _income_demographics_class_search(ep)
+        if not err and data:
+            take(data)
+
+    for lt in ("household_income", "income"):
+        for q in ("India", "top 10", "household income", "percentile"):
+            data, err = _act_targetingsearch(q, lt)
+            if not err and data:
+                take(data)
+
+    return list(by_id.values())
+
+
+def _is_income_like_row(row: dict) -> bool:
+    t = (row.get("type") or "").lower()
+    if t == "income":
+        return True
+    n = _norm_target_name(row.get("name", ""))
+    if "household income" in n:
+        return True
+    if "top " in n and "%" in n:
+        return True
+    return False
+
+
 def _household_income_search(q: str):
-    """Backward-compatible wrapper: filter income class results by substring q if provided."""
-    data, err = _income_demographics_class_search()
-    if err:
-        return None, err
-    rows = (data or {}).get("data") or []
+    """Filter merged income candidates by substring q (empty = all merged)."""
+    rows = _collect_income_candidate_rows()
     if not (q or "").strip():
         return {"data": rows}, None
     ql = q.strip().lower()
@@ -223,19 +272,19 @@ def _resolve_india_household_income_pair():
     - Tier B: next bucket (commonly Top 11–20%)
     Names vary by locale; match heuristically on returned targetingsearch rows.
     """
-    data, err = _income_demographics_class_search()
-    if err:
-        return None, None, {"error": err}
-    merged_rows = (data or {}).get("data") or []
+    raw = _collect_income_candidate_rows()
+    merged_rows = [r for r in raw if _is_income_like_row(r)] or raw
     if not merged_rows:
-        return None, None, {"error": "income_class_search_returned_empty", "hint": "Account may not have India income segments or token lacks targeting permissions."}
+        return None, None, {
+            "error": "income_search_returned_empty",
+            "hint": "Try household income in Ads Manager UI and pass hooklab_income_override with two {id,name} rows.",
+        }
 
-    india_rows = []
-    for row in merged_rows:
-        name = _norm_target_name(row.get("name", ""))
-        if "india" in name or "भारत" in (row.get("name") or ""):
-            india_rows.append(row)
-
+    india_rows = [
+        row
+        for row in merged_rows
+        if "india" in _norm_target_name(row.get("name", "")) or "भारत" in (row.get("name") or "")
+    ]
     if len(india_rows) < 2:
         india_rows = merged_rows
 
@@ -657,8 +706,10 @@ def apply_hooklab_from_benchmark():
       { "benchmark_adset_id": "<e.g. Plastic Feel Women ad set id>",
         "hooklab_adset_ids": ["<hooklab ad set 1>", "<hooklab ad set 2>"],
         "name_suffixes": ["Luxury+Conscious", "Performance+Sport"],   // optional
-        "household_income_split": true   // optional (default true): India HH tiers — Top ~10% on HookLab 1, next band on HookLab 2
+        "household_income_split": true,
+        "hooklab_income_override": [{"id":"...","name":"..."},{"id":"...","name":"..."}]
       }
+      // Optional override if Meta search does not list India percentiles for your token yet (paste IDs from Graph API / support).
     Benchmark ad set is never modified.
     """
     data = request.get_json(force=True, silent=True) or {}
@@ -707,8 +758,24 @@ def apply_hooklab_from_benchmark():
         "household_income_split_requested": bool(use_inc),
         "household_income_applied": False,
     }
-    if use_inc:
+    tier_hi = tier_next = None
+    inc_detail = {}
+    ow = data.get("hooklab_income_override")
+    if (
+        use_inc
+        and isinstance(ow, list)
+        and len(ow) == 2
+        and isinstance(ow[0], dict)
+        and isinstance(ow[1], dict)
+        and str(ow[0].get("id") or "").strip()
+        and str(ow[1].get("id") or "").strip()
+    ):
+        tier_hi, tier_next = ow[0], ow[1]
+        inc_detail = {"source": "manual_override", "tier_a": tier_hi, "tier_b": tier_next}
+    elif use_inc:
         tier_hi, tier_next, inc_detail = _resolve_india_household_income_pair()
+
+    if use_inc:
         if tier_hi and tier_next:
             # Luxury/conscious cohort → highest income band; performance cohort → next band (mutually exclusive HH tiers).
             payloads[0] = _merge_income_into_first_flexible_spec(payloads[0], tier_hi)
