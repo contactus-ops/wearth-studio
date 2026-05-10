@@ -76,6 +76,18 @@ COHORT_TARGETING = {
 def _h():
     return {'Authorization': f'Bearer {META_TOKEN}'}
 
+
+def _with_advantage_audience(targeting: dict, enabled: int = 1) -> dict:
+    """
+    Meta requires targeting_automation.advantage_audience (0 or 1) on ad set targeting.
+    """
+    t = dict(targeting or {})
+    ta = dict(t.get('targeting_automation') or {})
+    ta['advantage_audience'] = int(enabled)
+    t['targeting_automation'] = ta
+    return t
+
+
 def _campaign_adset_template():
     """
     Reuse a currently accepted adset configuration from the campaign to avoid
@@ -200,6 +212,7 @@ def _ad_set(name):
     # Keep women-focused mandate.
     targeting = dict(targeting)
     targeting["genders"] = [2]
+    targeting = _with_advantage_audience(targeting, 1)
 
     payload = {
         'name': name,
@@ -221,7 +234,7 @@ def _ad_set(name):
         # Meta can reject narrow audiences. Retry with broad women-only India targeting.
         if 'configured audience is not valid' in txt.lower() or 'broaden your audience' in txt.lower():
             broad = dict(payload)
-            broad['targeting'] = {
+            broad['targeting'] = _with_advantage_audience({
                 'age_min': 23,
                 'age_max': 52,
                 'genders': [2],
@@ -229,7 +242,7 @@ def _ad_set(name):
                 'publisher_platforms': ['facebook', 'instagram'],
                 'facebook_positions': ['feed'],
                 'instagram_positions': ['stream', 'story', 'reels'],
-            }
+            }, 1)
             r = requests.post(f'{GRAPH}/act_{META_AD_ACCOUNT}/adsets', headers=_h(), json=broad, timeout=60)
     if r.status_code not in [200, 201]:
         return None, r.text
@@ -331,7 +344,7 @@ def retarget_adsets():
         new_name = f"{current_name} | {suffix or cohort}"
         payload = {
             "name": new_name[:240],
-            "targeting": COHORT_TARGETING[cohort],
+            "targeting": _with_advantage_audience(COHORT_TARGETING[cohort], 1),
             "status": "ACTIVE",
         }
         r = requests.post(f"{GRAPH}/{adset_id}", headers=_h(), json=payload, timeout=40)
@@ -523,6 +536,7 @@ def launch_carousel_ads():
         }
         if tribe["interests"]:
             targeting["interests"] = tribe["interests"]
+        targeting = _with_advantage_audience(targeting, 1)
 
         r_as = requests.post(
             GRAPH + "/act_" + META_AD_ACCOUNT + "/adsets",
