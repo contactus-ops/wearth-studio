@@ -108,7 +108,7 @@ def _creative_video(video_url, variant, image_hash=None):
     return r2.json().get('id'), None
 
 def _ad_set(name):
-    r = requests.post(f'{GRAPH}/act_{META_AD_ACCOUNT}/adsets', headers=_h(), json={
+    payload = {
         'name': name,
         'campaign_id': META_CAMPAIGN_ID,
         'daily_budget': 35000,  # ₹350 in paise
@@ -118,7 +118,23 @@ def _ad_set(name):
         'targeting': TARGETING,
         'status': 'ACTIVE',
         'start_time': int(time.time()),
-    }, timeout=60)
+    }
+    r = requests.post(f'{GRAPH}/act_{META_AD_ACCOUNT}/adsets', headers=_h(), json=payload, timeout=60)
+    if r.status_code not in [200, 201]:
+        txt = r.text or ''
+        # Meta can reject narrow audiences. Retry with broad women-only India targeting.
+        if 'configured audience is not valid' in txt.lower() or 'broaden your audience' in txt.lower():
+            broad = dict(payload)
+            broad['targeting'] = {
+                'age_min': 23,
+                'age_max': 52,
+                'genders': [2],
+                'geo_locations': {'countries': ['IN']},
+                'publisher_platforms': ['facebook', 'instagram'],
+                'facebook_positions': ['feed'],
+                'instagram_positions': ['stream', 'story', 'reels'],
+            }
+            r = requests.post(f'{GRAPH}/act_{META_AD_ACCOUNT}/adsets', headers=_h(), json=broad, timeout=60)
     if r.status_code not in [200, 201]:
         return None, r.text
     return r.json().get('id'), None
