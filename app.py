@@ -5811,6 +5811,9 @@ app.add_url_rule('/api/klaviyo/create-personalised-discount', 'create_personalis
 from product_colors import product_colors as _pc
 app.add_url_rule('/api/product-colors', view_func=_pc)
 
+from creative_engine import creative_enhance as _ce
+app.add_url_rule('/api/creative/enhance', view_func=_ce, methods=['POST'])
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
