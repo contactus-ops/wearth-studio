@@ -5821,6 +5821,10 @@ app.add_url_rule('/api/instagram/reel', view_func=post_reel, methods=['POST'])
 app.add_url_rule('/api/drive/make-public', view_func=make_drive_public, methods=['POST'])
 app.add_url_rule('/api/video/process', view_func=_vp, methods=['POST'])
 
+from facebook_engine import facebook_post, token_debug
+app.add_url_rule('/api/facebook/post', view_func=facebook_post, methods=['POST'])
+app.add_url_rule('/api/meta/token-debug', view_func=token_debug, methods=['GET'])
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
