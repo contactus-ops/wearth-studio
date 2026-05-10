@@ -242,6 +242,7 @@ def reel_publish(creation_id):
     return jsonify({"ok": True, "media_id": r2.json().get("id"), "url": "https://www.instagram.com/wearth_active/"})
 
 
+
 def launch_carousel_ads():
     """POST /api/meta/launch-carousel
     2 carousel ad sets: image card (hook) then video card (proof).
@@ -285,9 +286,7 @@ def launch_carousel_ads():
                 {"id": "6002854400571", "name": "Mindfulness"},
             ],
             "headline": "your body deserves better than polyester",
-            "body": "Women who practice yoga know: what touches your skin matters.
-WEARTH is fabric grown from trees, not made from petroleum.
-Breathe it. Move in it. Never go back.",
+            "body": "Women who practice yoga know: what touches your skin matters.\nWEARTH is fabric grown from trees, not made from petroleum.\nBreathe it. Move in it. Never go back.",
             "swipe_hint": "swipe to feel the difference",
         },
         {
@@ -300,9 +299,7 @@ Breathe it. Move in it. Never go back.",
                 {"id": "6003256527468", "name": "Wellness"},
             ],
             "headline": "the last activewear you will ever need to upgrade",
-            "body": "Not fast fashion. Not synthetic.
-WEARTH is closed-loop, plant-based, built to outlast everything else in your wardrobe.
-I literally live in WEARTH now. It is hard to go back. - Nidhi, Bandra",
+            "body": "Not fast fashion. Not synthetic.\nWEARTH is closed-loop, plant-based, built to outlast everything else in your wardrobe.\nI literally live in WEARTH now. It is hard to go back. - Nidhi, Bandra",
             "swipe_hint": "see it in motion",
         },
     ]
