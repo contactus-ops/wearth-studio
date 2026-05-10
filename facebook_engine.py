@@ -37,3 +37,15 @@ def token_debug():
         return jsonify({'error': r.text[:200]}), r.status_code
     d = r.json().get('data', {})
     return jsonify({'ok': True, 'app_id': d.get('app_id'), 'type': d.get('type'), 'expires_at': d.get('expires_at', 'never - system user token'), 'is_valid': d.get('is_valid'), 'scopes': d.get('scopes', [])})
+
+
+def find_accounts():
+    """GET /api/meta/find-accounts"""
+    import os
+    mt = os.environ.get("META_ACCESS_TOKEN", "")
+    g = "https://graph.facebook.com/v22.0"
+    r = requests.get(f"{g}/5558174005565456/owned_ad_accounts", params={"fields": "id,name,account_status,currency", "access_token": mt}, timeout=30)
+    if r.status_code != 200:
+        r2 = requests.get(f"{g}/me/adaccounts", params={"fields": "id,name,account_status", "access_token": mt}, timeout=30)
+        return jsonify({"fallback": r2.json(), "biz_err": r.text[:200]})
+    return jsonify({"ok": True, "accounts": r.json().get("data", [])})
