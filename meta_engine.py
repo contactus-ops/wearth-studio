@@ -240,3 +240,153 @@ def reel_publish(creation_id):
     r2 = requests.post(f"{GRAPH}/{IG_USER_ID}/media_publish", headers=_h(), json={"creation_id": creation_id}, timeout=30)
     if r2.status_code not in [200, 201]: return jsonify({"error": f"publish: {r2.text[:200]}"}), 500
     return jsonify({"ok": True, "media_id": r2.json().get("id"), "url": "https://www.instagram.com/wearth_active/"})
+
+
+def launch_carousel_ads():
+    """POST /api/meta/launch-carousel
+    2 carousel ad sets: image card (hook) then video card (proof).
+    Tribe A: Mindful Mover 25-38  |  Tribe B: Conscious Luxury 30-48
+    Women only, Mumbai/Delhi/Bengaluru. Different from default tribes.
+    Body: { image_b64, video_url, combo_name }
+    """
+    data = request.get_json(force=True, silent=True) or {}
+    image_b64 = data.get("image_b64", "")
+    video_url  = data.get("video_url", "")
+    combo_name = data.get("combo_name", "WEARTH Carousel")[:40]
+
+    if not image_b64: return jsonify({"error": "image_b64 required"}), 400
+    if not video_url:  return jsonify({"error": "video_url required"}), 400
+
+    img_hash, err = _upload_image_b64(image_b64)
+    if err: return jsonify({"error": "image upload: " + str(err)}), 500
+
+    r_vid = requests.post(
+        GRAPH + "/act_" + META_AD_ACCOUNT + "/advideos",
+        headers=_h(),
+        json={"file_url": video_url, "title": combo_name},
+        timeout=120
+    )
+    if r_vid.status_code not in [200, 201]:
+        return jsonify({"error": "video upload: " + r_vid.text[:300]}), 500
+    video_id = r_vid.json().get("id")
+    if not video_id:
+        return jsonify({"error": "video_id missing"}), 500
+
+    CAMPAIGN_ID = os.environ.get("META_CAMPAIGN_ID", "")
+
+    TRIBES = [
+        {
+            "key": "mindful_mover",
+            "name": "Mindful Mover",
+            "age_min": 25, "age_max": 38,
+            "interests": [
+                {"id": "6003617362855", "name": "Yoga"},
+                {"id": "6003257064618", "name": "Meditation"},
+                {"id": "6002854400571", "name": "Mindfulness"},
+            ],
+            "headline": "your body deserves better than polyester",
+            "body": "Women who practice yoga know: what touches your skin matters.
+WEARTH is fabric grown from trees, not made from petroleum.
+Breathe it. Move in it. Never go back.",
+            "swipe_hint": "swipe to feel the difference",
+        },
+        {
+            "key": "conscious_luxury",
+            "name": "Conscious Luxury",
+            "age_min": 30, "age_max": 48,
+            "interests": [
+                {"id": "6003400427738", "name": "Sustainability"},
+                {"id": "6002909714972", "name": "Organic food"},
+                {"id": "6003256527468", "name": "Wellness"},
+            ],
+            "headline": "the last activewear you will ever need to upgrade",
+            "body": "Not fast fashion. Not synthetic.
+WEARTH is closed-loop, plant-based, built to outlast everything else in your wardrobe.
+I literally live in WEARTH now. It is hard to go back. - Nidhi, Bandra",
+            "swipe_hint": "see it in motion",
+        },
+    ]
+
+    ad_sets, ad_ids, errors = [], [], []
+
+    for tribe in TRIBES:
+        adset_name = combo_name + " -- " + tribe["name"] + " Carousel"
+        r_as = requests.post(
+            GRAPH + "/act_" + META_AD_ACCOUNT + "/adsets",
+            headers=_h(),
+            json={
+                "name": adset_name,
+                "campaign_id": CAMPAIGN_ID,
+                "billing_event": "IMPRESSIONS",
+                "optimization_goal": "OFFSITE_CONVERSIONS",
+                "daily_budget": 35000,
+                "bid_strategy": "LOWEST_COST_WITHOUT_CAP",
+                "targeting": {
+                    "geo_locations": {
+                        "countries": ["IN"],
+                        "regions": [
+                            {"key": "2252"},
+                            {"key": "2249"},
+                            {"key": "2257"},
+                        ],
+                    },
+                    "age_min": tribe["age_min"],
+                    "age_max": tribe["age_max"],
+                    "genders": [2],
+                    "flexible_spec": [{"interests": tribe["interests"]}],
+                },
+                "promoted_object": {"pixel_id": META_PIXEL_ID, "custom_event_type": "PURCHASE"},
+                "status": "ACTIVE",
+            },
+            timeout=30
+        )
+        if r_as.status_code not in [200, 201]:
+            errors.append("adset " + tribe["key"] + ": " + r_as.text[:200])
+            continue
+        asid = r_as.json().get("id")
+        ad_sets.append(asid)
+
+        r_c = requests.post(
+            GRAPH + "/act_" + META_AD_ACCOUNT + "/adcreatives",
+            headers=_h(),
+            json={
+                "name": combo_name + " Carousel -- " + tribe["name"],
+                "object_story_spec": {
+                    "page_id": META_PAGE_ID,
+                    "link_data": {
+                        "link": "https://wearthactive.com",
+                        "message": tribe["body"],
+                        "multi_share_end_card": False,
+                        "child_attachments": [
+                            {
+                                "link": "https://wearthactive.com",
+                                "image_hash": img_hash,
+                                "name": tribe["headline"],
+                                "description": tribe["swipe_hint"],
+                                "call_to_action": {"type": "SHOP_NOW", "value": {"link": "https://wearthactive.com"}},
+                            },
+                            {
+                                "link": "https://wearthactive.com",
+                                "video_id": video_id,
+                                "name": "plant-based. closed-loop. yours.",
+                                "description": "Shop wearthactive.com",
+                                "call_to_action": {"type": "SHOP_NOW", "value": {"link": "https://wearthactive.com"}},
+                            },
+                        ],
+                    },
+                },
+            },
+            timeout=30
+        )
+        if r_c.status_code not in [200, 201]:
+            errors.append("creative " + tribe["key"] + ": " + r_c.text[:200])
+            continue
+        creative_id = r_c.json().get("id")
+        ad_name = combo_name + " Carousel Ad -- " + tribe["name"]
+        aid, err = _ad(ad_name, asid, creative_id)
+        if err:
+            errors.append("ad " + tribe["key"] + ": " + str(err))
+        else:
+            ad_ids.append(aid)
+
+    return jsonify({"ok": True, "ad_set_ids": ad_sets, "ad_ids": ad_ids, "errors": errors, "format": "carousel"})
