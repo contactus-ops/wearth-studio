@@ -5828,6 +5828,10 @@ app.add_url_rule('/api/meta/token-debug', view_func=token_debug, methods=['GET']
 from facebook_engine import find_accounts
 app.add_url_rule('/api/meta/find-accounts', view_func=find_accounts, methods=['GET'])
 
+from meta_engine import post_reel_async, reel_publish
+app.add_url_rule('/api/instagram/reel', view_func=post_reel_async, methods=['POST'])
+app.add_url_rule('/api/instagram/reel-publish/<creation_id>', view_func=reel_publish, methods=['POST'])
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
