@@ -3,7 +3,7 @@ from flask import Flask, jsonify
 from seo_engine import run_seo_engine
 from creative_engine import creative_enhance
 from video_engine import video_process
-from meta_engine import launch_ads, post_reel_async, reel_publish
+from meta_engine import launch_ads, launch_carousel_ads, post_reel_async, reel_publish
 from facebook_engine import facebook_post, token_debug, find_accounts
 
 app = Flask(__name__)
@@ -11,6 +11,7 @@ app = Flask(__name__)
 app.add_url_rule('/api/seo/generate', view_func=run_seo_engine, methods=['POST'])
 app.add_url_rule('/api/creative/enhance', view_func=creative_enhance, methods=['POST'])
 app.add_url_rule('/api/video/process', view_func=video_process, methods=['POST'])
+app.add_url_rule('/api/meta/launch-carousel', view_func=launch_carousel_ads, methods=['POST'])
 app.add_url_rule('/api/meta/launch-ads', view_func=launch_ads, methods=['POST'])
 app.add_url_rule('/api/instagram/reel', view_func=post_reel_async, methods=['POST'])
 app.add_url_rule('/api/instagram/reel-publish/<creation_id>', view_func=reel_publish, methods=['POST'])
