@@ -5814,6 +5814,13 @@ app.add_url_rule('/api/product-colors', view_func=_pc)
 from creative_engine import creative_enhance as _ce
 app.add_url_rule('/api/creative/enhance', view_func=_ce, methods=['POST'])
 
+from meta_engine import launch_ads, post_reel, make_drive_public
+from video_engine import video_process as _vp
+app.add_url_rule('/api/meta/launch-ads', view_func=launch_ads, methods=['POST'])
+app.add_url_rule('/api/instagram/reel', view_func=post_reel, methods=['POST'])
+app.add_url_rule('/api/drive/make-public', view_func=make_drive_public, methods=['POST'])
+app.add_url_rule('/api/video/process', view_func=_vp, methods=['POST'])
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
