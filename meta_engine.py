@@ -1,4 +1,5 @@
 import os
+import copy
 import json
 import time
 import base64
@@ -73,8 +74,96 @@ COHORT_TARGETING = {
     },
 }
 
+# Keyword hints to split a benchmark interest list into two WEARTH-relevant cohorts (names are lowercased).
+# Cohort A skew: purchase authority + material/conscious luxury (aligned with premium plant-based positioning).
+_LUXURY_CONSCIOUS_HINTS = (
+    "luxury", "wine", "whisky", "hotel", "travel", "skin care", "skin care brands",
+    "fine dining", "finedining", "organic food", "vegan", "clean eating", "meditation",
+    "sleep", "small luxury", "wellness", "spa", "sustainab", "eco", "natural food",
+    "conscious", "mindful", "beauty", "cosmetic", "boutique", "department store",
+    "shopping", "retail fashion", "air travel", "business travel",
+)
+# Cohort B skew: training modality + sport participation (premium fabric as performance upgrade).
+_PERFORMANCE_HINTS = (
+    "running", "cycling", "crossfit", "hiit", "pilates", "yoga", "swimming", "tennis",
+    "golf", "pickleball", "squash", "triathlon", "weightlifting", "calisthenics",
+    "climbing", "sportswear", "athleisure", "fitness", "track", "field", "olympic",
+    "pure barre", "wearable", "marathon", "trail", "workout", "gym", "strength",
+    "rowing", "boxing", "badminton", "basketball", "football", "soccer", "outdoor",
+)
+
 def _h():
     return {'Authorization': f'Bearer {META_TOKEN}'}
+
+
+def _dedupe_interests(rows: list) -> list:
+    seen = set()
+    out = []
+    for x in rows or []:
+        if not isinstance(x, dict):
+            continue
+        iid = str(x.get("id") or "").strip()
+        if iid and iid not in seen:
+            seen.add(iid)
+            out.append({"id": iid, "name": x.get("name") or ""})
+    return out
+
+
+def _extract_interests_from_targeting(targeting: dict) -> list:
+    """Flatten interests from flexible_spec[] and legacy top-level interests."""
+    if not isinstance(targeting, dict):
+        return []
+    out = []
+    for fs in targeting.get("flexible_spec") or []:
+        if not isinstance(fs, dict):
+            continue
+        for i in fs.get("interests") or []:
+            if isinstance(i, dict) and i.get("id"):
+                out.append({"id": str(i["id"]), "name": i.get("name") or ""})
+    for i in targeting.get("interests") or []:
+        if isinstance(i, dict) and i.get("id"):
+            out.append({"id": str(i["id"]), "name": i.get("name") or ""})
+    return _dedupe_interests(out)
+
+
+def _split_interests_hooklab_dual(interests: list) -> tuple:
+    """
+    Split benchmark interests into two complementary cohorts:
+    - A: luxury / conscious / premium lifestyle skew
+    - B: performance / training / sport skew
+    """
+    if not interests:
+        return [], []
+    luxury_conscious = []
+    performance = []
+    neutral = []
+    for i in interests:
+        name = (i.get("name") or "").lower()
+        if any(h in name for h in _LUXURY_CONSCIOUS_HINTS):
+            luxury_conscious.append(i)
+        elif any(h in name for h in _PERFORMANCE_HINTS):
+            performance.append(i)
+        else:
+            neutral.append(i)
+    half = (len(neutral) + 1) // 2
+    cohort_a = _dedupe_interests(luxury_conscious + neutral[:half])
+    cohort_b = _dedupe_interests(performance + neutral[half:])
+    if len(cohort_a) < 4 or len(cohort_b) < 4:
+        mid = max(1, len(interests) // 2)
+        cohort_a = _dedupe_interests(interests[:mid])
+        cohort_b = _dedupe_interests(interests[mid:])
+    return cohort_a, cohort_b
+
+
+def _targeting_replace_flexible_interests(base_targeting: dict, interests_subset: list) -> dict:
+    """Deep-copy benchmark targeting and replace flexible_spec interests (Advantage off)."""
+    t = copy.deepcopy(base_targeting)
+    t.pop("interests", None)
+    if interests_subset:
+        t["flexible_spec"] = [{"interests": interests_subset}]
+    else:
+        t["flexible_spec"] = []
+    return _with_advantage_audience(t, 0)
 
 
 def _with_advantage_audience(targeting: dict, enabled: int = 0) -> dict:
@@ -364,6 +453,151 @@ def retarget_adsets():
         results.append({"ok": True, "adset_id": adset_id, "cohort": cohort, "name": new_name[:240]})
 
     return jsonify({"ok": all(x.get("ok") for x in results), "results": results})
+
+
+def get_adset_targeting_preview():
+    """
+    GET /api/meta/adset-targeting-preview?adset_id=...
+    Optional: &split=1 — include proposed HookLab cohort A/B interest names (no writes).
+
+    Read-only: returns name + targeting for an ad set (use Plastic Feel as benchmark).
+    """
+    adset_id = (request.args.get("adset_id") or "").strip()
+    want_split = str(request.args.get("split") or "").strip() in ("1", "true", "yes")
+    if not adset_id:
+        return jsonify({"ok": False, "error": "adset_id query param required"}), 400
+    r = requests.get(
+        f"{GRAPH}/{adset_id}",
+        headers=_h(),
+        params={"fields": "id,name,targeting"},
+        timeout=40,
+    )
+    if r.status_code != 200:
+        return jsonify({"ok": False, "error": r.text[:800]}), 200
+    j = r.json() or {}
+    t = j.get("targeting") or {}
+    interests = _extract_interests_from_targeting(t)
+    n_int = len(interests)
+    out = {
+        "ok": True,
+        "id": j.get("id"),
+        "name": j.get("name"),
+        "interest_count": n_int,
+        "can_split_for_hooklab": n_int >= 4,
+        "targeting": t,
+    }
+    if want_split:
+        ca, cb = _split_interests_hooklab_dual(interests)
+        out["hooklab_split_preview"] = {
+            "cohort_a_count": len(ca),
+            "cohort_b_count": len(cb),
+            "cohort_a_sample_names": [x.get("name") or x.get("id") for x in ca[:12]],
+            "cohort_b_sample_names": [x.get("name") or x.get("id") for x in cb[:12]],
+            "note": "Same geo/age/gender/lookalike as benchmark; only flexible_spec interests differ per HookLab ad set.",
+        }
+    return jsonify(out)
+
+
+def apply_hooklab_from_benchmark():
+    """
+    POST /api/meta/apply-hooklab-from-benchmark
+    Clone geo/age/gender/lookalike/placements from a working ad set, split interests thematically
+    into two cohorts, PATCH two HookLab ad sets.
+
+    Body (JSON):
+      { "benchmark_adset_id": "<e.g. Plastic Feel Women ad set id>",
+        "hooklab_adset_ids": ["<hooklab ad set 1>", "<hooklab ad set 2>"],
+        "name_suffixes": ["Luxury+Conscious", "Performance+Sport"]   // optional
+      }
+    """
+    data = request.get_json(force=True, silent=True) or {}
+    benchmark_id = str(data.get("benchmark_adset_id") or "").strip()
+    hook_ids = data.get("hooklab_adset_ids") or []
+    suffixes = data.get("name_suffixes") or []
+    if not benchmark_id:
+        return jsonify({"ok": False, "error": "benchmark_adset_id required"}), 400
+    if not isinstance(hook_ids, list) or len(hook_ids) != 2:
+        return jsonify({"ok": False, "error": "hooklab_adset_ids must be an array of exactly 2 ad set ids"}), 400
+
+    rg = requests.get(
+        f"{GRAPH}/{benchmark_id}",
+        headers=_h(),
+        params={"fields": "id,name,targeting"},
+        timeout=45,
+    )
+    if rg.status_code != 200:
+        return jsonify({"ok": False, "error": "benchmark GET failed: " + (rg.text or "")[:800]}), 200
+    bj = rg.json() or {}
+    base_targeting = bj.get("targeting") or {}
+    if not base_targeting:
+        return jsonify({"ok": False, "error": "benchmark ad set has no targeting payload"}), 400
+
+    interests = _extract_interests_from_targeting(base_targeting)
+    if len(interests) < 4:
+        return jsonify(
+            {
+                "ok": False,
+                "error": "not enough interests on benchmark to split; benchmark needs at least 4 interest IDs (flexible_spec or interests)",
+                "interest_count": len(interests),
+            }
+        ), 400
+
+    cohort_a, cohort_b = _split_interests_hooklab_dual(interests)
+    payloads = [
+        _targeting_replace_flexible_interests(base_targeting, cohort_a),
+        _targeting_replace_flexible_interests(base_targeting, cohort_b),
+    ]
+
+    results = []
+    for idx, adset_id in enumerate(hook_ids):
+        adset_id = str(adset_id or "").strip()
+        if not adset_id:
+            results.append({"ok": False, "error": "empty adset id"})
+            continue
+        suf = ""
+        if isinstance(suffixes, list) and len(suffixes) > idx:
+            suf = str(suffixes[idx] or "").strip()
+        name_extra = ""
+        try:
+            rg2 = requests.get(
+                f"{GRAPH}/{adset_id}",
+                headers=_h(),
+                params={"fields": "name"},
+                timeout=25,
+            )
+            if rg2.status_code == 200:
+                name_extra = (rg2.json() or {}).get("name") or ""
+        except Exception:
+            pass
+        new_name = name_extra
+        if suf:
+            new_name = f"{name_extra} | WEARTH {suf}"[:240]
+
+        body = {"targeting": payloads[idx], "status": "ACTIVE"}
+        if new_name:
+            body["name"] = new_name[:240]
+
+        r = requests.post(f"{GRAPH}/{adset_id}", headers=_h(), json=body, timeout=50)
+        results.append(
+            {
+                "ok": r.status_code in [200, 201],
+                "adset_id": adset_id,
+                "http": r.status_code,
+                "interests_in_cohort": len(cohort_a) if idx == 0 else len(cohort_b),
+                "error": None if r.status_code in [200, 201] else (r.text or "")[:600],
+            }
+        )
+
+    return jsonify(
+        {
+            "ok": all(x.get("ok") for x in results),
+            "benchmark_name": bj.get("name"),
+            "benchmark_interest_count": len(interests),
+            "split_sizes": [len(cohort_a), len(cohort_b)],
+            "results": results,
+            "note": "Targeting geo/age/gender/lookalike copied from benchmark; only flexible_spec interests differ.",
+        }
+    )
 
 
 def ads_status():
