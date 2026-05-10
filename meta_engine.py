@@ -52,6 +52,31 @@ TARGETING = {
 def _h():
     return {'Authorization': f'Bearer {META_TOKEN}'}
 
+def _campaign_adset_template():
+    """
+    Reuse a currently accepted adset configuration from the campaign to avoid
+    account-specific audience validation failures.
+    """
+    try:
+        r = requests.get(
+            f"{GRAPH}/{META_CAMPAIGN_ID}/adsets",
+            headers=_h(),
+            params={
+                "fields": "id,effective_status,daily_budget,bid_strategy,billing_event,optimization_goal,targeting,promoted_object",
+                "limit": 10,
+            },
+            timeout=40,
+        )
+        if r.status_code != 200:
+            return None
+        rows = (r.json() or {}).get("data") or []
+        for row in rows:
+            if str(row.get("effective_status") or "").upper() in {"ACTIVE", "PAUSED"}:
+                return row
+        return rows[0] if rows else None
+    except Exception:
+        return None
+
 def _upload_image_b64(image_b64):
     r = requests.post(f'{GRAPH}/act_{META_AD_ACCOUNT}/adimages', headers=_h(),
         data={'bytes': image_b64, 'name': 'wearth.jpg'}, timeout=60)
@@ -108,17 +133,28 @@ def _creative_video(video_url, variant, image_hash=None):
     return r2.json().get('id'), None
 
 def _ad_set(name):
+    template = _campaign_adset_template() or {}
+    targeting = template.get("targeting") if isinstance(template, dict) else None
+    if not isinstance(targeting, dict):
+        targeting = TARGETING
+    # Keep women-focused mandate.
+    targeting = dict(targeting)
+    targeting["genders"] = [2]
+
     payload = {
         'name': name,
         'campaign_id': META_CAMPAIGN_ID,
-        'daily_budget': 35000,  # ₹350 in paise
-        'bid_strategy': 'LOWEST_COST_WITHOUT_CAP',
-        'billing_event': 'IMPRESSIONS',
-        'optimization_goal': 'LINK_CLICKS',
-        'targeting': TARGETING,
+        'daily_budget': int(template.get('daily_budget') or 35000),  # ₹350 in paise default
+        'bid_strategy': template.get('bid_strategy') or 'LOWEST_COST_WITHOUT_CAP',
+        'billing_event': template.get('billing_event') or 'IMPRESSIONS',
+        'optimization_goal': template.get('optimization_goal') or 'LINK_CLICKS',
+        'targeting': targeting,
         'status': 'ACTIVE',
         'start_time': int(time.time()),
     }
+    promoted = template.get("promoted_object")
+    if isinstance(promoted, dict) and promoted:
+        payload["promoted_object"] = promoted
     r = requests.post(f'{GRAPH}/act_{META_AD_ACCOUNT}/adsets', headers=_h(), json=payload, timeout=60)
     if r.status_code not in [200, 201]:
         txt = r.text or ''
