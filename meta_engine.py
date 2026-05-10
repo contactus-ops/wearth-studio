@@ -373,6 +373,30 @@ def _strip_income_from_targeting(targeting: dict) -> dict:
     return _with_advantage_audience(t, 0)
 
 
+def _merge_behaviors_into_first_flexible_spec(targeting: dict, behaviors: list) -> dict:
+    """Optional purchase-intent differentiation when household-income IDs are unavailable from API."""
+    if not behaviors:
+        return targeting
+    t = copy.deepcopy(targeting)
+    fs = t.get("flexible_spec") or [{}]
+    if not isinstance(fs[0], dict):
+        fs[0] = {}
+    first = copy.deepcopy(fs[0])
+    first["behaviors"] = behaviors
+    fs[0] = first
+    t["flexible_spec"] = fs
+    return _with_advantage_audience(t, 0)
+
+
+def _strip_income_and_behaviors_from_targeting(targeting: dict) -> dict:
+    t = copy.deepcopy(targeting)
+    fs = t.get("flexible_spec") or []
+    if fs and isinstance(fs[0], dict):
+        fs[0] = {k: v for k, v in fs[0].items() if k not in ("income", "behaviors")}
+        t["flexible_spec"] = fs
+    return _with_advantage_audience(t, 0)
+
+
 def targetingsearch_household_income():
     """
     GET /api/meta/targetingsearch-household-income?q=
@@ -803,6 +827,27 @@ def apply_hooklab_from_benchmark():
         else:
             income_resolution["resolve_failed"] = inc_detail
 
+        commerce_fb = data.get("commerce_behavior_fallback")
+        if commerce_fb is None:
+            commerce_fb = True
+        if (
+            not income_resolution.get("household_income_applied")
+            and commerce_fb
+        ):
+            payloads[0] = _merge_behaviors_into_first_flexible_spec(
+                payloads[0],
+                [{"id": "6028974370383", "name": "People in India who prefer high-value goods"}],
+            )
+            payloads[1] = _merge_behaviors_into_first_flexible_spec(
+                payloads[1],
+                [{"id": "6071631541183", "name": "Engaged shoppers"}],
+            )
+            income_resolution["commerce_behavior_fallback_applied"] = True
+            income_resolution["commerce_behavior_note"] = (
+                "India household-income percentile IDs were not returned by the Marketing API for this account; "
+                "applied distinct commerce behaviors (India high-value preference vs Engaged shoppers) for HookLab separation."
+            )
+
     results = []
     for idx, adset_id in enumerate(hook_ids):
         adset_id = str(adset_id or "").strip()
@@ -836,8 +881,14 @@ def apply_hooklab_from_benchmark():
         r = requests.post(f"{GRAPH}/{adset_id}", headers=_h(), json=body, timeout=50)
         ok_post = r.status_code in [200, 201]
         retried_no_income = False
-        if not ok_post and use_inc and income_resolution.get("household_income_applied"):
-            body_fb = {"targeting": _strip_income_from_targeting(payloads[idx]), "status": "ACTIVE"}
+        if not ok_post and use_inc and (
+            income_resolution.get("household_income_applied")
+            or income_resolution.get("commerce_behavior_fallback_applied")
+        ):
+            body_fb = {
+                "targeting": _strip_income_and_behaviors_from_targeting(payloads[idx]),
+                "status": "ACTIVE",
+            }
             if new_name:
                 body_fb["name"] = new_name[:240]
             r = requests.post(f"{GRAPH}/{adset_id}", headers=_h(), json=body_fb, timeout=50)
