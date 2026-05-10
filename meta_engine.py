@@ -183,20 +183,33 @@ def _act_id_clean() -> str:
     return (META_AD_ACCOUNT or "").strip().replace("act_", "")
 
 
-def _household_income_search(q: str):
-    """Meta unified targeting search for household income segments (India tiers appear when account has access)."""
-    aid = _act_id_clean()
-    if not aid:
-        return None, "META_AD_ACCOUNT_ID missing"
+def _income_demographics_class_search():
+    """
+    Meta /search with type=adTargetingCategory&class=income returns income / household-income bands.
+    (act_/targetingsearch with limit_type alone often returns unrelated interests — see Marketing API targeting search.)
+    """
     r = requests.get(
-        f"{GRAPH}/act_{aid}/targetingsearch",
+        f"{GRAPH}/search",
         headers=_h(),
-        params={"q": q, "limit_type": "household_income", "limit": 100},
-        timeout=50,
+        params={"type": "adTargetingCategory", "class": "income", "limit": 500},
+        timeout=55,
     )
     if r.status_code != 200:
         return None, (r.text or "")[:700]
     return r.json() or {}, None
+
+
+def _household_income_search(q: str):
+    """Backward-compatible wrapper: filter income class results by substring q if provided."""
+    data, err = _income_demographics_class_search()
+    if err:
+        return None, err
+    rows = (data or {}).get("data") or []
+    if not (q or "").strip():
+        return {"data": rows}, None
+    ql = q.strip().lower()
+    filt = [x for x in rows if ql in _norm_target_name(x.get("name", ""))]
+    return {"data": filt if filt else rows}, None
 
 
 def _norm_target_name(s: str) -> str:
@@ -210,24 +223,12 @@ def _resolve_india_household_income_pair():
     - Tier B: next bucket (commonly Top 11–20%)
     Names vary by locale; match heuristically on returned targetingsearch rows.
     """
-    merged_rows = []
-    last_err = None
-    for q in ("India", "India household", "household income India"):
-        data, err = _household_income_search(q)
-        if err:
-            last_err = err
-            continue
-        merged_rows.extend((data or {}).get("data") or [])
-
-    by_id = {}
-    for row in merged_rows:
-        rid = str(row.get("id") or "").strip()
-        if rid:
-            by_id[rid] = row
-    merged_rows = list(by_id.values())
-
-    if not merged_rows and last_err:
-        return None, None, {"error": last_err}
+    data, err = _income_demographics_class_search()
+    if err:
+        return None, None, {"error": err}
+    merged_rows = (data or {}).get("data") or []
+    if not merged_rows:
+        return None, None, {"error": "income_class_search_returned_empty", "hint": "Account may not have India income segments or token lacks targeting permissions."}
 
     india_rows = []
     for row in merged_rows:
@@ -315,10 +316,10 @@ def _strip_income_from_targeting(targeting: dict) -> dict:
 
 def targetingsearch_household_income():
     """
-    GET /api/meta/targetingsearch-household-income?q=India
-    Lists household_income segments from targetingsearch (debug which India tiers exist for this ad account).
+    GET /api/meta/targetingsearch-household-income?q=
+    Uses Marketing API class=income (adTargetingCategory). Omit q or q empty for full list; use q=India to filter names.
     """
-    q = (request.args.get("q") or "India").strip()
+    q = (request.args.get("q") or "").strip()
     data, err = _household_income_search(q)
     if err:
         return jsonify({"ok": False, "error": err}), 200
