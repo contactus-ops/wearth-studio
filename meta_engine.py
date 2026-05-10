@@ -55,30 +55,21 @@ COHORT_TARGETING = {
         "age_min": 23,
         "age_max": 34,
         "genders": [2],
-        "geo_locations": TARGETING["geo_locations"],
-        "publisher_platforms": ["instagram", "facebook"],
-        "facebook_positions": ["feed"],
-        "instagram_positions": ["stream", "story", "reels"],
+        "geo_locations": {"countries": ["IN"]},
     },
     # Women 30-45: premium-conscious cohort, broader delivery with mature age bracket.
     "premium_conscious": {
         "age_min": 30,
         "age_max": 45,
         "genders": [2],
-        "geo_locations": TARGETING["geo_locations"],
-        "publisher_platforms": ["instagram", "facebook"],
-        "facebook_positions": ["feed", "marketplace"],
-        "instagram_positions": ["stream", "story"],
+        "geo_locations": {"countries": ["IN"]},
     },
     # Women 25-40: urban broad discovery (no narrow interests).
     "urban_active_broad": {
         "age_min": 25,
         "age_max": 40,
         "genders": [2],
-        "geo_locations": TARGETING["geo_locations"],
-        "publisher_platforms": ["instagram", "facebook", "audience_network"],
-        "facebook_positions": ["feed", "marketplace", "right_hand_column"],
-        "instagram_positions": ["stream", "story", "reels", "explore"],
+        "geo_locations": {"countries": ["IN"]},
     },
 }
 
