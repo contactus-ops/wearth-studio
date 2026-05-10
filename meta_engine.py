@@ -43,7 +43,6 @@ TARGETING = {
     },
     'interests': [
         {'id': '6003107902433', 'name': 'Yoga'},
-        {'id': '6004039008462', 'name': 'Fitness and wellness'},
     ],
     'publisher_platforms': ['facebook', 'instagram'],
     'facebook_positions': ['feed'],
@@ -83,7 +82,7 @@ def _creative_image(img_hash, variant):
         return None, r.text
     return r.json().get('id'), None
 
-def _creative_video(video_url, variant):
+def _creative_video(video_url, variant, image_hash=None):
     r = requests.post(f'{GRAPH}/act_{META_AD_ACCOUNT}/advideos', headers=_h(),
         json={'name': 'WEARTH UGC', 'file_url': video_url}, timeout=120)
     if r.status_code not in [200, 201]:
@@ -99,6 +98,7 @@ def _creative_video(video_url, variant):
                 'video_id': vid_id,
                 'message': variant['message'],
                 'title': variant['headline'],
+                **({'image_hash': image_hash} if image_hash else {}),
                 'call_to_action': {'type': 'SHOP_NOW', 'value': {'link': 'https://wearthactive.com'}},
             },
         },
@@ -137,15 +137,21 @@ def launch_ads():
     image_b64 = data.get('image_b64', '')
     video_url = data.get('video_url', '')
     combo_name = data.get('combo_name', 'WEARTH')
+    try:
+        max_variants = int(data.get('max_variants', 3))
+    except Exception:
+        max_variants = 3
+    max_variants = max(1, min(max_variants, len(COPY_VARIANTS)))
     if not image_b64:
         return jsonify({'error': 'image_b64 required'}), 400
     ad_sets, ads, errors = [], [], []
     img_hash, err = _upload_image_b64(image_b64)
     if err:
         return jsonify({'error': f'img upload: {err}'}), 500
-    for i, v in enumerate(COPY_VARIANTS):
-        if i == 2 and video_url:
-            cid, err = _creative_video(video_url, v)
+    video_slot = 1 if (video_url and max_variants <= 2) else 2
+    for i, v in enumerate(COPY_VARIANTS[:max_variants]):
+        if i == video_slot and video_url:
+            cid, err = _creative_video(video_url, v, image_hash=img_hash)
         else:
             cid, err = _creative_image(img_hash, v)
         if err:
