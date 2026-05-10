@@ -1,27 +1,27 @@
 import os
 from flask import Flask, jsonify
-from seo_engine import generate_and_publish_article
+from seo_engine import run_seo_engine
 from creative_engine import creative_enhance
-from video_engine import process_video
+from video_engine import video_process
 from meta_engine import launch_ads, post_reel_async, reel_publish
 from facebook_engine import facebook_post, token_debug, find_accounts
 
 app = Flask(__name__)
 
-app.add_url_rule("/api/seo/generate", view_func=generate_and_publish_article, methods=["POST"])
-app.add_url_rule("/api/creative/enhance", view_func=creative_enhance, methods=["POST"])
-app.add_url_rule("/api/video/process", view_func=process_video, methods=["POST"])
-app.add_url_rule("/api/meta/launch-ads", view_func=launch_ads, methods=["POST"])
-app.add_url_rule("/api/instagram/reel", view_func=post_reel_async, methods=["POST"])
-app.add_url_rule("/api/instagram/reel-publish/<creation_id>", view_func=reel_publish, methods=["POST"])
-app.add_url_rule("/api/facebook/post", view_func=facebook_post, methods=["POST"])
-app.add_url_rule("/api/meta/token-debug", view_func=token_debug, methods=["GET"])
-app.add_url_rule("/api/meta/find-accounts", view_func=find_accounts, methods=["GET"])
+app.add_url_rule('/api/seo/generate', view_func=run_seo_engine, methods=['POST'])
+app.add_url_rule('/api/creative/enhance', view_func=creative_enhance, methods=['POST'])
+app.add_url_rule('/api/video/process', view_func=video_process, methods=['POST'])
+app.add_url_rule('/api/meta/launch-ads', view_func=launch_ads, methods=['POST'])
+app.add_url_rule('/api/instagram/reel', view_func=post_reel_async, methods=['POST'])
+app.add_url_rule('/api/instagram/reel-publish/<creation_id>', view_func=reel_publish, methods=['POST'])
+app.add_url_rule('/api/facebook/post', view_func=facebook_post, methods=['POST'])
+app.add_url_rule('/api/meta/token-debug', view_func=token_debug, methods=['GET'])
+app.add_url_rule('/api/meta/find-accounts', view_func=find_accounts, methods=['GET'])
 
-@app.route("/health")
+@app.route('/health')
 def health():
-    return jsonify({"status": "ok", "service": "wearth-studio"})
+    return jsonify({'status': 'ok', 'service': 'wearth-studio'})
 
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
