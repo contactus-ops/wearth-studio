@@ -49,6 +49,39 @@ TARGETING = {
     'instagram_positions': ['stream', 'story', 'reels'],
 }
 
+COHORT_TARGETING = {
+    # Women 23-34: mindfulness / performance vibe via younger skew + IG-heavy placements.
+    "mindful_performance": {
+        "age_min": 23,
+        "age_max": 34,
+        "genders": [2],
+        "geo_locations": TARGETING["geo_locations"],
+        "publisher_platforms": ["instagram", "facebook"],
+        "facebook_positions": ["feed"],
+        "instagram_positions": ["stream", "story", "reels"],
+    },
+    # Women 30-45: premium-conscious cohort, broader delivery with mature age bracket.
+    "premium_conscious": {
+        "age_min": 30,
+        "age_max": 45,
+        "genders": [2],
+        "geo_locations": TARGETING["geo_locations"],
+        "publisher_platforms": ["instagram", "facebook"],
+        "facebook_positions": ["feed", "marketplace"],
+        "instagram_positions": ["stream", "story"],
+    },
+    # Women 25-40: urban broad discovery (no narrow interests).
+    "urban_active_broad": {
+        "age_min": 25,
+        "age_max": 40,
+        "genders": [2],
+        "geo_locations": TARGETING["geo_locations"],
+        "publisher_platforms": ["instagram", "facebook", "audience_network"],
+        "facebook_positions": ["feed", "marketplace", "right_hand_column"],
+        "instagram_positions": ["stream", "story", "reels", "explore"],
+    },
+}
+
 def _h():
     return {'Authorization': f'Bearer {META_TOKEN}'}
 
@@ -256,6 +289,98 @@ def launch_ads():
             ad_sets.append(asid)
             ads.append(aid)
     return jsonify({'ok': True, 'ad_set_ids': ad_sets, 'ad_ids': ads, 'errors': errors})
+
+
+def retarget_adsets():
+    """
+    POST /api/meta/retarget-adsets
+    Body:
+      {
+        "items": [
+          {"adset_id": "...", "cohort": "premium_conscious", "name_suffix": "Cohort B"},
+          {"adset_id": "...", "cohort": "urban_active_broad", "name_suffix": "Cohort C"}
+        ]
+      }
+    """
+    data = request.get_json(force=True, silent=True) or {}
+    items = data.get("items") or []
+    if not isinstance(items, list) or not items:
+        return jsonify({"ok": False, "error": "items[] required"}), 400
+
+    results = []
+    for item in items:
+        adset_id = str((item or {}).get("adset_id") or "").strip()
+        cohort = str((item or {}).get("cohort") or "").strip()
+        suffix = str((item or {}).get("name_suffix") or "").strip()
+        if not adset_id or cohort not in COHORT_TARGETING:
+            results.append(
+                {
+                    "ok": False,
+                    "adset_id": adset_id,
+                    "cohort": cohort,
+                    "error": "invalid adset_id or cohort",
+                }
+            )
+            continue
+
+        # Read current adset name for friendly rename.
+        current_name = adset_id
+        try:
+            rg = requests.get(
+                f"{GRAPH}/{adset_id}",
+                headers=_h(),
+                params={"fields": "name"},
+                timeout=30,
+            )
+            if rg.status_code == 200:
+                current_name = (rg.json() or {}).get("name") or current_name
+        except Exception:
+            pass
+
+        new_name = f"{current_name} | {suffix or cohort}"
+        payload = {
+            "name": new_name[:240],
+            "targeting": COHORT_TARGETING[cohort],
+            "status": "ACTIVE",
+        }
+        r = requests.post(f"{GRAPH}/{adset_id}", headers=_h(), json=payload, timeout=40)
+        if r.status_code not in [200, 201]:
+            results.append(
+                {
+                    "ok": False,
+                    "adset_id": adset_id,
+                    "cohort": cohort,
+                    "http": r.status_code,
+                    "error": r.text[:500],
+                }
+            )
+            continue
+        results.append({"ok": True, "adset_id": adset_id, "cohort": cohort, "name": new_name[:240]})
+
+    return jsonify({"ok": all(x.get("ok") for x in results), "results": results})
+
+
+def ads_status():
+    """
+    GET /api/meta/ads-status?ad_ids=1,2,3
+    """
+    ad_ids_raw = (request.args.get("ad_ids") or "").strip()
+    ad_ids = [x.strip() for x in ad_ids_raw.split(",") if x.strip()]
+    if not ad_ids:
+        return jsonify({"ok": False, "error": "ad_ids query param required"}), 400
+    out = []
+    for ad_id in ad_ids:
+        r = requests.get(
+            f"{GRAPH}/{ad_id}",
+            headers=_h(),
+            params={"fields": "id,name,status,effective_status,adset_id,campaign_id"},
+            timeout=30,
+        )
+        if r.status_code != 200:
+            out.append({"id": ad_id, "ok": False, "http": r.status_code, "error": r.text[:400]})
+            continue
+        out.append({"ok": True, **(r.json() or {})})
+    return jsonify({"ok": True, "ads": out})
 
 def post_reel():
     data = request.get_json(force=True, silent=True) or {}

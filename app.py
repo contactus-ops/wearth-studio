@@ -3,7 +3,14 @@ from flask import Flask, jsonify
 from seo_engine import run_seo_engine
 from creative_engine import creative_enhance
 from video_engine import video_process
-from meta_engine import launch_ads, launch_carousel_ads, post_reel_async, reel_publish
+from meta_engine import (
+    launch_ads,
+    launch_carousel_ads,
+    post_reel_async,
+    reel_publish,
+    retarget_adsets,
+    ads_status,
+)
 from facebook_engine import facebook_post, token_debug, find_accounts
 
 app = Flask(__name__)
@@ -13,6 +20,8 @@ app.add_url_rule('/api/creative/enhance', view_func=creative_enhance, methods=['
 app.add_url_rule('/api/video/process', view_func=video_process, methods=['POST'])
 app.add_url_rule('/api/meta/launch-carousel', view_func=launch_carousel_ads, methods=['POST'])
 app.add_url_rule('/api/meta/launch-ads', view_func=launch_ads, methods=['POST'])
+app.add_url_rule('/api/meta/retarget-adsets', view_func=retarget_adsets, methods=['POST'])
+app.add_url_rule('/api/meta/ads-status', view_func=ads_status, methods=['GET'])
 app.add_url_rule('/api/instagram/reel', view_func=post_reel_async, methods=['POST'])
 app.add_url_rule('/api/instagram/reel-publish/<creation_id>', view_func=reel_publish, methods=['POST'])
 app.add_url_rule('/api/facebook/post', view_func=facebook_post, methods=['POST'])
