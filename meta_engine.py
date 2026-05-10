@@ -212,7 +212,7 @@ def _act_targetingsearch(q: str, limit_type: str):
 
 
 def _collect_income_candidate_rows():
-    """Merge income-related rows from several API shapes (India tiers appear on different surfaces)."""
+    """Merge income rows from a few fast API calls (avoid long Railway / Meta chains)."""
     by_id = {}
 
     def take(data):
@@ -221,20 +221,21 @@ def _collect_income_candidate_rows():
             if rid:
                 by_id[rid] = row
 
-    for ep in (
-        None,
-        {"country_code": "IN"},
-        {"locale": "en_IN"},
-    ):
+    income_like_count = lambda: len([r for r in by_id.values() if _is_income_like_row(r)])
+
+    for ep in ({"country_code": "IN"}, None):
         data, err = _income_demographics_class_search(ep)
         if not err and data:
             take(data)
+        if income_like_count() >= 6:
+            break
 
-    for lt in ("household_income", "income"):
-        for q in ("India", "top 10", "household income", "percentile"):
-            data, err = _act_targetingsearch(q, lt)
-            if not err and data:
-                take(data)
+    for lt, q in (("household_income", "India"), ("income", "India")):
+        data, err = _act_targetingsearch(q, lt)
+        if not err and data:
+            take(data)
+        if income_like_count() >= 6:
+            break
 
     return list(by_id.values())
 
@@ -265,7 +266,13 @@ def _norm_target_name(s: str) -> str:
     return (s or "").lower().strip()
 
 
-def _resolve_india_household_income_pair():
+def _reject_us_only_income_band(row: dict) -> bool:
+    """India geo ad sets should not use US ZIP household-income bands."""
+    n = _norm_target_name(row.get("name", ""))
+    return "(us)" in n or "zip codes (us)" in n or "u.s." in n
+
+
+def _resolve_india_household_income_pair(base_targeting=None):
     """
     Pick two non-overlapping India household-income tiers for HookLab A vs B:
     - Tier A: highest bucket (Top 10% / equivalent wording)
@@ -274,6 +281,9 @@ def _resolve_india_household_income_pair():
     """
     raw = _collect_income_candidate_rows()
     merged_rows = [r for r in raw if _is_income_like_row(r)] or raw
+    geo = (base_targeting or {}).get("geo_locations") or {}
+    if geo.get("cities") or geo.get("countries") == ["IN"]:
+        merged_rows = [r for r in merged_rows if not _reject_us_only_income_band(r)]
     if not merged_rows:
         return None, None, {
             "error": "income_search_returned_empty",
@@ -773,7 +783,7 @@ def apply_hooklab_from_benchmark():
         tier_hi, tier_next = ow[0], ow[1]
         inc_detail = {"source": "manual_override", "tier_a": tier_hi, "tier_b": tier_next}
     elif use_inc:
-        tier_hi, tier_next, inc_detail = _resolve_india_household_income_pair()
+        tier_hi, tier_next, inc_detail = _resolve_india_household_income_pair(base_targeting)
 
     if use_inc:
         if tier_hi and tier_next:
