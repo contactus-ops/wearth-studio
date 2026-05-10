@@ -9,6 +9,7 @@ META_TOKEN = os.environ.get('META_ACCESS_TOKEN', '')
 META_AD_ACCOUNT = os.environ.get('META_AD_ACCOUNT_ID', '')
 META_PAGE_ID = os.environ.get('META_PAGE_ID', '')
 META_CAMPAIGN_ID = os.environ.get('META_CAMPAIGN_ID', '120245108704880305')
+META_PIXEL_ID = os.environ.get('META_PIXEL_ID', '')
 IG_USER_ID = os.environ.get('IG_USER_ID', '')
 GRAPH = 'https://graph.facebook.com/v22.0'
 DRIVE_DL = 'https://drive.google.com/uc?export=download&id='
@@ -98,7 +99,7 @@ def _creative_video(video_url, variant):
                 'video_id': vid_id,
                 'message': variant['message'],
                 'title': variant['headline'],
-                'call_to_action': {'type': 'SHOP_NOW', 'value': {'ink': 'https://wearthactive.com'}},
+                'call_to_action': {'type': 'SHOP_NOW', 'value': {'link': 'https://wearthactive.com'}},
             },
         },
     }, timeout=60)
@@ -215,12 +216,13 @@ def make_drive_public():
 def post_reel_async():
     data = request.get_json(force=True, silent=True) or {}
     video_url = data.get("video_url", "")
-    caption = data.get("caption", "fabric grown, not made.
-
-WEARTH Active.
-Shop wearthactive.com
-
-#WEARTH #plantbased #activewear")
+    _default_caption = (
+        "fabric grown, not made.\n\n"
+        "WEARTH Active.\n"
+        "Shop wearthactive.com\n\n"
+        "#WEARTH #plantbased #activewear"
+    )
+    caption = data.get("caption", _default_caption)
     if not video_url: return jsonify({"error": "video_url required"}), 400
     if not IG_USER_ID: return jsonify({"error": "IG_USER_ID not set"}), 500
     r = requests.post(f"{GRAPH}/{IG_USER_ID}/media", headers=_h(), json={
@@ -249,6 +251,7 @@ def launch_carousel_ads():
     Tribe A: Mindful Mover 25-38  |  Tribe B: Conscious Luxury 30-48
     Women only, Mumbai/Delhi/Bengaluru. Different from default tribes.
     Body: { image_b64, video_url, combo_name }
+    Requires env: META_PIXEL_ID for OFFSITE_CONVERSIONS ad sets.
     """
     data = request.get_json(force=True, silent=True) or {}
     image_b64 = data.get("image_b64", "")
@@ -257,6 +260,11 @@ def launch_carousel_ads():
 
     if not image_b64: return jsonify({"error": "image_b64 required"}), 400
     if not video_url:  return jsonify({"error": "video_url required"}), 400
+    if not (META_PIXEL_ID or "").strip():
+        return jsonify({
+            "error": "META_PIXEL_ID not set — required for carousel conversion ad sets",
+            "hint": "Set META_PIXEL_ID in Railway to your Meta Pixel id",
+        }), 400
 
     img_hash, err = _upload_image_b64(image_b64)
     if err: return jsonify({"error": "image upload: " + str(err)}), 500
@@ -273,7 +281,7 @@ def launch_carousel_ads():
     if not video_id:
         return jsonify({"error": "video_id missing"}), 500
 
-    CAMPAIGN_ID = os.environ.get("META_CAMPAIGN_ID", "")
+    CAMPAIGN_ID = (os.environ.get("META_CAMPAIGN_ID") or "").strip() or META_CAMPAIGN_ID
 
     TRIBES = [
         {
