@@ -77,9 +77,11 @@ def _h():
     return {'Authorization': f'Bearer {META_TOKEN}'}
 
 
-def _with_advantage_audience(targeting: dict, enabled: int = 1) -> dict:
+def _with_advantage_audience(targeting: dict, enabled: int = 0) -> dict:
     """
     Meta requires targeting_automation.advantage_audience (0 or 1) on ad set targeting.
+    0 = Advantage audience OFF (stick to your targeting spec — matches pre-Advantage behavior).
+    1 = Advantage audience ON (Meta may expand beyond your spec).
     """
     t = dict(targeting or {})
     ta = dict(t.get('targeting_automation') or {})
@@ -212,7 +214,7 @@ def _ad_set(name):
     # Keep women-focused mandate.
     targeting = dict(targeting)
     targeting["genders"] = [2]
-    targeting = _with_advantage_audience(targeting, 1)
+    targeting = _with_advantage_audience(targeting, 0)
 
     payload = {
         'name': name,
@@ -242,7 +244,7 @@ def _ad_set(name):
                 'publisher_platforms': ['facebook', 'instagram'],
                 'facebook_positions': ['feed'],
                 'instagram_positions': ['stream', 'story', 'reels'],
-            }, 1)
+            }, 0)
             r = requests.post(f'{GRAPH}/act_{META_AD_ACCOUNT}/adsets', headers=_h(), json=broad, timeout=60)
     if r.status_code not in [200, 201]:
         return None, r.text
@@ -344,7 +346,7 @@ def retarget_adsets():
         new_name = f"{current_name} | {suffix or cohort}"
         payload = {
             "name": new_name[:240],
-            "targeting": _with_advantage_audience(COHORT_TARGETING[cohort], 1),
+            "targeting": _with_advantage_audience(COHORT_TARGETING[cohort], 0),
             "status": "ACTIVE",
         }
         r = requests.post(f"{GRAPH}/{adset_id}", headers=_h(), json=payload, timeout=40)
@@ -536,7 +538,7 @@ def launch_carousel_ads():
         }
         if tribe["interests"]:
             targeting["interests"] = tribe["interests"]
-        targeting = _with_advantage_audience(targeting, 1)
+        targeting = _with_advantage_audience(targeting, 0)
 
         r_as = requests.post(
             GRAPH + "/act_" + META_AD_ACCOUNT + "/adsets",
