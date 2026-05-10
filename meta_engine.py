@@ -251,7 +251,7 @@ def launch_carousel_ads():
     Tribe A: Mindful Mover 25-38  |  Tribe B: Conscious Luxury 30-48
     Women only, Mumbai/Delhi/Bengaluru. Different from default tribes.
     Body: { image_b64, video_url, combo_name }
-    Requires env: META_PIXEL_ID for OFFSITE_CONVERSIONS ad sets.
+    Uses LINK_CLICKS optimization for reliable bootstrap publishing.
     """
     data = request.get_json(force=True, silent=True) or {}
     image_b64 = data.get("image_b64", "")
@@ -260,12 +260,6 @@ def launch_carousel_ads():
 
     if not image_b64: return jsonify({"error": "image_b64 required"}), 400
     if not video_url:  return jsonify({"error": "video_url required"}), 400
-    if not (META_PIXEL_ID or "").strip():
-        return jsonify({
-            "error": "META_PIXEL_ID not set — required for carousel conversion ad sets",
-            "hint": "Set META_PIXEL_ID in Railway to your Meta Pixel id",
-        }), 400
-
     img_hash, err = _upload_image_b64(image_b64)
     if err: return jsonify({"error": "image upload: " + str(err)}), 500
 
@@ -327,11 +321,10 @@ def launch_carousel_ads():
                 "name": adset_name,
                 "campaign_id": CAMPAIGN_ID,
                 "billing_event": "IMPRESSIONS",
-                "optimization_goal": "OFFSITE_CONVERSIONS",
+                "optimization_goal": "LINK_CLICKS",
                 "daily_budget": 35000,
                 "bid_strategy": "LOWEST_COST_WITHOUT_CAP",
                 "targeting": targeting,
-                "promoted_object": {"pixel_id": META_PIXEL_ID, "custom_event_type": "PURCHASE"},
                 "status": "ACTIVE",
             },
             timeout=30
