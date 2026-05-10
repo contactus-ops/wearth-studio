@@ -210,3 +210,33 @@ def make_drive_public():
         return jsonify({'ok': True, 'url': f'{DRIVE_DL}{file_id}'})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+def post_reel_async():
+    data = request.get_json(force=True, silent=True) or {}
+    video_url = data.get("video_url", "")
+    caption = data.get("caption", "fabric grown, not made.
+
+WEARTH Active.
+Shop wearthactive.com
+
+#WEARTH #plantbased #activewear")
+    if not video_url: return jsonify({"error": "video_url required"}), 400
+    if not IG_USER_ID: return jsonify({"error": "IG_USER_ID not set"}), 500
+    r = requests.post(f"{GRAPH}/{IG_USER_ID}/media", headers=_h(), json={
+        "media_type": "REELS", "video_url": video_url, "caption": caption, "share_to_feed": True,
+    }, timeout=60)
+    if r.status_code not in [200, 201]: return jsonify({"error": f"container: {r.text[:300]}"}), 500
+    creation_id = r.json().get("id")
+    return jsonify({"ok": True, "creation_id": creation_id, "next": f"/api/instagram/reel-publish/{creation_id}"})
+
+def reel_publish(creation_id):
+    for _ in range(36):
+        time.sleep(5)
+        s = requests.get(f"{GRAPH}/{creation_id}", headers=_h(), params={"fields": "status_code"}, timeout=20).json()
+        sc = s.get("status_code", "")
+        if sc == "FINISHED": break
+        if sc == "ERROR": return jsonify({"error": "IG video error"}), 500
+    r2 = requests.post(f"{GRAPH}/{IG_USER_ID}/media_publish", headers=_h(), json={"creation_id": creation_id}, timeout=30)
+    if r2.status_code not in [200, 201]: return jsonify({"error": f"publish: {r2.text[:200]}"}), 500
+    return jsonify({"ok": True, "media_id": r2.json().get("id"), "url": "https://www.instagram.com/wearth_active/"})
