@@ -327,18 +327,14 @@ def launch_carousel_ads():
                 "daily_budget": 35000,
                 "bid_strategy": "LOWEST_COST_WITHOUT_CAP",
                 "targeting": {
-                    "geo_locations": {
-                        "countries": ["IN"],
-                        "regions": [
-                            {"key": "2252"},
-                            {"key": "2249"},
-                            {"key": "2257"},
-                        ],
-                    },
                     "age_min": tribe["age_min"],
                     "age_max": tribe["age_max"],
                     "genders": [2],
-                    "flexible_spec": [{"interests": tribe["interests"]}],
+                    "geo_locations": TARGETING["geo_locations"],
+                    "interests": tribe["interests"],
+                    "publisher_platforms": TARGETING["publisher_platforms"],
+                    "facebook_positions": TARGETING["facebook_positions"],
+                    "instagram_positions": TARGETING["instagram_positions"],
                 },
                 "promoted_object": {"pixel_id": META_PIXEL_ID, "custom_event_type": "PURCHASE"},
                 "status": "ACTIVE",
