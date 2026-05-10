@@ -288,11 +288,7 @@ def launch_carousel_ads():
             "key": "mindful_mover",
             "name": "Mindful Mover",
             "age_min": 25, "age_max": 38,
-            "interests": [
-                {"id": "6003617362855", "name": "Yoga"},
-                {"id": "6003257064618", "name": "Meditation"},
-                {"id": "6002854400571", "name": "Mindfulness"},
-            ],
+            "interests": [],
             "headline": "your body deserves better than polyester",
             "body": "Women who practice yoga know: what touches your skin matters.\nWEARTH is fabric grown from trees, not made from petroleum.\nBreathe it. Move in it. Never go back.",
             "swipe_hint": "swipe to feel the difference",
@@ -301,11 +297,7 @@ def launch_carousel_ads():
             "key": "conscious_luxury",
             "name": "Conscious Luxury",
             "age_min": 30, "age_max": 48,
-            "interests": [
-                {"id": "6003400427738", "name": "Sustainability"},
-                {"id": "6002909714972", "name": "Organic food"},
-                {"id": "6003256527468", "name": "Wellness"},
-            ],
+            "interests": [],
             "headline": "the last activewear you will ever need to upgrade",
             "body": "Not fast fashion. Not synthetic.\nWEARTH is closed-loop, plant-based, built to outlast everything else in your wardrobe.\nI literally live in WEARTH now. It is hard to go back. - Nidhi, Bandra",
             "swipe_hint": "see it in motion",
@@ -316,6 +308,18 @@ def launch_carousel_ads():
 
     for tribe in TRIBES:
         adset_name = combo_name + " -- " + tribe["name"] + " Carousel"
+        targeting = {
+            "age_min": tribe["age_min"],
+            "age_max": tribe["age_max"],
+            "genders": [2],
+            "geo_locations": TARGETING["geo_locations"],
+            "publisher_platforms": TARGETING["publisher_platforms"],
+            "facebook_positions": TARGETING["facebook_positions"],
+            "instagram_positions": TARGETING["instagram_positions"],
+        }
+        if tribe["interests"]:
+            targeting["interests"] = tribe["interests"]
+
         r_as = requests.post(
             GRAPH + "/act_" + META_AD_ACCOUNT + "/adsets",
             headers=_h(),
@@ -326,16 +330,7 @@ def launch_carousel_ads():
                 "optimization_goal": "OFFSITE_CONVERSIONS",
                 "daily_budget": 35000,
                 "bid_strategy": "LOWEST_COST_WITHOUT_CAP",
-                "targeting": {
-                    "age_min": tribe["age_min"],
-                    "age_max": tribe["age_max"],
-                    "genders": [2],
-                    "geo_locations": TARGETING["geo_locations"],
-                    "interests": tribe["interests"],
-                    "publisher_platforms": TARGETING["publisher_platforms"],
-                    "facebook_positions": TARGETING["facebook_positions"],
-                    "instagram_positions": TARGETING["instagram_positions"],
-                },
+                "targeting": targeting,
                 "promoted_object": {"pixel_id": META_PIXEL_ID, "custom_event_type": "PURCHASE"},
                 "status": "ACTIVE",
             },
