@@ -337,6 +337,10 @@ def _latest_candidate_from_sheet(sheets, sheet_id: str) -> dict | None:
         exports = payload.get("exports") or {}
         reels = exports.get("reels_stories_9_16") or {}
         square = exports.get("carousel_1_1") or {}
+        if isinstance(reels, str):
+            reels = {"download_url": reels}
+        if isinstance(square, str):
+            square = {"download_url": square}
         reels_id = reels.get("id") or _file_id_from_download_url(reels.get("download_url", ""))
         square_id = square.get("id") or _file_id_from_download_url(square.get("download_url", ""))
         if reels_id and square_id:
