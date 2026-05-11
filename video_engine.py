@@ -49,6 +49,13 @@ HOOK_LINES = [
     "Plant-based comfort, made for movement.",
 ]
 
+PREMIUM_ITERATION_HOOKS = [
+    "Sound on: hear fabric that does not fight skin.",
+    "Eucalyptus-based comfort. No plastic feel.",
+    "Quiet luxury, made for movement.",
+    "Not ordinary activewear. A softer standard.",
+]
+
 YELLOW_ASS = "&H0000D7FF&"  # warm yellow/gold in ASS BGR format
 WHITE_ASS = "&H00FFFFFF&"
 
@@ -358,11 +365,59 @@ def _build_caption_ass(transcript_data, highlight_words, start_offset: float, cl
     return "\n".join(lines) + "\n"
 
 
+def _judge_text(judge: dict | list | str | None, iteration_brief: list | str | None = None) -> str:
+    parts = []
+    if isinstance(judge, dict):
+        for key in ("reasoning", "risks", "iteration_brief", "outlier_test_idea"):
+            value = judge.get(key)
+            if isinstance(value, list):
+                parts.extend(str(v) for v in value)
+            elif value:
+                parts.append(str(value))
+    elif isinstance(judge, list):
+        parts.extend(str(v) for v in judge)
+    elif judge:
+        parts.append(str(judge))
+    if isinstance(iteration_brief, list):
+        parts.extend(str(v) for v in iteration_brief)
+    elif iteration_brief:
+        parts.append(str(iteration_brief))
+    return " ".join(parts).lower()
+
+
+def _choose_iteration_hook(judge: dict | list | str | None, iteration_brief: list | str | None = None) -> str:
+    text = _judge_text(judge, iteration_brief)
+    if "microphone" in text or "mic" in text:
+        return PREMIUM_ITERATION_HOOKS[0]
+    if "plant" in text or "science" in text or "fabric technology" in text:
+        return PREMIUM_ITERATION_HOOKS[1]
+    if "luxury" in text or "premium" in text:
+        return PREMIUM_ITERATION_HOOKS[2]
+    return PREMIUM_ITERATION_HOOKS[3]
+
+
+def _build_iteration_ass(transcript_data, highlight_words, start_offset: float, clip_duration: float, play_res: tuple[int, int], hook: str) -> str:
+    transcript_ass = _build_caption_ass(transcript_data, highlight_words, start_offset, clip_duration, play_res, hook)
+    if not transcript_ass:
+        transcript_ass = _build_hook_ass(hook, clip_duration, play_res)
+    editorial_lines = [
+        (3.1, min(5.8, clip_duration), "Eucalyptus-based comfort."),
+        (6.2, min(9.2, clip_duration), "No synthetic scratch. No trapped heat."),
+        (9.7, min(12.7, clip_duration), "A softer standard for movement."),
+    ]
+    additions = []
+    for start, end, text in editorial_lines:
+        if end <= start or start >= clip_duration:
+            continue
+        additions.append(f"Dialogue: 1,{_ass_time(start)},{_ass_time(end)},Hook,,0,0,0,,{_ass_escape(text)}")
+    return transcript_ass + "\n".join(additions) + ("\n" if additions else "")
+
+
 def _safe_ass_filter_path(path: str) -> str:
     return path.replace("\\", "/").replace(":", "\\:")
 
 
-def _fit_filter(target: str, ass_path: str | None) -> str:
+def _fit_filter(target: str, ass_path: str | None, premium_grade: bool = False) -> str:
     if target == "9:16":
         base = "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1"
     elif target == "1:1":
@@ -370,19 +425,22 @@ def _fit_filter(target: str, ass_path: str | None) -> str:
     else:
         base = "scale=1080:1350:force_original_aspect_ratio=increase,crop=1080:1350,setsar=1"
     # Lightweight premium grade: warmer, clearer, slightly lifted shadows.
-    base += ",eq=contrast=1.06:brightness=0.015:saturation=1.06"
+    if premium_grade:
+        base += ",eq=contrast=1.1:brightness=0.018:saturation=1.03,unsharp=5:5:0.35:3:3:0.15,vignette=PI/7"
+    else:
+        base += ",eq=contrast=1.06:brightness=0.015:saturation=1.06"
     if ass_path:
         base += f",ass='{_safe_ass_filter_path(ass_path)}'"
     return base
 
 
-def _render_export(input_path: str, output_path: str, start_s: float, duration_s: float, target: str, ass_path: str | None) -> tuple[bool, str]:
+def _render_export(input_path: str, output_path: str, start_s: float, duration_s: float, target: str, ass_path: str | None, premium_grade: bool = False) -> tuple[bool, str]:
     ffmpeg = _resolve_ffmpeg()
     if not ffmpeg:
         return False, "ffmpeg_not_available"
     cmd = [
         ffmpeg, "-y", "-ss", str(start_s), "-t", str(duration_s), "-i", input_path,
-        "-vf", _fit_filter(target, ass_path),
+        "-vf", _fit_filter(target, ass_path, premium_grade=premium_grade),
         "-c:v", "libx264", "-profile:v", "high", "-level", "4.1", "-pix_fmt", "yuv420p",
         "-preset", "veryfast", "-crf", "21",
         "-c:a", "aac", "-b:a", "160k", "-af", "loudnorm=I=-16:TP=-1.5:LRA=11",
@@ -429,6 +487,32 @@ def _update_sheet_video_result(sheets, sheet_id: str, row_number: int, summary: 
                 {"range": f"combos!F{row_number}", "values": [["video_candidate_ready"]]},
                 {"range": f"combos!M{row_number}", "values": [["produce_video_candidate"]]},
                 {"range": f"combos!N{row_number}", "values": [[json.dumps(payload, ensure_ascii=True)]]},
+            ],
+        },
+    ).execute()
+
+
+def _update_sheet_iteration_result(sheets, sheet_id: str, row_number: int, summary: dict) -> None:
+    payload = {
+        "status": "iteration_candidate_ready",
+        "iteration": "v2",
+        "exports": {
+            k: {"id": v.get("id"), "download_url": v.get("download_url"), "name": v.get("name")}
+            for k, v in (summary.get("exports") or {}).items()
+        },
+        "actions": summary.get("actions_applied") or [],
+        "source_duration_s": summary.get("source", {}).get("duration_s"),
+        "output_folder": summary.get("output_folder") or {"id": summary.get("output_folder_id")},
+        "iteration_strategy": summary.get("iteration_strategy") or {},
+    }
+    sheets.spreadsheets().values().batchUpdate(
+        spreadsheetId=sheet_id,
+        body={
+            "valueInputOption": "RAW",
+            "data": [
+                {"range": f"combos!F{row_number}", "values": [["iteration_candidate_ready"]]},
+                {"range": f"combos!M{row_number}", "values": [["produce_iteration_v2"]]},
+                {"range": f"combos!N{row_number}", "values": [[json.dumps(payload, ensure_ascii=True)[:45000]]]},
             ],
         },
     ).execute()
@@ -952,6 +1036,170 @@ def produce_video_candidate():
         }
         if sheet_id and row_number:
             _update_sheet_video_result(sheets, sheet_id, int(row_number), result)
+            result["sheet_updated"] = True
+        else:
+            result["sheet_updated"] = False
+        return jsonify(result)
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+    finally:
+        for p in [input_path, audio_path, ass_916, ass_11, *outputs]:
+            if p and os.path.exists(p):
+                try:
+                    os.unlink(p)
+                except Exception:
+                    pass
+
+
+def produce_iteration_v2():
+    """
+    POST /api/video/produce-iteration-v2
+    Creates a bounded second-pass candidate from the original source video using judge notes.
+    This is an edit iteration, not generative replacement: tighter cut, premium grade, refined hook.
+    """
+    data = request.get_json(force=True, silent=True) or {}
+    sheet_id = _sheet_id()
+    row_number = data.get("row_number")
+    video_file_id = (data.get("video_file_id") or data.get("source_video_file_id") or "").strip()
+    combo_label = (data.get("combo_label") or "").strip()
+    folder_name = (data.get("folder_name") or "").strip()
+    folder_id = (data.get("folder_id") or "").strip()
+    judge = data.get("judge") or {}
+    iteration_brief = data.get("iteration_brief") or data.get("notes") or []
+    hook = (data.get("hook") or _choose_iteration_hook(judge, iteration_brief)).strip()
+    target_duration = float(data.get("target_duration_s") or 18.0)
+    output_folder_id = (data.get("output_folder_id") or PROCESSED_CREATIVE_OUTPUTS_FOLDER or "").strip()
+
+    if not video_file_id:
+        return jsonify({"ok": False, "error": "video_file_id or source_video_file_id required for iteration v2"}), 400
+    if not folder_name:
+        return jsonify({"ok": False, "error": "folder_name required so iteration output lands in the correct processed folder"}), 400
+
+    input_path = audio_path = ass_916 = ass_11 = None
+    outputs: list[str] = []
+    try:
+        _info, sheets, _drive = _google_services()
+        if output_folder_id:
+            root_meta = _drive_folder_meta(_drive, output_folder_id)
+            storage_error = _shared_drive_output_error(root_meta)
+            if storage_error:
+                return jsonify({
+                    "ok": False,
+                    "error": storage_error,
+                    "root_folder": root_meta,
+                    "required_action": "Use a folder located inside a Google Shared Drive and add the service account as Content Manager.",
+                }), 400
+
+        input_path, source_meta = _drive_download_to_path(video_file_id, ".mp4")
+        source_probe = _probe_video(input_path)
+        duration = source_probe.get("duration_s") or 0
+        start_s, clip_duration = _choose_clip_window(duration, target_duration)
+
+        transcript = None
+        actions = [
+            "iteration_v2_from_original_source",
+            "judge_notes_applied_to_hook_and_grade",
+            "tightened_scroll_safe_window",
+            "premium_grade_applied",
+            "converted_to_h264_aac",
+            "audio_loudness_normalized",
+            "exported_9_16_reels_stories",
+            "exported_1_1_carousel",
+        ]
+
+        if source_probe.get("has_audio"):
+            audio_path = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3").name
+            if _extract_audio(input_path, audio_path, start_s, clip_duration):
+                transcript = _transcribe_whisper(audio_path)
+        else:
+            actions.append("no_source_audio_detected")
+
+        if transcript:
+            actions.append("whisper_transcribed")
+            actions.append("burned_in_highlight_captions")
+            actions.append("added_premium_editorial_caption_beats")
+        else:
+            actions.append("burned_in_premium_hook_title_card")
+
+        ass_916 = tempfile.NamedTemporaryFile(delete=False, suffix="_916_v2.ass").name
+        with open(ass_916, "w", encoding="utf-8") as f:
+            f.write(_build_iteration_ass(transcript, HIGHLIGHT_WORDS, start_s, clip_duration, (1080, 1920), hook))
+
+        ass_11 = tempfile.NamedTemporaryFile(delete=False, suffix="_11_v2.ass").name
+        with open(ass_11, "w", encoding="utf-8") as f:
+            f.write(_build_iteration_ass(transcript, HIGHLIGHT_WORDS, start_s, clip_duration, (1080, 1080), hook))
+
+        safe_label = re.sub(r"[^a-zA-Z0-9_-]+", "-", combo_label or f"folder-{folder_name}" or "wearth-video").strip("-")[:60]
+        out_916 = tempfile.NamedTemporaryFile(delete=False, suffix="_9x16_v2.mp4").name
+        out_11 = tempfile.NamedTemporaryFile(delete=False, suffix="_1x1_v2.mp4").name
+        outputs.extend([out_916, out_11])
+
+        ok_916, err_916 = _render_export(input_path, out_916, start_s, clip_duration, "9:16", ass_916, premium_grade=True)
+        if not ok_916:
+            return jsonify({"ok": False, "error": "9:16 iteration render failed", "detail": err_916}), 500
+        ok_11, err_11 = _render_export(input_path, out_11, start_s, clip_duration, "1:1", ass_11, premium_grade=True)
+        if not ok_11:
+            return jsonify({"ok": False, "error": "1:1 iteration render failed", "detail": err_11}), 500
+
+        source_parent = ""
+        parents = source_meta.get("parents") or []
+        if isinstance(parents, list) and parents:
+            source_parent = parents[0]
+        output_folder = None
+        if output_folder_id and folder_name:
+            output_folder = _ensure_combo_output_folder(_drive, output_folder_id, folder_name)
+            upload_parent = output_folder["id"]
+            actions.append("organized_iteration_exports_in_combo_output_folder")
+        else:
+            upload_parent = folder_id or source_parent
+        if not upload_parent:
+            return jsonify({
+                "ok": False,
+                "error": "No Drive output folder available. Set GOOGLE_PROCESSED_CREATIVE_OUTPUTS_FOLDER_ID or pass output_folder_id.",
+            }), 400
+
+        upload_916 = _upload_video_to_drive(out_916, f"{safe_label}_WEARTH_9x16_iteration_v2.mp4", upload_parent)
+        upload_11 = _upload_video_to_drive(out_11, f"{safe_label}_WEARTH_1x1_iteration_v2.mp4", upload_parent)
+
+        result = {
+            "ok": True,
+            "row_number": row_number,
+            "combo_label": combo_label,
+            "folder_name": folder_name,
+            "source": {
+                "file_id": video_file_id,
+                "name": source_meta.get("name"),
+                "size_mb": round(float(source_meta.get("size") or 0) / (1024 * 1024), 2),
+                **source_probe,
+            },
+            "clip": {"start_s": start_s, "duration_s": round(clip_duration, 2), "hook": hook},
+            "iteration_strategy": {
+                "version": "v2",
+                "goal": "Increase luxury fit without changing source asset ownership or launching before judge approval.",
+                "judge_notes": judge or iteration_brief,
+                "premium_editorial_beats": [
+                    "Eucalyptus-based comfort.",
+                    "No synthetic scratch. No trapped heat.",
+                    "A softer standard for movement.",
+                ],
+            },
+            "actions_applied": actions,
+            "transcript_preview": (transcript or {}).get("text", "")[:500] if isinstance(transcript, dict) else "",
+            "exports": {
+                "reels_stories_9_16": upload_916,
+                "carousel_1_1": upload_11,
+            },
+            "output_root_folder_id": output_folder_id or None,
+            "output_folder_id": upload_parent,
+            "output_folder": output_folder,
+            "next_step": "judge_iteration_v2_before_launch",
+            "launch_gate": {
+                "can_launch_without_judge": False,
+                "reason": "Iteration candidate must pass parent creative judge before launch.",
+            },
+        }
+        if sheet_id and row_number:
+            _update_sheet_iteration_result(sheets, sheet_id, int(row_number), result)
             result["sheet_updated"] = True
         else:
             result["sheet_updated"] = False
