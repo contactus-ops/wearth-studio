@@ -491,6 +491,7 @@ def produce_video_candidate():
     video_file_id = (data.get("video_file_id") or "").strip()
     combo_label = (data.get("combo_label") or "").strip()
     folder_name = (data.get("folder_name") or "").strip()
+    folder_id = (data.get("folder_id") or "").strip()
     hook = (data.get("hook") or HOOK_LINES[0]).strip()
     target_duration = float(data.get("target_duration_s") or 24.0)
     output_folder_id = (data.get("output_folder_id") or VIDEOS_FOLDER or "").strip()
@@ -506,6 +507,7 @@ def produce_video_candidate():
             if not combo:
                 return jsonify({"ok": False, "error": "No processing/scanned combo found and no video_file_id supplied"}), 404
             row_number = combo["row_number"]
+            folder_id = folder_id or combo.get("folder_id") or ""
             video_file_id = combo["video_file_id"]
             combo_label = combo_label or combo.get("combo_label") or f"Drive folder {combo.get('folder_name')}"
             folder_name = folder_name or combo.get("folder_name") or ""
@@ -562,7 +564,7 @@ def produce_video_candidate():
         parents = source_meta.get("parents") or []
         if isinstance(parents, list) and parents:
             source_parent = parents[0]
-        upload_parent = output_folder_id or source_parent
+        upload_parent = output_folder_id or folder_id or source_parent
         if not upload_parent:
             return jsonify(
                 {
