@@ -1,6 +1,7 @@
 import os
 from flask import Flask, jsonify
 from ad_intelligence_engine import meta_roas_decision, meta_roas_execute
+from automation_engine import ad_machine_tick
 from creative_scan_engine import creative_scan_combo
 from seo_engine import run_seo_engine
 from creative_engine import creative_enhance, image_brain_v1, judge_image_candidate, repair_image_v1, repair_image_v2, repair_image_v3
@@ -44,6 +45,7 @@ app.add_url_rule('/api/meta/apply-hooklab-from-benchmark', view_func=apply_hookl
 app.add_url_rule('/api/meta/ads-status', view_func=ads_status, methods=['GET'])
 app.add_url_rule('/api/meta/roas-decision', view_func=meta_roas_decision, methods=['GET', 'POST'])
 app.add_url_rule('/api/meta/roas-execute', view_func=meta_roas_execute, methods=['POST'])
+app.add_url_rule('/api/automation/ad-machine-tick', view_func=ad_machine_tick, methods=['POST'])
 app.add_url_rule('/api/instagram/reel', view_func=post_reel_async, methods=['POST'])
 app.add_url_rule('/api/instagram/reel-publish/<creation_id>', view_func=reel_publish, methods=['POST'])
 app.add_url_rule('/api/facebook/post', view_func=facebook_post, methods=['POST'])
