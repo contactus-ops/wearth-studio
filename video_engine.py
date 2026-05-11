@@ -421,7 +421,14 @@ def _fit_filter(target: str, ass_path: str | None, premium_grade: bool = False) 
     if target == "9:16":
         base = "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1"
     elif target == "1:1":
-        base = "scale=1080:1080:force_original_aspect_ratio=increase,crop=1080:1080,setsar=1"
+        # Square carousel must preserve head/body framing. Use a soft blurred canvas instead of center-cropping vertical UGC.
+        base = (
+            "split=2[fg][bg];"
+            "[bg]scale=1080:1080:force_original_aspect_ratio=increase,crop=1080:1080,"
+            "boxblur=28:2,eq=contrast=0.94:brightness=-0.025:saturation=0.9[bg];"
+            "[fg]scale=980:980:force_original_aspect_ratio=decrease[fg];"
+            "[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1"
+        )
     else:
         base = "scale=1080:1350:force_original_aspect_ratio=increase,crop=1080:1350,setsar=1"
     # Lightweight premium grade: warmer, clearer, slightly lifted shadows.
@@ -631,6 +638,8 @@ def _parent_video_judge(reels_probe: dict, square_probe: dict, frame_items: list
         "hard_rules": [
             "Do not pass if captions are unreadable, unsafe-zone-obstructed, or typo the brand as Worth Active.",
             "Do not pass if output feels cheap, generic, careless, or not premium enough for luxury activewear.",
+            "Do not pass if the model's face/head is unintentionally cropped, especially in 1:1 carousel output.",
+            "Do not pass if square output hides too much product/body context due to aggressive zoom.",
             "Do not pass if Meta compliance is false.",
             "Allow subtle smart outlier/comic/shock ideas only if they preserve premium perception.",
         ],
@@ -644,6 +653,7 @@ def _parent_video_judge(reels_probe: dict, square_probe: dict, frame_items: list
             "luxury_fit_0_10": "number",
             "dopamine_score_0_10": "number",
             "caption_readability": "high|medium|low|unknown",
+            "framing_ok": "boolean",
             "meta_compliance": "boolean",
             "decision": "approved_for_launch|needs_iteration|reject_reshoot",
             "iteration_brief": ["specific next edits if not approved"],
