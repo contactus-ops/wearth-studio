@@ -1,11 +1,19 @@
-import os, io, base64, json, requests, anthropic
-from PIL import Image, ImageEnhance, ImageDraw, ImageStat
+import os, io, base64, json, tempfile, requests, anthropic
+from PIL import Image, ImageEnhance, ImageDraw, ImageFilter, ImageFont, ImageStat
 from flask import request, jsonify
 
 ANTHROPIC_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
 ANTHROPIC_MODEL = os.environ.get('ANTHROPIC_MODEL', 'claude-sonnet-4-20250514')
 META_IMAGE_MAX_MB = 30
 MIN_PREMIUM_DIM = 1080
+DRIVE_DOWNLOAD = 'https://drive.google.com/uc?export=download&id='
+DRIVE_FOLDER_MIME = 'application/vnd.google-apps.folder'
+PROCESSED_CREATIVE_OUTPUTS_FOLDER = (
+    os.environ.get('GOOGLE_PROCESSED_CREATIVE_OUTPUTS_FOLDER_ID')
+    or os.environ.get('GOOGLE_PROCESSED_DRIVE_FOLDER_ID')
+    or os.environ.get('VIDEOS_FOLDER')
+    or ''
+).strip()
 
 WEARTH_CAPTIONS = [
     'you will never go back to polyester.',
@@ -51,6 +59,84 @@ def _drive_image_meta_and_bytes(file_id):
     while not done:
         _status, done = downloader.next_chunk()
     return meta, fh.getvalue()
+
+def _drive_query_literal(value):
+    return str(value or '').replace('\\', '\\\\').replace("'", "\\'")
+
+def _drive_folder_meta(drive, folder_id):
+    return drive.files().get(
+        fileId=folder_id,
+        fields='id,name,mimeType,webViewLink,parents,driveId',
+        supportsAllDrives=True,
+    ).execute()
+
+def _shared_drive_output_error(root_meta):
+    if root_meta.get('driveId'):
+        return None
+    return 'Configured processed output root is not on a Google Shared Drive.'
+
+def _find_drive_child_folder(drive, parent_folder_id, folder_name):
+    q = (
+        f"mimeType='{DRIVE_FOLDER_MIME}' and trashed=false "
+        f"and name='{_drive_query_literal(folder_name)}' "
+        f"and '{_drive_query_literal(parent_folder_id)}' in parents"
+    )
+    resp = drive.files().list(
+        q=q,
+        pageSize=10,
+        fields='files(id,name,webViewLink,parents,driveId)',
+        includeItemsFromAllDrives=True,
+        supportsAllDrives=True,
+    ).execute()
+    rows = resp.get('files') or []
+    return rows[0] if rows else None
+
+def _create_drive_child_folder(drive, parent_folder_id, folder_name):
+    return drive.files().create(
+        body={'name': folder_name, 'mimeType': DRIVE_FOLDER_MIME, 'parents': [parent_folder_id]},
+        fields='id,name,webViewLink,parents,driveId',
+        supportsAllDrives=True,
+    ).execute()
+
+def _ensure_combo_output_folder(drive, root_folder_id, folder_name):
+    if not root_folder_id:
+        raise RuntimeError('root output folder id required')
+    if not folder_name:
+        raise RuntimeError('folder_name required')
+    root_meta = _drive_folder_meta(drive, root_folder_id)
+    err = _shared_drive_output_error(root_meta)
+    if err:
+        raise RuntimeError(err)
+    existing = _find_drive_child_folder(drive, root_folder_id, folder_name)
+    if existing:
+        existing['created'] = False
+        return existing
+    created = _create_drive_child_folder(drive, root_folder_id, folder_name)
+    created['created'] = True
+    return created
+
+def _upload_image_to_drive(path, name, parent_folder_id):
+    from google_engine import _google_services
+    from googleapiclient.http import MediaFileUpload
+
+    _info, _sheets, drive = _google_services()
+    media = MediaFileUpload(path, mimetype='image/jpeg', resumable=True)
+    created = drive.files().create(
+        body={'name': name, 'mimeType': 'image/jpeg', 'parents': [parent_folder_id]},
+        media_body=media,
+        fields='id,name,webViewLink,size',
+        supportsAllDrives=True,
+    ).execute()
+    try:
+        drive.permissions().create(
+            fileId=created['id'],
+            body={'type': 'anyone', 'role': 'reader'},
+            supportsAllDrives=True,
+        ).execute()
+    except Exception:
+        created['public_warning'] = 'could_not_set_anyone_reader'
+    created['download_url'] = DRIVE_DOWNLOAD + created['id']
+    return created
 
 def _image_brain_metrics(image_bytes, meta):
     img = Image.open(io.BytesIO(image_bytes)).convert('RGB')
@@ -248,6 +334,188 @@ def image_brain_v1():
         })
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
+
+def _apply_wearth_warmth(img):
+    img = ImageEnhance.Brightness(img).enhance(1.04)
+    img = ImageEnhance.Contrast(img).enhance(1.12)
+    img = ImageEnhance.Color(img).enhance(1.04)
+    r_ch, g_ch, b_ch = img.split()
+    r_ch = ImageEnhance.Brightness(r_ch).enhance(1.035)
+    g_ch = ImageEnhance.Brightness(g_ch).enhance(1.012)
+    b_ch = ImageEnhance.Brightness(b_ch).enhance(0.985)
+    return Image.merge('RGB', (r_ch, g_ch, b_ch))
+
+def _apply_subtle_vignette(img):
+    rgba = img.convert('RGBA')
+    w, h = rgba.size
+    mask = Image.new('L', (w, h), 0)
+    draw = ImageDraw.Draw(mask)
+    max_r = int((w ** 2 + h ** 2) ** 0.5 / 2)
+    cx, cy = w // 2, h // 2
+    for i in range(max_r, 0, -12):
+        alpha = int(105 * (1 - i / max_r) ** 1.8)
+        draw.ellipse((cx - i, cy - i, cx + i, cy + i), fill=alpha)
+    shade = Image.new('RGBA', (w, h), (18, 15, 12, 0))
+    shade.putalpha(mask)
+    return Image.alpha_composite(rgba, shade).convert('RGB')
+
+def _fit_image_canvas(img, target_size):
+    target_w, target_h = target_size
+    bg = img.copy()
+    bg = bg.resize(target_size, Image.Resampling.LANCZOS)
+    bg = bg.filter(ImageFilter.GaussianBlur(radius=24))
+    bg = ImageEnhance.Brightness(bg).enhance(0.92)
+    bg = ImageEnhance.Color(bg).enhance(0.88)
+    fg = img.copy()
+    fg.thumbnail((int(target_w * 0.96), int(target_h * 0.96)), Image.Resampling.LANCZOS)
+    canvas = bg.convert('RGB')
+    x = (target_w - fg.width) // 2
+    y = (target_h - fg.height) // 2
+    canvas.paste(fg, (x, y))
+    return canvas
+
+def _crop_or_fit_4x5(img):
+    w, h = img.size
+    ratio = w / h if h else 0
+    target_ratio = 4 / 5
+    if abs(ratio - target_ratio) <= 0.035 and w >= 1080 and h >= 1350:
+        return img.resize((1080, 1350), Image.Resampling.LANCZOS)
+    return _fit_image_canvas(img, (1080, 1350))
+
+def _wrap_text(draw, text, font, max_width):
+    words = str(text or '').split()
+    lines, line = [], ''
+    for word in words:
+        test = f'{line} {word}'.strip()
+        box = draw.textbbox((0, 0), test, font=font)
+        if box[2] - box[0] > max_width and line:
+            lines.append(line)
+            line = word
+        else:
+            line = test
+    if line:
+        lines.append(line)
+    return lines
+
+def _font(size=44):
+    try:
+        return ImageFont.truetype('arial.ttf', size)
+    except Exception:
+        return ImageFont.load_default()
+
+def _add_image_hook_overlay(img, text, safe_zone='bottom-left'):
+    text = (text or '').strip()
+    if not text:
+        return img
+    rgba = img.convert('RGBA')
+    overlay = Image.new('RGBA', rgba.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+    font = _font(46 if img.height >= 1300 else 38)
+    margin = 54 if img.height >= 1300 else 42
+    max_width = img.width - margin * 2
+    lines = _wrap_text(draw, text, font, max_width)
+    line_h = int((draw.textbbox((0, 0), 'Ag', font=font)[3] + 12) * 1.15)
+    block_h = line_h * len(lines) + 26
+    zone = str(safe_zone or '').lower()
+    y = margin if 'top' in zone else img.height - margin - block_h
+    x = margin
+    draw.rounded_rectangle((x - 18, y - 14, x + max_width + 18, y + block_h), radius=18, fill=(20, 18, 15, 118))
+    yy = y
+    for line in lines:
+        draw.text((x + 2, yy + 2), line, font=font, fill=(0, 0, 0, 170))
+        draw.text((x, yy), line, font=font, fill=(250, 247, 239, 255))
+        yy += line_h
+    return Image.alpha_composite(rgba, overlay).convert('RGB')
+
+def _repair_image_exports(image_bytes, image_brain):
+    src = Image.open(io.BytesIO(image_bytes)).convert('RGB')
+    repaired = _apply_wearth_warmth(src)
+    repaired = _apply_subtle_vignette(repaired)
+    text_plan = image_brain.get('text_plan') or {}
+    if text_plan.get('needs_hook_overlay'):
+        repaired = _add_image_hook_overlay(
+            repaired,
+            text_plan.get('hook_overlay') or 'Your skin knows the difference.',
+            text_plan.get('safe_zone') or 'bottom-left',
+        )
+    feed = _crop_or_fit_4x5(repaired)
+    square = _fit_image_canvas(repaired, (1080, 1080))
+    return {'feed_4_5': feed, 'carousel_1_1': square}
+
+def _save_jpeg_temp(img, suffix):
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    tmp.close()
+    img.save(tmp.name, format='JPEG', quality=92, optimize=True)
+    return tmp.name
+
+def repair_image_v1():
+    data = request.get_json(force=True, silent=True) or {}
+    file_id = (data.get('image_file_id') or data.get('file_id') or '').strip()
+    folder_name = (data.get('folder_name') or '').strip()
+    combo_label = (data.get('combo_label') or f'Drive folder {folder_name}').strip()
+    output_folder_id = (data.get('output_folder_id') or PROCESSED_CREATIVE_OUTPUTS_FOLDER or '').strip()
+    provided_brain = data.get('image_brain') if isinstance(data.get('image_brain'), dict) else None
+    if not file_id:
+        return jsonify({'ok': False, 'error': 'image_file_id or file_id required'}), 400
+    if not folder_name:
+        return jsonify({'ok': False, 'error': 'folder_name required so repaired image lands in the correct processed folder'}), 400
+    paths = []
+    try:
+        from google_engine import _google_services
+        _info, _sheets, drive = _google_services()
+        output_folder = _ensure_combo_output_folder(drive, output_folder_id, folder_name)
+        upload_parent = output_folder['id']
+        meta, image_bytes = _drive_image_meta_and_bytes(file_id)
+        metrics = _image_brain_metrics(image_bytes, meta)
+        image_brain = provided_brain or _claude_image_brain(_image_thumb_b64(image_bytes), metrics)
+        exports = _repair_image_exports(image_bytes, image_brain)
+        safe_label = ''.join(ch if ch.isalnum() or ch in '-_' else '-' for ch in (combo_label or f'folder-{folder_name}')).strip('-')[:60]
+        uploads = {}
+        for key, img in exports.items():
+            path = _save_jpeg_temp(img, f'_{key}.jpg')
+            paths.append(path)
+            uploads[key] = _upload_image_to_drive(path, f'{safe_label}_WEARTH_{key}_image_v1.jpg', upload_parent)
+        external_pending = []
+        repair_decision = image_brain.get('repair_decision') or {}
+        for item in repair_decision.get('requires_external_ai_tool') or []:
+            if 'background' in str(item).lower():
+                external_pending.append(item)
+        result = {
+            'ok': True,
+            'source': {
+                'file_id': file_id,
+                'name': meta.get('name'),
+                'webViewLink': meta.get('webViewLink'),
+                **metrics,
+            },
+            'image_brain': image_brain,
+            'actions_applied': [
+                'applied_wearth_warmth_grade',
+                'applied_subtle_vignette',
+                'rendered_feed_4_5',
+                'rendered_carousel_1_1_with_blurred_canvas',
+                'uploaded_to_processed_shared_drive',
+            ] + (['added_hook_overlay'] if (image_brain.get('text_plan') or {}).get('needs_hook_overlay') else []),
+            'external_actions_pending': external_pending,
+            'exports': uploads,
+            'output_root_folder_id': output_folder_id,
+            'output_folder_id': upload_parent,
+            'output_folder': output_folder,
+            'launch_gate': {
+                'can_launch_without_judge': False,
+                'reason': 'Repaired image must pass parent image/creative judge before Meta launch.',
+            },
+            'next_step': 'parent_image_judge_before_launch',
+        }
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+    finally:
+        for path in paths:
+            try:
+                os.unlink(path)
+            except Exception:
+                pass
 
 def _claude_analyse(img_b64):
     if not ANTHROPIC_KEY:

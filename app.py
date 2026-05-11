@@ -3,7 +3,7 @@ from flask import Flask, jsonify
 from ad_intelligence_engine import meta_roas_decision, meta_roas_execute
 from creative_scan_engine import creative_scan_combo
 from seo_engine import run_seo_engine
-from creative_engine import creative_enhance, image_brain_v1
+from creative_engine import creative_enhance, image_brain_v1, repair_image_v1
 from video_engine import judge_video_candidate, produce_iteration_v2, produce_video_candidate, production_brain_v1, video_output_folder, video_process
 from meta_engine import (
     launch_ads,
@@ -24,6 +24,7 @@ app = Flask(__name__)
 app.add_url_rule('/api/seo/generate', view_func=run_seo_engine, methods=['POST'])
 app.add_url_rule('/api/creative/enhance', view_func=creative_enhance, methods=['POST'])
 app.add_url_rule('/api/creative/image-brain-v1', view_func=image_brain_v1, methods=['POST'])
+app.add_url_rule('/api/creative/repair-image-v1', view_func=repair_image_v1, methods=['POST'])
 app.add_url_rule('/api/creative/scan-combo', view_func=creative_scan_combo, methods=['POST'])
 app.add_url_rule('/api/video/process', view_func=video_process, methods=['POST'])
 app.add_url_rule('/api/video/output-folder', view_func=video_output_folder, methods=['POST'])
