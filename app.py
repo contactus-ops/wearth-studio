@@ -13,6 +13,7 @@ from dashboard_engine import (
     ads_reject,
     meta_ad_live_creative,
     meta_adsets_live,
+    meta_campaign_dashboard,
     meta_video_thumbnail,
 )
 from seo_engine import run_seo_engine
@@ -66,6 +67,7 @@ app.add_url_rule('/api/ads/publish/<ad_id>', view_func=ads_publish, methods=['PO
 app.add_url_rule('/api/ads/feedback', view_func=ads_feedback, methods=['POST'])
 app.add_url_rule('/api/ads/improve-copy', view_func=ads_improve_copy, methods=['POST'])
 app.add_url_rule('/api/meta/adsets-live', view_func=meta_adsets_live, methods=['GET'])
+app.add_url_rule('/api/meta/campaign-dashboard', view_func=meta_campaign_dashboard, methods=['GET'])
 app.add_url_rule('/api/meta/ad-live-creative', view_func=meta_ad_live_creative, methods=['GET'])
 app.add_url_rule('/api/meta/video-thumbnail', view_func=meta_video_thumbnail, methods=['GET'])
 app.add_url_rule('/api/instagram/reel', view_func=post_reel_async, methods=['POST'])

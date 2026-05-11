@@ -11,7 +11,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, "..");
 const assetsDir = path.join(root, "dist", "assets");
 
-const NEEDLES = ["ad command centre", "Pending Approval", "Ad Studio"];
+const NEEDLES = ["Founder Ad Cockpit", "Adsets and Ads", "What The Machine Sees"];
 
 function main() {
   if (!fs.existsSync(assetsDir)) {
@@ -35,7 +35,7 @@ function main() {
       process.exit(1);
     }
   }
-  console.log("verify-dashboard-ui: OK (prototype shell strings present in bundle).");
+  console.log("verify-dashboard-ui: OK (founder cockpit strings present in bundle).");
 }
 
 main();

@@ -805,7 +805,7 @@ function PendingCard({
   );
 }
 
-export default function App() {
+export function LegacyApp() {
   const [pending, setPending] = useState<PendingAd[]>([]);
   const [live, setLive] = useState<LivePayload | null>(null);
   const [automation, setAutomation] = useState<AutomationPayload | null>(null);
@@ -1207,6 +1207,344 @@ export default function App() {
           {refreshing ? "…" : "Refresh data"}
         </button>
       </div>
+    </div>
+  );
+}
+
+type CampaignMetric = {
+  spend_inr?: number;
+  impressions?: number;
+  clicks?: number;
+  ctr?: number | null;
+  cpc_inr?: number | null;
+  cpm_inr?: number | null;
+  purchases?: number;
+  purchase_value_inr?: number | null;
+  roas?: number | null;
+};
+
+type CampaignAd = {
+  id: string;
+  name?: string;
+  status?: string;
+  effective_status?: string;
+  created_time?: string;
+  updated_time?: string;
+  ads_manager_url?: string;
+  metrics?: CampaignMetric;
+  creative?: {
+    id?: string;
+    name?: string;
+    title?: string;
+    body?: string;
+    thumbnail_url?: string;
+    image_url?: string;
+    video_id?: string;
+  };
+};
+
+type CampaignAdset = CampaignMetric & {
+  adset_id?: string;
+  name?: string;
+  status?: string;
+  effective_status?: string;
+  daily_budget_inr?: number | null;
+  daily_budget_paise?: number;
+  stage?: string;
+  ad_count?: number;
+  active_ad_count?: number;
+  ads_manager_url?: string;
+  ads?: CampaignAd[];
+};
+
+type CampaignDashboard = {
+  ok?: boolean;
+  date_preset?: string;
+  campaign?: {
+    id?: string;
+    name?: string;
+    status?: string;
+    effective_status?: string;
+    objective?: string;
+    buying_type?: string;
+  };
+  totals?: CampaignMetric & {
+    active_ads?: number;
+    active_adsets?: number;
+  };
+  adsets?: CampaignAdset[];
+  brain?: {
+    summary?: string;
+    urgency?: string;
+    recommended_actions?: Array<{
+      action_type?: string;
+      adset_id?: string;
+      priority?: string;
+      reason?: string;
+      proposed_daily_budget_paise?: number | null;
+    }>;
+  };
+  guardrails?: Record<string, boolean | string>;
+  errors?: Array<Record<string, unknown>>;
+};
+
+function pct(n: number | null | undefined): string {
+  if (n == null || Number.isNaN(n)) return "—";
+  return `${n.toFixed(2)}%`;
+}
+
+function compact(n: number | null | undefined): string {
+  if (n == null || Number.isNaN(n)) return "—";
+  return new Intl.NumberFormat("en-IN", { notation: "compact" }).format(n);
+}
+
+function statusClass(status?: string): string {
+  const s = (status || "").toUpperCase();
+  if (s.includes("ACTIVE")) return "cockpit-status-active";
+  if (s.includes("REVIEW") || s.includes("PROCESS")) return "cockpit-status-review";
+  return "cockpit-status-paused";
+}
+
+function MetricTile({ label, value, tone }: { label: string; value: string; tone?: string }) {
+  return (
+    <div className={`cockpit-metric ${tone ? `cockpit-metric-${tone}` : ""}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function AdRow({ ad }: { ad: CampaignAd }) {
+  const [open, setOpen] = useState(false);
+  const m = ad.metrics || {};
+  const creative = ad.creative || {};
+  return (
+    <div className="cockpit-ad">
+      <button type="button" className="cockpit-ad-main" onClick={() => setOpen((v) => !v)}>
+        <div className="cockpit-thumb">
+          {creative.thumbnail_url || creative.image_url ? (
+            <img src={creative.thumbnail_url || creative.image_url} alt="" />
+          ) : (
+            <span>No preview</span>
+          )}
+        </div>
+        <div className="cockpit-ad-copy">
+          <div className="cockpit-row-top">
+            <span className={`cockpit-status ${statusClass(ad.effective_status || ad.status)}`}>
+              {ad.effective_status || ad.status || "UNKNOWN"}
+            </span>
+            <span>{ad.id}</span>
+          </div>
+          <h4>{creative.title || ad.name || "Untitled Meta ad"}</h4>
+          <p>{creative.body || "No body copy returned from Meta creative."}</p>
+        </div>
+        <div className="cockpit-ad-metrics">
+          <strong>{fmtInr(m.spend_inr, 0)}</strong>
+          <span>{compact(m.impressions)} imps</span>
+          <span>{compact(m.clicks)} clicks</span>
+        </div>
+      </button>
+      {open && (
+        <div className="cockpit-detail">
+          <MetricTile label="CTR" value={pct(m.ctr)} />
+          <MetricTile label="CPC" value={fmtInr(m.cpc_inr, 2)} />
+          <MetricTile label="CPM" value={fmtInr(m.cpm_inr, 2)} />
+          <MetricTile label="Purchases" value={String(m.purchases ?? 0)} />
+          <MetricTile label="ROAS" value={m.roas != null ? `${m.roas.toFixed(2)}x` : "—"} />
+          <a href={ad.ads_manager_url || META_ADS_URL} target="_blank" rel="noopener noreferrer">
+            Open ad in Meta
+          </a>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AdsetPanel({ adset }: { adset: CampaignAdset }) {
+  const [open, setOpen] = useState(false);
+  const status = adset.effective_status || adset.status;
+  return (
+    <section className="cockpit-adset">
+      <button type="button" className="cockpit-adset-head" onClick={() => setOpen((v) => !v)}>
+        <div>
+          <span className={`cockpit-status ${statusClass(status)}`}>{status || "UNKNOWN"}</span>
+          <h3>{adset.name || adset.adset_id}</h3>
+          <p>{adset.stage || "learning"} · {adset.active_ad_count ?? 0}/{adset.ad_count ?? 0} ads active</p>
+        </div>
+        <div className="cockpit-adset-score">
+          <strong>{fmtInr(adset.spend_inr, 0)}</strong>
+          <span>{adset.roas != null ? `${adset.roas.toFixed(2)}x ROAS` : "ROAS —"}</span>
+        </div>
+      </button>
+      <div className="cockpit-mini-grid">
+        <MetricTile label="Budget" value={fmtInr(adset.daily_budget_inr, 0)} />
+        <MetricTile label="CTR" value={pct(adset.ctr)} />
+        <MetricTile label="CPC" value={fmtInr(adset.cpc_inr, 2)} />
+        <MetricTile label="Purchases" value={String(adset.purchases ?? 0)} />
+      </div>
+      {open && (
+        <div className="cockpit-ad-list">
+          {(adset.ads || []).length ? (
+            (adset.ads || []).map((ad) => <AdRow key={ad.id} ad={ad} />)
+          ) : (
+            <div className="cockpit-empty">No ads returned for this adset.</div>
+          )}
+          <a className="cockpit-meta-link" href={adset.ads_manager_url || META_ADS_URL} target="_blank" rel="noopener noreferrer">
+            Open adset in Meta Ads Manager
+          </a>
+        </div>
+      )}
+    </section>
+  );
+}
+
+export default function App() {
+  const [data, setData] = useState<CampaignDashboard | null>(null);
+  const [automation, setAutomation] = useState<AutomationPayload | null>(null);
+  const [activeTab, setActiveTab] = useState<DashboardTab>("command");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [updatedAt, setUpdatedAt] = useState(() => new Date());
+
+  const load = useCallback(async () => {
+    setError("");
+    try {
+      const automationBody = {
+        started_at_utc: "2026-05-11T15:29:23+00:00",
+        not_before_utc: "2026-05-17T15:29:23+00:00",
+        interval_days: 6,
+        target_roas: 4,
+        date_preset: "last_7d",
+        min_spend_inr: 500,
+        total_daily_budget_inr: 2500,
+        max_new_ads_per_cycle: 3,
+      };
+      const [campaign, machine] = await Promise.all([
+        jfetch<CampaignDashboard>("/api/meta/campaign-dashboard"),
+        jfetch<AutomationPayload>("/api/automation/ad-machine-tick", {
+          method: "POST",
+          body: JSON.stringify(automationBody),
+        }).catch(() => null),
+      ]);
+      setData(campaign);
+      setAutomation(machine);
+      setUpdatedAt(new Date());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Fetch failed");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+    const id = setInterval(load, 3 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [load]);
+
+  const totals = data?.totals || {};
+  const adsets = data?.adsets || [];
+  const brainActions = data?.brain?.recommended_actions || [];
+
+  return (
+    <div className="cockpit-root">
+      <header className="cockpit-hero">
+        <div>
+          <span className="cockpit-kicker">WEARTH Meta Command</span>
+          <h1>Founder Ad Cockpit</h1>
+          <p>ad command centre · {data?.campaign?.name || "Current live campaign"} · {data?.date_preset || "last_7d"}</p>
+        </div>
+        <div className="cockpit-hero-actions">
+          <button type="button" onClick={load}>{loading ? "Loading..." : "Refresh"}</button>
+          <a href={META_ADS_URL} target="_blank" rel="noopener noreferrer">Open Meta</a>
+        </div>
+      </header>
+
+      {error && <div className="cockpit-error">Fetch error: {error}</div>}
+
+      <nav className="cockpit-tabs">
+        <button className={activeTab === "command" ? "active" : ""} onClick={() => setActiveTab("command")}>Campaign</button>
+        <button className={activeTab === "video" ? "active" : ""} onClick={() => setActiveTab("video")}>Video Brain</button>
+        <button className={activeTab === "image" ? "active" : ""} onClick={() => setActiveTab("image")}>Image Brain</button>
+      </nav>
+
+      {activeTab === "command" ? (
+        <>
+          <section className="cockpit-overview">
+            <MetricTile label="Spend 7d" value={fmtInr(totals.spend_inr, 0)} tone="gold" />
+            <MetricTile label="ROAS" value={totals.roas != null ? `${totals.roas.toFixed(2)}x` : "—"} />
+            <MetricTile label="Purchases" value={String(totals.purchases ?? 0)} />
+            <MetricTile label="CTR" value={pct(totals.ctr)} />
+            <MetricTile label="CPC" value={fmtInr(totals.cpc_inr, 2)} />
+            <MetricTile label="Active Ads" value={String(totals.active_ads ?? 0)} />
+          </section>
+
+          <section className="cockpit-machine">
+            <div>
+              <span className="cockpit-kicker">Automation Remote</span>
+              <h2>{automation?.route?.action || "Safe ad machine router"}</h2>
+              <p>{automation?.route?.reason || data?.brain?.summary || "Reading Meta and waiting for enough signal."}</p>
+            </div>
+            <div className="cockpit-machine-grid">
+              <MetricTile label="State" value={automation?.eligible_to_act ? "Ready" : "Observing"} />
+              <MetricTile label="Next fire" value={automation?.sleep_window?.not_before_utc ? new Date(automation.sleep_window.not_before_utc).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", day: "2-digit", month: "short" }) : "—"} />
+              <MetricTile label="Budget guard" value={fmtInr(automation?.budget_guardrails?.planned_total_daily_budget_inr, 0)} />
+              <MetricTile label="New ads/cycle" value={String(automation?.budget_guardrails?.max_new_ads_per_cycle ?? 3)} />
+            </div>
+          </section>
+
+          <section className="cockpit-section">
+            <div className="cockpit-section-head">
+              <div>
+                <span className="cockpit-kicker">Current Campaign</span>
+                <h2>Adsets and Ads</h2>
+              </div>
+              <span>{adsets.length} adsets · click any segment for every ad detail</span>
+            </div>
+            <div className="cockpit-adsets">
+              {adsets.map((adset) => <AdsetPanel key={adset.adset_id || adset.name} adset={adset} />)}
+            </div>
+          </section>
+
+          <section className="cockpit-section">
+            <div className="cockpit-section-head">
+              <div>
+                <span className="cockpit-kicker">Brain Recommendations</span>
+                <h2>What The Machine Sees</h2>
+              </div>
+            </div>
+            <div className="cockpit-actions">
+              {brainActions.slice(0, 6).map((action, idx) => (
+                <div className="cockpit-action" key={`${action.action_type}-${idx}`}>
+                  <span>{action.priority || "watch"}</span>
+                  <strong>{action.action_type || "hold"}</strong>
+                  <p>{action.reason || "No reason returned."}</p>
+                </div>
+              ))}
+            </div>
+          </section>
+        </>
+      ) : (
+        <section className="cockpit-brain">
+          <span className="cockpit-kicker">{activeTab === "video" ? "Video Creative Brain" : "Image Creative Brain"}</span>
+          <h2>{activeTab === "video" ? "Production and iteration console" : "Source-first image rescue console"}</h2>
+          <p>
+            The backend brain exists. Next UI phase adds raw upload, Drive picker, iteration timeline,
+            parent judge score, approved output preview, and gated push-live controls.
+          </p>
+          <div className="cockpit-roadmap">
+            <span>Upload</span>
+            <span>Diagnose</span>
+            <span>Repair</span>
+            <span>Judge</span>
+            <span>Launch gate</span>
+          </div>
+        </section>
+      )}
+
+      <footer className="cockpit-footer">
+        Last updated {updatedAt.toLocaleString("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" })}
+      </footer>
     </div>
   );
 }

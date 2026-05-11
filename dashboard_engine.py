@@ -1,9 +1,22 @@
 import json
 from pathlib import Path
 
+import requests
 from flask import jsonify, request
 
-from ad_intelligence_engine import _decision_payload
+from ad_intelligence_engine import (
+    GRAPH,
+    INSIGHT_FIELDS,
+    META_CAMPAIGN_ID,
+    _decision_payload,
+    _float,
+    _get_json,
+    _h,
+    _insight_for_object,
+    _purchase_count,
+    _purchase_value,
+    _roas_from_insight,
+)
 
 
 ROOT = Path(__file__).resolve().parent
@@ -162,3 +175,146 @@ def meta_ad_live_creative():
 
 def meta_video_thumbnail():
     return jsonify({"ok": True, "thumbnail_url": None})
+
+
+def _metric_card_from_insight(row: dict) -> dict:
+    spend = _float(row.get("spend"))
+    clicks = _float(row.get("clicks"))
+    impressions = _float(row.get("impressions"))
+    purchases = _purchase_count(row.get("actions"))
+    purchase_value = _purchase_value(row.get("action_values"))
+    return {
+        "spend_inr": round(spend, 2),
+        "impressions": int(impressions),
+        "clicks": int(clicks),
+        "ctr": round(_float(row.get("ctr")), 3) if row.get("ctr") is not None else None,
+        "cpc_inr": round(_float(row.get("cpc")), 2) if row.get("cpc") is not None else None,
+        "cpm_inr": round(_float(row.get("cpm")), 2) if row.get("cpm") is not None else None,
+        "purchases": int(purchases),
+        "purchase_value_inr": round(purchase_value, 2) if purchase_value else None,
+        "roas": _roas_from_insight(row, spend, purchase_value),
+    }
+
+
+def _creative_summary(creative: dict | None) -> dict:
+    creative = creative or {}
+    story = creative.get("object_story_spec") or {}
+    link_data = story.get("link_data") or {}
+    video_data = story.get("video_data") or {}
+    title = creative.get("title") or link_data.get("name") or video_data.get("title") or ""
+    body = creative.get("body") or link_data.get("message") or video_data.get("message") or ""
+    return {
+        "id": creative.get("id"),
+        "name": creative.get("name"),
+        "title": title,
+        "body": body,
+        "thumbnail_url": creative.get("thumbnail_url") or video_data.get("image_url") or link_data.get("picture"),
+        "image_url": creative.get("image_url") or link_data.get("picture"),
+        "video_id": creative.get("video_id") or video_data.get("video_id"),
+        "object_story_spec": story,
+    }
+
+
+def _ads_for_adset(adset_id: str, date_preset: str) -> tuple[list[dict], list[dict]]:
+    fields = (
+        "id,name,status,effective_status,created_time,updated_time,"
+        "creative{id,name,title,body,thumbnail_url,image_url,video_id,object_story_spec}"
+    )
+    data, err, http = _get_json(f"{GRAPH}/{adset_id}/ads", {"fields": fields, "limit": 100}, timeout=60)
+    if err:
+        return [], [{"step": "adset_ads", "adset_id": adset_id, "http": http, "error": err}]
+    errors = []
+    ads = []
+    for ad in data.get("data") or []:
+        insight, insight_err = _insight_for_object(str(ad.get("id")), date_preset)
+        if insight_err:
+            errors.append({"step": "ad_insight", **insight_err})
+        ads.append({
+            "id": ad.get("id"),
+            "name": ad.get("name"),
+            "status": ad.get("status"),
+            "effective_status": ad.get("effective_status"),
+            "created_time": ad.get("created_time"),
+            "updated_time": ad.get("updated_time"),
+            "creative": _creative_summary(ad.get("creative")),
+            "metrics": _metric_card_from_insight(insight),
+            "ads_manager_url": f"https://adsmanager.facebook.com/adsmanager/manage/ads/edit?act=8979315238856807&selected_ad_ids={ad.get('id')}",
+        })
+    return ads, errors
+
+
+def meta_campaign_dashboard():
+    campaign_id = (request.args.get("campaign_id") or META_CAMPAIGN_ID or "").strip()
+    date_preset = (request.args.get("date_preset") or "last_7d").strip()
+    decision = _decision_payload({"campaign_id": campaign_id, "date_preset": date_preset, "target_roas": 4.0, "min_spend_inr": 500}, request.args)
+    http_status = int(decision.pop("http_status", 200))
+    if http_status != 200 or not decision.get("ok"):
+        return jsonify(decision), http_status
+
+    campaign_data, campaign_err, campaign_http = _get_json(
+        f"{GRAPH}/{campaign_id}",
+        {"fields": "id,name,status,effective_status,daily_budget,lifetime_budget,buying_type,objective,created_time,updated_time"},
+        timeout=60,
+    )
+    errors = list(decision.get("errors") or [])
+    if campaign_err:
+        errors.append({"step": "campaign", "http": campaign_http, "error": campaign_err})
+        campaign_data = {"id": campaign_id, "name": "WEARTH Meta campaign"}
+
+    scorecards = decision.get("scorecards") or []
+    adsets = []
+    totals = {
+        "spend_inr": 0.0,
+        "impressions": 0,
+        "clicks": 0,
+        "purchases": 0,
+        "purchase_value_inr": 0.0,
+        "active_ads": 0,
+        "active_adsets": 0,
+    }
+    for card in scorecards:
+        adset_id = str(card.get("adset_id") or "")
+        ads, ad_errors = _ads_for_adset(adset_id, date_preset) if adset_id else ([], [])
+        errors.extend(ad_errors)
+        active_ads = sum(1 for ad in ads if str(ad.get("effective_status") or ad.get("status") or "").upper() == "ACTIVE")
+        totals["spend_inr"] += float(card.get("spend_inr") or 0)
+        totals["impressions"] += int(card.get("impressions") or 0)
+        totals["clicks"] += int(card.get("clicks") or 0)
+        totals["purchases"] += int(card.get("purchases") or 0)
+        totals["purchase_value_inr"] += float(card.get("purchase_value_inr") or 0)
+        totals["active_ads"] += active_ads
+        totals["active_adsets"] += 1 if card.get("is_active") else 0
+        adsets.append({
+            **card,
+            "ads": ads,
+            "ad_count": len(ads),
+            "active_ad_count": active_ads,
+            "ads_manager_url": f"https://adsmanager.facebook.com/adsmanager/manage/adsets/edit?act=8979315238856807&selected_adset_ids={adset_id}",
+        })
+
+    totals["spend_inr"] = round(totals["spend_inr"], 2)
+    totals["purchase_value_inr"] = round(totals["purchase_value_inr"], 2)
+    totals["roas"] = round(totals["purchase_value_inr"] / totals["spend_inr"], 2) if totals["spend_inr"] and totals["purchase_value_inr"] else None
+    totals["cpc_inr"] = round(totals["spend_inr"] / totals["clicks"], 2) if totals["clicks"] else None
+    totals["cpm_inr"] = round(totals["spend_inr"] / totals["impressions"] * 1000, 2) if totals["impressions"] else None
+    totals["ctr"] = round(totals["clicks"] / totals["impressions"] * 100, 3) if totals["impressions"] else None
+
+    return jsonify({
+        "ok": True,
+        "mode": "founder_campaign_cockpit",
+        "date_preset": date_preset,
+        "campaign": campaign_data,
+        "totals": totals,
+        "adsets": adsets,
+        "brain": {
+            "summary": (decision.get("ai_plan") or {}).get("summary"),
+            "recommended_actions": (decision.get("ai_plan") or {}).get("recommended_actions") or decision.get("heuristic_actions") or [],
+            "urgency": (decision.get("ai_plan") or {}).get("urgency"),
+        },
+        "guardrails": {
+            "dashboard_direct_publish_enabled": False,
+            "mutation_requires_gate": True,
+            "source": "Meta Marketing API",
+        },
+        "errors": errors,
+    })
