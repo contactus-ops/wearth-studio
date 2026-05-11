@@ -244,6 +244,7 @@ def _probe_video(path: str) -> dict:
         dur = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))
     vm = re.search(r"Video:\s*([^,\s]+).*?(\d{3,5})x(\d{3,5}).*?(?:(\d+(?:\.\d+)?)\s*fps)?", text, re.I | re.S)
     am = re.search(r"Audio:\s*([^,\s]+)", text, re.I)
+    has_subtitles = bool(re.search(r"Subtitle:", text, re.I))
     return {
         "ok": bool(vm),
         "duration_s": round(dur, 2) if dur else None,
@@ -253,6 +254,7 @@ def _probe_video(path: str) -> dict:
         "fps": float(vm.group(4)) if vm and vm.group(4) else None,
         "audio_codec": am.group(1).lower() if am else "",
         "has_audio": bool(am),
+        "has_subtitles": has_subtitles,
     }
 
 
@@ -275,6 +277,37 @@ def _extract_audio(input_path: str, audio_path: str, start_s: float, duration_s:
         "-vn", "-ar", "16000", "-ac", "1", "-b:a", "64k", audio_path
     ], capture_output=True, text=True, timeout=180)
     return r.returncode == 0 and os.path.exists(audio_path) and os.path.getsize(audio_path) > 1024
+
+
+def _audio_quality_metrics(input_path: str, start_s: float, duration_s: float) -> dict:
+    ffmpeg = _resolve_ffmpeg()
+    if not ffmpeg:
+        return {"ok": False, "error": "ffmpeg_not_available"}
+    r = subprocess.run(
+        [
+            ffmpeg, "-hide_banner", "-ss", str(start_s), "-t", str(duration_s), "-i", input_path,
+            "-vn", "-af", "volumedetect", "-f", "null", "-",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    text = (r.stderr or "") + "\n" + (r.stdout or "")
+    mean = re.search(r"mean_volume:\s*(-?\d+(?:\.\d+)?)\s*dB", text)
+    maxv = re.search(r"max_volume:\s*(-?\d+(?:\.\d+)?)\s*dB", text)
+    mean_db = float(mean.group(1)) if mean else None
+    max_db = float(maxv.group(1)) if maxv else None
+    issues = []
+    if mean_db is not None and mean_db < -32:
+        issues.append("too_quiet")
+    if max_db is not None and max_db > -0.5:
+        issues.append("possible_clipping")
+    return {
+        "ok": r.returncode == 0 and mean_db is not None,
+        "mean_volume_db": mean_db,
+        "max_volume_db": max_db,
+        "issues": issues,
+    }
 
 
 def _ass_time(secs: float) -> str:
@@ -396,6 +429,108 @@ def _choose_iteration_hook(judge: dict | list | str | None, iteration_brief: lis
     return PREMIUM_ITERATION_HOOKS[3]
 
 
+def _transcript_text(transcript_data) -> str:
+    if isinstance(transcript_data, dict):
+        return str(transcript_data.get("text") or "")
+    return ""
+
+
+def _production_brain_plan(source_probe: dict, audio_metrics: dict | None, transcript_data, requested_hook: str, target_duration: float) -> dict:
+    duration = float(source_probe.get("duration_s") or 0)
+    transcript_text = _transcript_text(transcript_data)
+    word_count = len(re.findall(r"\w+", transcript_text))
+    has_speech = word_count >= 5
+    source_aspect = (
+        round(float(source_probe.get("width") or 0) / float(source_probe.get("height") or 1), 3)
+        if source_probe.get("width") and source_probe.get("height") else None
+    )
+    audio_issues = list((audio_metrics or {}).get("issues") or [])
+    needs_voiceover = (not source_probe.get("has_audio")) or ("too_quiet" in audio_issues) or not has_speech
+    speed = 1.0
+    if has_speech and duration > target_duration:
+        speed = 1.04
+    elif has_speech and word_count > 75:
+        speed = 1.03
+    hook = requested_hook or "I did everything right except this."
+    if hook in HOOK_LINES[:1] and has_speech:
+        low = transcript_text.lower()
+        if "polyester" in low or "plastic" in low:
+            hook = "I did everything right except this."
+        elif "skin" in low or "fabric" in low:
+            hook = "Your skin knows before you do."
+        else:
+            hook = "This is what changed everything."
+    background_mode = "keep_and_grade"
+    external_ai = []
+    artificiality_risk = "low"
+    if source_probe.get("height", 0) >= 1080:
+        background_mode = "subtle_cleanup_or_blur_only"
+    if source_probe.get("height", 0) < 900 or source_probe.get("width", 0) < 500:
+        artificiality_risk = "high"
+        external_ai.append("background_replacement_not_recommended_low_resolution")
+    else:
+        external_ai.append("optional_subtle_background_repair_with_segmentation")
+    reshoot_required = artificiality_risk == "high" and needs_voiceover
+    actions_now = [
+        "add_opening_hook_caption",
+        "burn_in_word_level_captions" if has_speech else "burn_in_hook_title_card",
+        "normalize_audio_loudness" if source_probe.get("has_audio") else "flag_voiceover_needed",
+        "apply_premium_lighting_grade",
+        "preserve_square_framing_with_blurred_canvas",
+    ]
+    if speed != 1.0:
+        actions_now.append("apply_subtle_speedup_for_hookability")
+    return {
+        "version": "production_brain_v1",
+        "source_assessment": {
+            "duration_s": duration,
+            "aspect_ratio": source_aspect,
+            "has_audio": bool(source_probe.get("has_audio")),
+            "has_embedded_subtitles": bool(source_probe.get("has_subtitles")),
+            "has_detected_speech": has_speech,
+            "transcript_word_count": word_count,
+        },
+        "audio_plan": {
+            "quality": audio_metrics or {"ok": False, "error": "not_measured"},
+            "voiceover_needed": needs_voiceover,
+            "voiceover_direction": "Founder-led calm premium VO only if speech is unclear, missing, or too noisy.",
+        },
+        "caption_plan": {
+            "captions_detected_in_source": bool(source_probe.get("has_subtitles")),
+            "captions_added": has_speech,
+            "captions_skipped_reason": "" if has_speech else "No reliable speech transcript; use hook title card.",
+            "style": "white captions with warm yellow emphasis on WEARTH/fabric/skin/polyester words",
+        },
+        "hook_plan": {
+            "opening_hook": hook,
+            "hook_duration_s": 2.2,
+            "intent": "thumb-stop without making the brand cheap",
+        },
+        "background_plan": {
+            "mode": background_mode,
+            "acceptable_directions": [
+                "Bandra tree-lined street",
+                "warm Bandra or SoBo cafe",
+                "minimal Mumbai balcony with plants and high-rises",
+                "quiet Pilates or yoga studio",
+                "premium living room with linen, plants, books, warm lamp",
+            ],
+            "rule": "Prefer subtle cleanup/blur/extension. Full replacement only if segmentation and lighting match naturally.",
+            "risk_of_artificiality": artificiality_risk,
+        },
+        "pacing_plan": {
+            "speed_multiplier": round(speed, 3),
+            "target_duration_s": target_duration,
+            "rule": "Use only subtle speed changes so speech remains natural.",
+        },
+        "luxury_repair_plan": {
+            "actions_to_apply_now": actions_now,
+            "actions_requiring_external_ai_tool": external_ai,
+            "reshoot_required": reshoot_required,
+        },
+    }
+
+
 def _build_iteration_ass(transcript_data, highlight_words, start_offset: float, clip_duration: float, play_res: tuple[int, int], hook: str) -> str:
     transcript_ass = _build_caption_ass(transcript_data, highlight_words, start_offset, clip_duration, play_res, hook)
     if not transcript_ass:
@@ -417,7 +552,7 @@ def _safe_ass_filter_path(path: str) -> str:
     return path.replace("\\", "/").replace(":", "\\:")
 
 
-def _fit_filter(target: str, ass_path: str | None, premium_grade: bool = False) -> str:
+def _fit_filter(target: str, ass_path: str | None, premium_grade: bool = False, speed: float = 1.0) -> str:
     if target == "9:16":
         base = "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1"
     elif target == "1:1":
@@ -438,19 +573,29 @@ def _fit_filter(target: str, ass_path: str | None, premium_grade: bool = False) 
         base += ",eq=contrast=1.06:brightness=0.015:saturation=1.06"
     if ass_path:
         base += f",ass='{_safe_ass_filter_path(ass_path)}'"
+    if speed and abs(float(speed) - 1.0) > 0.001:
+        base += f",setpts={1.0 / float(speed):.6f}*PTS"
     return base
 
 
-def _render_export(input_path: str, output_path: str, start_s: float, duration_s: float, target: str, ass_path: str | None, premium_grade: bool = False) -> tuple[bool, str]:
+def _audio_filter(speed: float = 1.0) -> str:
+    parts = []
+    if speed and abs(float(speed) - 1.0) > 0.001:
+        parts.append(f"atempo={max(0.5, min(2.0, float(speed))):.3f}")
+    parts.append("loudnorm=I=-16:TP=-1.5:LRA=11")
+    return ",".join(parts)
+
+
+def _render_export(input_path: str, output_path: str, start_s: float, duration_s: float, target: str, ass_path: str | None, premium_grade: bool = False, speed: float = 1.0) -> tuple[bool, str]:
     ffmpeg = _resolve_ffmpeg()
     if not ffmpeg:
         return False, "ffmpeg_not_available"
     cmd = [
         ffmpeg, "-y", "-ss", str(start_s), "-t", str(duration_s), "-i", input_path,
-        "-vf", _fit_filter(target, ass_path, premium_grade=premium_grade),
+        "-vf", _fit_filter(target, ass_path, premium_grade=premium_grade, speed=speed),
         "-c:v", "libx264", "-profile:v", "high", "-level", "4.1", "-pix_fmt", "yuv420p",
         "-preset", "veryfast", "-crf", "21",
-        "-c:a", "aac", "-b:a", "160k", "-af", "loudnorm=I=-16:TP=-1.5:LRA=11",
+        "-c:a", "aac", "-b:a", "160k", "-af", _audio_filter(speed),
         "-movflags", "+faststart", output_path,
     ]
     r = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
@@ -485,6 +630,7 @@ def _update_sheet_video_result(sheets, sheet_id: str, row_number: int, summary: 
         "actions": summary.get("actions_applied") or [],
         "source_duration_s": summary.get("source", {}).get("duration_s"),
         "output_folder": summary.get("output_folder") or {"id": summary.get("output_folder_id")},
+        "production_brain": summary.get("production_brain") or {},
     }
     sheets.spreadsheets().values().batchUpdate(
         spreadsheetId=sheet_id,
@@ -510,6 +656,7 @@ def _update_sheet_iteration_result(sheets, sheet_id: str, row_number: int, summa
         "actions": summary.get("actions_applied") or [],
         "source_duration_s": summary.get("source", {}).get("duration_s"),
         "output_folder": summary.get("output_folder") or {"id": summary.get("output_folder_id")},
+        "production_brain": summary.get("production_brain") or {},
         "iteration_strategy": summary.get("iteration_strategy") or {},
     }
     sheets.spreadsheets().values().batchUpdate(
@@ -952,6 +1099,7 @@ def produce_video_candidate():
         start_s, clip_duration = _choose_clip_window(duration, target_duration)
 
         transcript = None
+        audio_metrics = None
         actions = [
             "stream_downloaded_from_drive",
             "trimmed_to_scroll_safe_window",
@@ -962,11 +1110,19 @@ def produce_video_candidate():
         ]
 
         if source_probe.get("has_audio"):
+            audio_metrics = _audio_quality_metrics(input_path, start_s, clip_duration)
             audio_path = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3").name
             if _extract_audio(input_path, audio_path, start_s, clip_duration):
                 transcript = _transcribe_whisper(audio_path)
         else:
             actions.append("no_source_audio_detected")
+
+        production_plan = _production_brain_plan(source_probe, audio_metrics, transcript, hook, target_duration)
+        hook = production_plan.get("hook_plan", {}).get("opening_hook") or hook
+        speed = float((production_plan.get("pacing_plan") or {}).get("speed_multiplier") or 1.0)
+        for action in (production_plan.get("luxury_repair_plan") or {}).get("actions_to_apply_now") or []:
+            if action not in actions:
+                actions.append(action)
 
         if transcript:
             actions.append("whisper_transcribed")
@@ -987,10 +1143,10 @@ def produce_video_candidate():
         out_11 = tempfile.NamedTemporaryFile(delete=False, suffix="_1x1.mp4").name
         outputs.extend([out_916, out_11])
 
-        ok_916, err_916 = _render_export(input_path, out_916, start_s, clip_duration, "9:16", ass_916)
+        ok_916, err_916 = _render_export(input_path, out_916, start_s, clip_duration, "9:16", ass_916, speed=speed)
         if not ok_916:
             return jsonify({"ok": False, "error": "9:16 render failed", "detail": err_916}), 500
-        ok_11, err_11 = _render_export(input_path, out_11, start_s, clip_duration, "1:1", ass_11)
+        ok_11, err_11 = _render_export(input_path, out_11, start_s, clip_duration, "1:1", ass_11, speed=speed)
         if not ok_11:
             return jsonify({"ok": False, "error": "1:1 render failed", "detail": err_11}), 500
 
@@ -1029,6 +1185,7 @@ def produce_video_candidate():
                 **source_probe,
             },
             "clip": {"start_s": start_s, "duration_s": round(clip_duration, 2), "hook": hook},
+            "production_brain": production_plan,
             "actions_applied": actions,
             "transcript_preview": (transcript or {}).get("text", "")[:500] if isinstance(transcript, dict) else "",
             "exports": {
@@ -1054,6 +1211,55 @@ def produce_video_candidate():
         return jsonify({"ok": False, "error": str(exc)}), 500
     finally:
         for p in [input_path, audio_path, ass_916, ass_11, *outputs]:
+            if p and os.path.exists(p):
+                try:
+                    os.unlink(p)
+                except Exception:
+                    pass
+
+
+def production_brain_v1():
+    """
+    POST /api/video/production-brain-v1
+    Diagnoses a raw source video and returns the first-pass repair plan without rendering.
+    """
+    data = request.get_json(force=True, silent=True) or {}
+    video_file_id = (data.get("video_file_id") or data.get("source_video_file_id") or "").strip()
+    hook = (data.get("hook") or "").strip()
+    target_duration = float(data.get("target_duration_s") or 24.0)
+    if not video_file_id:
+        return jsonify({"ok": False, "error": "video_file_id or source_video_file_id required"}), 400
+
+    input_path = audio_path = None
+    try:
+        input_path, source_meta = _drive_download_to_path(video_file_id, ".mp4")
+        source_probe = _probe_video(input_path)
+        duration = source_probe.get("duration_s") or 0
+        start_s, clip_duration = _choose_clip_window(duration, target_duration)
+        audio_metrics = None
+        transcript = None
+        if source_probe.get("has_audio"):
+            audio_metrics = _audio_quality_metrics(input_path, start_s, clip_duration)
+            audio_path = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3").name
+            if _extract_audio(input_path, audio_path, start_s, clip_duration):
+                transcript = _transcribe_whisper(audio_path)
+        plan = _production_brain_plan(source_probe, audio_metrics, transcript, hook, target_duration)
+        return jsonify({
+            "ok": True,
+            "source": {
+                "file_id": video_file_id,
+                "name": source_meta.get("name"),
+                "size_mb": round(float(source_meta.get("size") or 0) / (1024 * 1024), 2),
+                **source_probe,
+            },
+            "clip": {"start_s": start_s, "duration_s": round(clip_duration, 2)},
+            "production_brain": plan,
+            "transcript_preview": (_transcript_text(transcript))[:500],
+        })
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+    finally:
+        for p in [input_path, audio_path]:
             if p and os.path.exists(p):
                 try:
                     os.unlink(p)
@@ -1106,6 +1312,7 @@ def produce_iteration_v2():
         start_s, clip_duration = _choose_clip_window(duration, target_duration)
 
         transcript = None
+        audio_metrics = None
         actions = [
             "iteration_v2_from_original_source",
             "judge_notes_applied_to_hook_and_grade",
@@ -1118,11 +1325,18 @@ def produce_iteration_v2():
         ]
 
         if source_probe.get("has_audio"):
+            audio_metrics = _audio_quality_metrics(input_path, start_s, clip_duration)
             audio_path = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3").name
             if _extract_audio(input_path, audio_path, start_s, clip_duration):
                 transcript = _transcribe_whisper(audio_path)
         else:
             actions.append("no_source_audio_detected")
+
+        production_plan = _production_brain_plan(source_probe, audio_metrics, transcript, hook, target_duration)
+        speed = float((production_plan.get("pacing_plan") or {}).get("speed_multiplier") or 1.0)
+        for action in (production_plan.get("luxury_repair_plan") or {}).get("actions_to_apply_now") or []:
+            if action not in actions:
+                actions.append(action)
 
         if transcript:
             actions.append("whisper_transcribed")
@@ -1144,10 +1358,10 @@ def produce_iteration_v2():
         out_11 = tempfile.NamedTemporaryFile(delete=False, suffix="_1x1_v2.mp4").name
         outputs.extend([out_916, out_11])
 
-        ok_916, err_916 = _render_export(input_path, out_916, start_s, clip_duration, "9:16", ass_916, premium_grade=True)
+        ok_916, err_916 = _render_export(input_path, out_916, start_s, clip_duration, "9:16", ass_916, premium_grade=True, speed=speed)
         if not ok_916:
             return jsonify({"ok": False, "error": "9:16 iteration render failed", "detail": err_916}), 500
-        ok_11, err_11 = _render_export(input_path, out_11, start_s, clip_duration, "1:1", ass_11, premium_grade=True)
+        ok_11, err_11 = _render_export(input_path, out_11, start_s, clip_duration, "1:1", ass_11, premium_grade=True, speed=speed)
         if not ok_11:
             return jsonify({"ok": False, "error": "1:1 iteration render failed", "detail": err_11}), 500
 
@@ -1183,6 +1397,7 @@ def produce_iteration_v2():
                 **source_probe,
             },
             "clip": {"start_s": start_s, "duration_s": round(clip_duration, 2), "hook": hook},
+            "production_brain": production_plan,
             "iteration_strategy": {
                 "version": "v2",
                 "goal": "Increase luxury fit without changing source asset ownership or launching before judge approval.",
