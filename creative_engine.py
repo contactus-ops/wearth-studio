@@ -482,6 +482,65 @@ def _clean_square_canvas_v2(img):
     rgba.paste(foreground, (x, y))
     return rgba.convert('RGB')
 
+def _premium_card_background(size):
+    bg = Image.new('RGB', size, (236, 229, 216))
+    shade = Image.new('RGBA', size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(shade)
+    w, h = size
+    for i in range(0, max(w, h), 18):
+        alpha = max(0, 34 - int(i / 24))
+        draw.rectangle((i, i, w - i, h - i), outline=(92, 76, 56, alpha), width=3)
+    return Image.alpha_composite(bg.convert('RGBA'), shade).convert('RGB')
+
+def _paste_with_soft_shadow(canvas, img, xy, radius=16):
+    x, y = xy
+    shadow = Image.new('RGBA', canvas.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(shadow)
+    draw.rounded_rectangle(
+        (x - 8, y - 6, x + img.width + 8, y + img.height + 12),
+        radius=radius,
+        fill=(0, 0, 0, 42),
+    )
+    shadow = shadow.filter(ImageFilter.GaussianBlur(radius=16))
+    out = canvas.convert('RGBA')
+    out.alpha_composite(shadow)
+    out.paste(img.convert('RGB'), (x, y))
+    return out.convert('RGB')
+
+def _draw_editorial_caption(canvas, text, y, font_size):
+    text = (text or '').strip()
+    if not text:
+        return canvas
+    rgba = canvas.convert('RGBA')
+    draw = ImageDraw.Draw(rgba)
+    font = _font(font_size)
+    sub_font = _font(max(24, int(font_size * 0.58)))
+    margin = 58 if canvas.height > 1200 else 44
+    lines = _wrap_text(draw, text, font, canvas.width - margin * 2)
+    yy = y
+    for line in lines[:2]:
+        draw.text((margin + 2, yy + 2), line, font=font, fill=(255, 255, 255, 110))
+        draw.text((margin, yy), line, font=font, fill=(43, 36, 28, 255))
+        yy += int(font_size * 1.18)
+    draw.text((margin, yy + 16), 'WEARTH Active', font=sub_font, fill=(98, 77, 52, 230))
+    return rgba.convert('RGB')
+
+def _editorial_rescue_export_v3(src, target_size, caption):
+    target_w, target_h = target_size
+    src = _premium_polish_v2(src)
+    canvas = _premium_card_background(target_size)
+    image_box_h = int(target_h * (0.74 if target_h > target_w else 0.70))
+    image_box_w = int(target_w * 0.88)
+    photo = src.copy()
+    photo.thumbnail((image_box_w, image_box_h), Image.Resampling.LANCZOS)
+    x = (target_w - photo.width) // 2
+    y = 54 if target_h > target_w else 42
+    canvas = _paste_with_soft_shadow(canvas, photo, (x, y))
+    caption_y = y + photo.height + (44 if target_h > target_w else 30)
+    canvas = _draw_editorial_caption(canvas, caption, caption_y, 42 if target_h > target_w else 34)
+    canvas = _apply_subtle_vignette(canvas)
+    return canvas
+
 def repair_image_v1():
     data = request.get_json(force=True, silent=True) or {}
     file_id = (data.get('image_file_id') or data.get('file_id') or '').strip()
@@ -610,6 +669,78 @@ def repair_image_v2():
                 'reason': 'Image v2 must pass parent image judge before Meta launch.',
             },
             'next_step': 'run_parent_image_judge_on_v2',
+        })
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+    finally:
+        for path in paths:
+            try:
+                os.unlink(path)
+            except Exception:
+                pass
+
+def repair_image_v3():
+    data = request.get_json(force=True, silent=True) or {}
+    file_id = (
+        data.get('source_image_file_id')
+        or data.get('original_image_file_id')
+        or data.get('image_file_id')
+        or data.get('file_id')
+        or ''
+    ).strip()
+    folder_name = (data.get('folder_name') or '').strip()
+    combo_label = (data.get('combo_label') or f'Drive folder {folder_name}').strip()
+    output_folder_id = (data.get('output_folder_id') or PROCESSED_CREATIVE_OUTPUTS_FOLDER or '').strip()
+    caption = (data.get('caption') or 'You will never go back to polyester.').strip()
+    if not file_id:
+        return jsonify({'ok': False, 'error': 'source_image_file_id or image_file_id required'}), 400
+    if not folder_name:
+        return jsonify({'ok': False, 'error': 'folder_name required so v3 outputs land in the correct processed folder'}), 400
+    paths = []
+    try:
+        from google_engine import _google_services
+        _info, _sheets, drive = _google_services()
+        output_folder = _ensure_combo_output_folder(drive, output_folder_id, folder_name)
+        upload_parent = output_folder['id']
+        meta, image_bytes = _drive_image_meta_and_bytes(file_id)
+        source = Image.open(io.BytesIO(image_bytes)).convert('RGB')
+        feed = _editorial_rescue_export_v3(source, (1080, 1350), caption)
+        square = _editorial_rescue_export_v3(source, (1080, 1080), caption)
+        safe_label = ''.join(ch if ch.isalnum() or ch in '-_' else '-' for ch in (combo_label or f'folder-{folder_name}')).strip('-')[:60]
+        uploads = {}
+        for key, img in {'feed_4_5': feed, 'carousel_1_1': square}.items():
+            path = _save_jpeg_temp(img, f'_{key}_v3.jpg')
+            paths.append(path)
+            uploads[key] = _upload_image_to_drive(path, f'{safe_label}_WEARTH_{key}_image_v3.jpg', upload_parent)
+        return jsonify({
+            'ok': True,
+            'source': {
+                'file_id': file_id,
+                'name': meta.get('name'),
+                'webViewLink': meta.get('webViewLink'),
+            },
+            'strategy': {
+                'name': 'source_first_editorial_rescue_v3',
+                'reason': 'Use Shai/founder source material first and avoid artificial background replacement.',
+                'background_policy': 'No fake scene replacement. Use intentional warm editorial matte only.',
+            },
+            'actions_applied': [
+                'returned_to_original_source_image',
+                'applied_light_denoise_and_premium_polish',
+                'preserved_original_photo_as_the_main_asset',
+                'placed_photo_on_intentional_editorial_matte',
+                'added_clear_mobile_hook_caption',
+                'uploaded_v3_to_processed_shared_drive',
+            ],
+            'exports': uploads,
+            'output_root_folder_id': output_folder_id,
+            'output_folder_id': upload_parent,
+            'output_folder': output_folder,
+            'launch_gate': {
+                'can_launch_without_judge': False,
+                'reason': 'Image v3 must pass parent image judge before Meta launch.',
+            },
+            'next_step': 'run_parent_image_judge_on_v3',
         })
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
