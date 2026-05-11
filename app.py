@@ -15,7 +15,7 @@ from meta_engine import (
     ads_status,
 )
 from facebook_engine import facebook_post, token_debug, find_accounts
-from google_engine import google_drive_combos, google_verify
+from google_engine import google_drive_combos, google_sync_combos, google_verify
 
 app = Flask(__name__)
 
@@ -36,6 +36,7 @@ app.add_url_rule('/api/meta/token-debug', view_func=token_debug, methods=['GET']
 app.add_url_rule('/api/meta/find-accounts', view_func=find_accounts, methods=['GET'])
 app.add_url_rule('/api/google/verify', view_func=google_verify, methods=['GET'])
 app.add_url_rule('/api/google/drive-combos', view_func=google_drive_combos, methods=['GET'])
+app.add_url_rule('/api/google/sync-combos', view_func=google_sync_combos, methods=['POST'])
 
 @app.route('/health')
 def health():

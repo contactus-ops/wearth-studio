@@ -8,6 +8,22 @@ from flask import jsonify, request
 SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets"
 DRIVE_SCOPE = "https://www.googleapis.com/auth/drive"
 DRIVE_FOLDER_MIME = "application/vnd.google-apps.folder"
+COMBOS_HEADERS = [
+    "folder_id",
+    "folder_name",
+    "image_file_id",
+    "video_file_id",
+    "combo_label",
+    "status",
+    "adset_ids",
+    "launch_date",
+    "spend_inr",
+    "purchases",
+    "roas",
+    "last_insights_at",
+    "last_action",
+    "notes",
+]
 
 
 def _service_account_info() -> Dict[str, Any]:
@@ -46,6 +62,42 @@ def _drive_parent_folder_id() -> str:
         or os.environ.get("DRIVE_PARENT_FOLDER_ID")
         or ""
     ).strip()
+
+
+def _row_from_combo(combo: Dict[str, Any], status: str, note: str = "") -> List[str]:
+    return [
+        combo.get("folder_id") or "",
+        combo.get("folder_name") or "",
+        combo.get("image_file_id") or "",
+        combo.get("video_file_id") or "",
+        f"Drive folder {combo.get('folder_name') or ''}".strip(),
+        status,
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        note,
+    ]
+
+
+def _sheet_values(sheets, sheet_id: str, range_name: str) -> List[List[str]]:
+    resp = sheets.spreadsheets().values().get(spreadsheetId=sheet_id, range=range_name).execute()
+    return resp.get("values") or []
+
+
+def _ensure_combos_headers(sheets, sheet_id: str) -> None:
+    rows = _sheet_values(sheets, sheet_id, "combos!1:1")
+    if rows and rows[0][: len(COMBOS_HEADERS)] == COMBOS_HEADERS:
+        return
+    sheets.spreadsheets().values().update(
+        spreadsheetId=sheet_id,
+        range="combos!1:1",
+        valueInputOption="RAW",
+        body={"values": [COMBOS_HEADERS]},
+    ).execute()
 
 
 def _list_drive_children(drive, folder_id: str, mime_type: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -170,6 +222,87 @@ def google_drive_combos():
                 "folder_count": len(folders),
                 "ready_count": sum(1 for x in summaries if x["ready"]),
                 "combos": summaries,
+            }
+        )
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+def google_sync_combos():
+    """
+    POST /api/google/sync-combos
+    Body:
+      {
+        "folder_id": "<Drive parent folder>",
+        "used_folder_names": ["2"],
+        "used_status": "used",
+        "used_note": "Launched manually yesterday as separate image/video ads"
+      }
+
+    Idempotently appends missing Drive combo folders to the combos sheet.
+    Existing rows are not overwritten.
+    """
+    data = request.get_json(force=True, silent=True) or {}
+    parent_id = (data.get("folder_id") or _drive_parent_folder_id()).strip()
+    if not parent_id:
+        return jsonify({"ok": False, "error": "folder_id body/query/env required"}), 400
+
+    sheet_id = _sheet_id()
+    if not sheet_id:
+        return jsonify({"ok": False, "error": "GOOGLE_SHEET_ID is not set"}), 500
+
+    used_names = {str(x).strip() for x in data.get("used_folder_names", []) if str(x).strip()}
+    used_status = str(data.get("used_status") or "used").strip()
+    used_note = str(data.get("used_note") or "").strip()
+
+    try:
+        _info, sheets, drive = _google_services()
+        _ensure_combos_headers(sheets, sheet_id)
+
+        folders = _list_drive_children(drive, parent_id, DRIVE_FOLDER_MIME)
+        summaries = [_folder_combo_summary(drive, folder) for folder in folders]
+
+        existing_rows = _sheet_values(sheets, sheet_id, "combos!A2:N")
+        existing_folder_ids = {row[0] for row in existing_rows if row and row[0]}
+        existing_folder_names = {row[1] for row in existing_rows if len(row) > 1 and row[1]}
+
+        append_rows = []
+        skipped_existing = []
+        for combo in summaries:
+            folder_id = combo.get("folder_id") or ""
+            folder_name = combo.get("folder_name") or ""
+            if folder_id in existing_folder_ids or folder_name in existing_folder_names:
+                skipped_existing.append(folder_name)
+                continue
+            if not combo.get("ready"):
+                status = "needs_review"
+                note = f"Expected exactly 1 image + 1 video; found {combo.get('image_count')} image(s), {combo.get('video_count')} video(s)"
+            elif folder_name in used_names:
+                status = used_status
+                note = used_note or "Already launched before queue initialization"
+            else:
+                status = "queued"
+                note = ""
+            append_rows.append(_row_from_combo(combo, status, note))
+
+        if append_rows:
+            sheets.spreadsheets().values().append(
+                spreadsheetId=sheet_id,
+                range="combos!A:N",
+                valueInputOption="RAW",
+                insertDataOption="INSERT_ROWS",
+                body={"values": append_rows},
+            ).execute()
+
+        return jsonify(
+            {
+                "ok": True,
+                "parent_folder_id": parent_id,
+                "found_count": len(summaries),
+                "appended_count": len(append_rows),
+                "skipped_existing": skipped_existing,
+                "used_folder_names": sorted(used_names),
+                "appended_rows": append_rows,
             }
         )
     except Exception as exc:
