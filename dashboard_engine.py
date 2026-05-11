@@ -1,17 +1,14 @@
 import json
 from pathlib import Path
 
-import requests
 from flask import jsonify, request
 
 from ad_intelligence_engine import (
     GRAPH,
-    INSIGHT_FIELDS,
     META_CAMPAIGN_ID,
     _decision_payload,
     _float,
     _get_json,
-    _h,
     _insight_for_object,
     _purchase_count,
     _purchase_value,
@@ -263,6 +260,7 @@ def meta_campaign_dashboard():
 
     scorecards = decision.get("scorecards") or []
     adsets = []
+    flat_ads = []
     totals = {
         "spend_inr": 0.0,
         "impressions": 0,
@@ -284,10 +282,22 @@ def meta_campaign_dashboard():
         totals["purchase_value_inr"] += float(card.get("purchase_value_inr") or 0)
         totals["active_ads"] += active_ads
         totals["active_adsets"] += 1 if card.get("is_active") else 0
+        enriched_ads = []
+        for ad in ads:
+            enriched = {
+                **ad,
+                "adset_id": adset_id,
+                "adset_name": card.get("name"),
+                "adset_status": card.get("effective_status") or card.get("status"),
+                "adset_stage": card.get("stage"),
+                "adset_daily_budget_inr": card.get("daily_budget_inr"),
+            }
+            enriched_ads.append(enriched)
+            flat_ads.append(enriched)
         adsets.append({
             **card,
-            "ads": ads,
-            "ad_count": len(ads),
+            "ads": enriched_ads,
+            "ad_count": len(enriched_ads),
             "active_ad_count": active_ads,
             "ads_manager_url": f"https://adsmanager.facebook.com/adsmanager/manage/adsets/edit?act=8979315238856807&selected_adset_ids={adset_id}",
         })
@@ -298,6 +308,12 @@ def meta_campaign_dashboard():
     totals["cpc_inr"] = round(totals["spend_inr"] / totals["clicks"], 2) if totals["clicks"] else None
     totals["cpm_inr"] = round(totals["spend_inr"] / totals["impressions"] * 1000, 2) if totals["impressions"] else None
     totals["ctr"] = round(totals["clicks"] / totals["impressions"] * 100, 3) if totals["impressions"] else None
+    flat_ads.sort(
+        key=lambda ad: (
+            0 if str(ad.get("effective_status") or ad.get("status") or "").upper() == "ACTIVE" else 1,
+            -float((ad.get("metrics") or {}).get("spend_inr") or 0),
+        )
+    )
 
     return jsonify({
         "ok": True,
@@ -305,6 +321,7 @@ def meta_campaign_dashboard():
         "date_preset": date_preset,
         "campaign": campaign_data,
         "totals": totals,
+        "ads": flat_ads,
         "adsets": adsets,
         "brain": {
             "summary": (decision.get("ai_plan") or {}).get("summary"),

@@ -1231,6 +1231,11 @@ type CampaignAd = {
   created_time?: string;
   updated_time?: string;
   ads_manager_url?: string;
+  adset_id?: string;
+  adset_name?: string;
+  adset_status?: string;
+  adset_stage?: string;
+  adset_daily_budget_inr?: number | null;
   metrics?: CampaignMetric;
   creative?: {
     id?: string;
@@ -1273,6 +1278,7 @@ type CampaignDashboard = {
     active_adsets?: number;
   };
   adsets?: CampaignAdset[];
+  ads?: CampaignAd[];
   brain?: {
     summary?: string;
     urgency?: string;
@@ -1334,6 +1340,7 @@ function AdRow({ ad }: { ad: CampaignAd }) {
               {ad.effective_status || ad.status || "UNKNOWN"}
             </span>
             <span>{ad.id}</span>
+            {ad.adset_name && <span>{ad.adset_name}</span>}
           </div>
           <h4>{creative.title || ad.name || "Untitled Meta ad"}</h4>
           <p>{creative.body || "No body copy returned from Meta creative."}</p>
@@ -1342,6 +1349,7 @@ function AdRow({ ad }: { ad: CampaignAd }) {
           <strong>{fmtInr(m.spend_inr, 0)}</strong>
           <span>{compact(m.impressions)} imps</span>
           <span>{compact(m.clicks)} clicks</span>
+          <span>{pct(m.ctr)} CTR</span>
         </div>
       </button>
       {open && (
@@ -1351,6 +1359,7 @@ function AdRow({ ad }: { ad: CampaignAd }) {
           <MetricTile label="CPM" value={fmtInr(m.cpm_inr, 2)} />
           <MetricTile label="Purchases" value={String(m.purchases ?? 0)} />
           <MetricTile label="ROAS" value={m.roas != null ? `${m.roas.toFixed(2)}x` : "—"} />
+          <MetricTile label="Adset Budget" value={fmtInr(ad.adset_daily_budget_inr, 0)} />
           <a href={ad.ads_manager_url || META_ADS_URL} target="_blank" rel="noopener noreferrer">
             Open ad in Meta
           </a>
@@ -1360,7 +1369,7 @@ function AdRow({ ad }: { ad: CampaignAd }) {
   );
 }
 
-function AdsetPanel({ adset }: { adset: CampaignAdset }) {
+export function AdsetPanel({ adset }: { adset: CampaignAdset }) {
   const [open, setOpen] = useState(false);
   const status = adset.effective_status || adset.status;
   return (
@@ -1443,7 +1452,7 @@ export default function App() {
   }, [load]);
 
   const totals = data?.totals || {};
-  const adsets = data?.adsets || [];
+  const ads = data?.ads || [];
   const brainActions = data?.brain?.recommended_actions || [];
 
   return (
@@ -1471,12 +1480,12 @@ export default function App() {
       {activeTab === "command" ? (
         <>
           <section className="cockpit-overview">
-            <MetricTile label="Spend 7d" value={fmtInr(totals.spend_inr, 0)} tone="gold" />
-            <MetricTile label="ROAS" value={totals.roas != null ? `${totals.roas.toFixed(2)}x` : "—"} />
-            <MetricTile label="Purchases" value={String(totals.purchases ?? 0)} />
+            <MetricTile label="Live Ads" value={String(totals.active_ads ?? ads.length)} tone="gold" />
+            <MetricTile label="Spend Across Ads" value={fmtInr(totals.spend_inr, 0)} />
+            <MetricTile label="Clicks" value={compact(totals.clicks)} />
             <MetricTile label="CTR" value={pct(totals.ctr)} />
             <MetricTile label="CPC" value={fmtInr(totals.cpc_inr, 2)} />
-            <MetricTile label="Active Ads" value={String(totals.active_ads ?? 0)} />
+            <MetricTile label="Purchases" value={String(totals.purchases ?? 0)} />
           </section>
 
           <section className="cockpit-machine">
@@ -1497,12 +1506,16 @@ export default function App() {
             <div className="cockpit-section-head">
               <div>
                 <span className="cockpit-kicker">Current Campaign</span>
-                <h2>Adsets and Ads</h2>
+                <h2>Live Ad Capsules</h2>
               </div>
-              <span>{adsets.length} adsets · click any segment for every ad detail</span>
+              <span>{ads.length} ads · click any capsule for creative, adset, and metric detail</span>
             </div>
-            <div className="cockpit-adsets">
-              {adsets.map((adset) => <AdsetPanel key={adset.adset_id || adset.name} adset={adset} />)}
+            <div className="cockpit-ad-capsules">
+              {ads.length ? (
+                ads.map((ad) => <AdRow key={ad.id} ad={ad} />)
+              ) : (
+                <div className="cockpit-empty">No ads returned from Meta yet.</div>
+              )}
             </div>
           </section>
 

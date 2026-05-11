@@ -35,6 +35,13 @@ from google_engine import google_drive_combos, google_pick_next_combo, google_sy
 
 app = Flask(__name__)
 
+@app.after_request
+def add_cors_headers(response):
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+    return response
+
 app.add_url_rule('/api/seo/generate', view_func=run_seo_engine, methods=['POST'])
 app.add_url_rule('/api/creative/enhance', view_func=creative_enhance, methods=['POST'])
 app.add_url_rule('/api/creative/image-brain-v1', view_func=image_brain_v1, methods=['POST'])

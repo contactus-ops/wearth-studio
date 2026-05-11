@@ -11,7 +11,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, "..");
 const assetsDir = path.join(root, "dist", "assets");
 
-const NEEDLES = ["Founder Ad Cockpit", "Adsets and Ads", "What The Machine Sees"];
+const NEEDLES = ["Founder Ad Cockpit", "Live Ad Capsules", "What The Machine Sees"];
 
 function main() {
   if (!fs.existsSync(assetsDir)) {
