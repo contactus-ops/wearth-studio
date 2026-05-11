@@ -491,7 +491,8 @@ def _safe_execution_plan(decision: dict) -> list[dict]:
                 "reason": "Creative branch may run, but launch still requires parent judge approval.",
             })
         elif action_type == "decrease_budget" and adset_id and proposed_budget:
-            capped = max(MIN_DAILY_BUDGET_PAISE, min(proposed_budget, MAX_DAILY_BUDGET_PAISE))
+            risk_floor = DEFAULT_REDUCED_BUDGET_PAISE if current_budget > DEFAULT_REDUCED_BUDGET_PAISE else MIN_DAILY_BUDGET_PAISE
+            capped = max(risk_floor, min(proposed_budget, MAX_DAILY_BUDGET_PAISE))
             if current_budget and capped < current_budget and (purchases == 0 or current_budget > MAX_DAILY_BUDGET_PAISE):
                 item.update({
                     "execution_allowed": True,
