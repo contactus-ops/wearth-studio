@@ -147,7 +147,7 @@ def _resolve_ffprobe() -> str:
 def _run_ffprobe(path: str) -> Dict[str, Any]:
     ffprobe = _resolve_ffprobe()
     if not ffprobe:
-        return {"ok": False, "error": "ffprobe_not_available"}
+        return _run_ffmpeg_probe_fallback(path)
     result = subprocess.run(
         [
             ffprobe,
@@ -171,6 +171,49 @@ def _run_ffprobe(path: str) -> Dict[str, Any]:
         return out
     except Exception as exc:
         return {"ok": False, "error": f"ffprobe_json_parse_failed: {exc}"}
+
+
+def _run_ffmpeg_probe_fallback(path: str) -> Dict[str, Any]:
+    """Parse ffmpeg -i stderr when ffprobe is unavailable in Railway."""
+    ffmpeg = _resolve_ffmpeg()
+    if not ffmpeg:
+        return {"ok": False, "error": "ffprobe_and_ffmpeg_not_available"}
+    result = subprocess.run(
+        [ffmpeg, "-hide_banner", "-i", path],
+        capture_output=True,
+        text=True,
+        timeout=45,
+    )
+    text = (result.stderr or "") + "\n" + (result.stdout or "")
+    dur = None
+    m = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", text)
+    if m:
+        dur = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))
+    v_stream: Dict[str, Any] = {"codec_type": "video"}
+    a_stream: Dict[str, Any] = {}
+    vm = re.search(r"Video:\s*([^,\s]+).*?(\d{3,5})x(\d{3,5}).*?(?:(\d+(?:\.\d+)?)\s*fps)?", text, re.I | re.S)
+    if vm:
+        v_stream.update(
+            {
+                "codec_name": vm.group(1).lower(),
+                "width": int(vm.group(2)),
+                "height": int(vm.group(3)),
+                "avg_frame_rate": f"{vm.group(4) or '0'}/1",
+            }
+        )
+    am = re.search(r"Audio:\s*([^,\s]+)", text, re.I)
+    if am:
+        a_stream = {"codec_type": "audio", "codec_name": am.group(1).lower()}
+    streams = [v_stream]
+    if a_stream:
+        streams.append(a_stream)
+    return {
+        "ok": bool(vm),
+        "format": {"duration": str(dur) if dur is not None else ""},
+        "streams": streams,
+        "probe_fallback": "ffmpeg_stderr",
+        "error": None if vm else "ffmpeg_probe_parse_failed",
+    }
 
 
 def _video_metrics(video_bytes: bytes, meta: Dict[str, Any]) -> Tuple[Dict[str, Any], List[bytes]]:
