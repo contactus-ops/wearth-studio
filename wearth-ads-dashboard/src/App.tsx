@@ -63,6 +63,25 @@ type LivePayload = {
   adsets: LiveAdset[];
 };
 
+type AutomationPayload = {
+  ok?: boolean;
+  generated_at?: string;
+  eligible_to_act?: boolean;
+  route?: { route?: string; action?: string; reason?: string };
+  sleep_window?: { not_before_utc?: string | null; remaining_seconds?: number };
+  budget_guardrails?: {
+    planned_total_daily_budget_inr?: number;
+    max_new_ads_per_cycle?: number;
+  };
+  safe_plan_summary?: {
+    execution_kinds?: Record<string, number>;
+    action_types?: Record<string, number>;
+  };
+  guardrails?: Record<string, boolean>;
+};
+
+type DashboardTab = "command" | "video" | "image";
+
 type DriveVideo = {
   id: string;
   name?: string;
@@ -789,6 +808,8 @@ function PendingCard({
 export default function App() {
   const [pending, setPending] = useState<PendingAd[]>([]);
   const [live, setLive] = useState<LivePayload | null>(null);
+  const [automation, setAutomation] = useState<AutomationPayload | null>(null);
+  const [activeTab, setActiveTab] = useState<DashboardTab>("command");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activating, setActivating] = useState(false);
@@ -805,12 +826,27 @@ export default function App() {
   const load = useCallback(async () => {
     setRefreshing(true);
     try {
-      const [p, l] = await Promise.all([
+      const automationBody = {
+        started_at_utc: "2026-05-11T15:29:23+00:00",
+        not_before_utc: "2026-05-17T15:29:23+00:00",
+        interval_days: 6,
+        target_roas: 4,
+        date_preset: "last_7d",
+        min_spend_inr: 500,
+        total_daily_budget_inr: 2500,
+        max_new_ads_per_cycle: 3,
+      };
+      const [p, l, a] = await Promise.all([
         jfetch<{ ads: PendingAd[] }>("/api/ads/pending"),
         jfetch<LivePayload>("/api/meta/adsets-live"),
+        jfetch<AutomationPayload>("/api/automation/ad-machine-tick", {
+          method: "POST",
+          body: JSON.stringify(automationBody),
+        }).catch(() => null),
       ]);
       setPending(p.ads ?? []);
       setLive(l);
+      setAutomation(a);
     } catch (e) {
       pushToast("err", e instanceof Error ? e.message : "Load failed");
     } finally {
@@ -925,6 +961,66 @@ export default function App() {
       </div>
 
       <div className="wrap">
+        <div className="brain-tabs" role="tablist" aria-label="WEARTH ad machine tabs">
+          <button
+            type="button"
+            className={`brain-tab ${activeTab === "command" ? "brain-tab-active" : ""}`}
+            onClick={() => setActiveTab("command")}
+          >
+            Ad Dashboard
+          </button>
+          <button
+            type="button"
+            className={`brain-tab ${activeTab === "video" ? "brain-tab-active" : ""}`}
+            onClick={() => setActiveTab("video")}
+          >
+            Video Creative Brain
+          </button>
+          <button
+            type="button"
+            className={`brain-tab ${activeTab === "image" ? "brain-tab-active" : ""}`}
+            onClick={() => setActiveTab("image")}
+          >
+            Image Creative Brain
+          </button>
+        </div>
+
+        {activeTab === "command" ? (
+          <>
+            <div className="automation-card">
+              <div>
+                <div className="section-label automation-label">Automation Loop</div>
+                <h2>{automation?.route?.action ?? "Safe ad machine router"}</h2>
+                <p>{automation?.route?.reason ?? "Loading Meta brain status..."}</p>
+              </div>
+              <div className="automation-grid">
+                <div>
+                  <span>State</span>
+                  <strong>{automation?.eligible_to_act ? "Ready" : "Observing"}</strong>
+                </div>
+                <div>
+                  <span>Next Fire</span>
+                  <strong>
+                    {automation?.sleep_window?.not_before_utc
+                      ? new Date(automation.sleep_window.not_before_utc).toLocaleDateString("en-IN", {
+                          timeZone: "Asia/Kolkata",
+                          day: "2-digit",
+                          month: "short",
+                        })
+                      : "—"}
+                  </strong>
+                </div>
+                <div>
+                  <span>Budget Guard</span>
+                  <strong>{fmtInr(automation?.budget_guardrails?.planned_total_daily_budget_inr)}</strong>
+                </div>
+                <div>
+                  <span>New Ads</span>
+                  <strong>{automation?.budget_guardrails?.max_new_ads_per_cycle ?? 3}</strong>
+                </div>
+              </div>
+            </div>
+
         <div className="section-label">Pending Approval</div>
         {loading ? (
           <div className="skel-card" />
@@ -1063,6 +1159,31 @@ export default function App() {
                 )}
               </div>
             ))}
+          </div>
+        )}
+          </>
+        ) : (
+          <div className="brain-panel">
+            <div className="section-label">
+              {activeTab === "video" ? "Video Creative Brain" : "Image Creative Brain"}
+            </div>
+            <h2>
+              {activeTab === "video"
+                ? "Raw video to judged Meta-ready output"
+                : "Raw image to judged Meta-ready output"}
+            </h2>
+            <p>
+              This tab is reserved for founder uploads, iteration history, parent judge scores,
+              and final approved outputs. The backend brains are live; the next UI slice will add
+              upload controls and one-click processing for Shai.
+            </p>
+            <div className="brain-steps">
+              <span>Upload raw asset</span>
+              <span>Brain diagnosis</span>
+              <span>Repair / production</span>
+              <span>Parent judge</span>
+              <span>Approved output</span>
+            </div>
           </div>
         )}
       </div>

@@ -7,8 +7,8 @@
 
 .app-root {
   font-family: "Inter", sans-serif;
-  background: #f5f0e8;
-  color: #1a1a18;
+  background: radial-gradient(circle at top, #2a241d 0%, #11100e 42%, #080807 100%);
+  color: #f5efe4;
   min-height: 100svh;
 }
 
@@ -70,11 +70,12 @@
 }
 
 .ad-card {
-  background: #fdfaf5;
-  border: 1px solid #e8e3da;
+  background: rgba(245, 239, 228, 0.07);
+  border: 1px solid rgba(245, 239, 228, 0.14);
   border-radius: 16px;
   padding: 28px 32px;
   margin-bottom: 20px;
+  backdrop-filter: blur(18px);
 }
 
 .reasoning {
@@ -90,7 +91,7 @@
   font-family: "Playfair Display", serif;
   font-size: clamp(22px, 5vw, 28px);
   font-weight: 600;
-  color: #1a1a18;
+  color: #f8f1e7;
   margin-bottom: 12px;
   line-height: 1.3;
 }
@@ -98,7 +99,7 @@
 .ad-body {
   font-size: 15px;
   font-weight: 300;
-  color: #3a3a38;
+  color: #d8ccbd;
   line-height: 1.7;
   margin-bottom: 16px;
 }
@@ -430,10 +431,11 @@
 }
 
 .live-card {
-  background: #fdfaf5;
-  border: 1px solid #e8e3da;
+  background: rgba(245, 239, 228, 0.07);
+  border: 1px solid rgba(245, 239, 228, 0.14);
   border-radius: 16px;
   padding: 24px;
+  backdrop-filter: blur(18px);
 }
 
 .live-label {
@@ -449,7 +451,7 @@
   font-family: "Playfair Display", serif;
   font-size: 17px;
   font-weight: 600;
-  color: #1a1a18;
+  color: #f8f1e7;
   margin-bottom: 12px;
 }
 
@@ -608,6 +610,124 @@
   margin-top: 16px;
   padding-top: 14px;
   border-top: 1px solid #e8e3da;
+}
+
+.brain-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 28px 0 18px;
+}
+
+.brain-tab {
+  min-height: 46px;
+  border-radius: 999px;
+  border: 1px solid rgba(245, 239, 228, 0.18);
+  background: rgba(245, 239, 228, 0.06);
+  color: #bdb2a5;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.brain-tab-active {
+  background: #efe4d0;
+  color: #17130f;
+  border-color: #efe4d0;
+}
+
+.automation-card,
+.brain-panel {
+  background:
+    linear-gradient(145deg, rgba(245, 239, 228, 0.12), rgba(245, 239, 228, 0.05)),
+    rgba(16, 14, 12, 0.72);
+  border: 1px solid rgba(245, 239, 228, 0.14);
+  border-radius: 22px;
+  padding: 24px;
+  margin-bottom: 22px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
+}
+
+.automation-card {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 18px;
+  align-items: stretch;
+}
+
+.automation-label {
+  margin-top: 0;
+}
+
+.automation-card h2,
+.brain-panel h2 {
+  font-family: "Playfair Display", serif;
+  font-size: clamp(26px, 5vw, 36px);
+  margin: 0 0 10px;
+  color: #fff8ec;
+}
+
+.automation-card p,
+.brain-panel p {
+  color: #d2c4b2;
+  line-height: 1.65;
+  margin: 0;
+}
+
+.automation-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.automation-grid div {
+  border: 1px solid rgba(245, 239, 228, 0.12);
+  border-radius: 16px;
+  padding: 14px;
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.automation-grid span {
+  display: block;
+  color: #8f8375;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+.automation-grid strong {
+  color: #fff8ec;
+  font-size: 18px;
+}
+
+.brain-steps {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.brain-steps span {
+  border: 1px solid rgba(245, 239, 228, 0.12);
+  border-radius: 14px;
+  padding: 14px 12px;
+  color: #efe4d0;
+  background: rgba(0, 0, 0, 0.18);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+@media (max-width: 760px) {
+  .brain-tabs,
+  .automation-card,
+  .automation-grid,
+  .brain-steps {
+    grid-template-columns: 1fr;
+  }
 }
 
 .feedback-section {

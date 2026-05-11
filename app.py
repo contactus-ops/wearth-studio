@@ -3,6 +3,18 @@ from flask import Flask, jsonify
 from ad_intelligence_engine import meta_roas_decision, meta_roas_execute
 from automation_engine import ad_machine_tick
 from creative_scan_engine import creative_scan_combo
+from dashboard_engine import (
+    ads_approve,
+    ads_edit,
+    ads_feedback,
+    ads_improve_copy,
+    ads_pending,
+    ads_publish,
+    ads_reject,
+    meta_ad_live_creative,
+    meta_adsets_live,
+    meta_video_thumbnail,
+)
 from seo_engine import run_seo_engine
 from creative_engine import creative_enhance, image_brain_v1, judge_image_candidate, repair_image_v1, repair_image_v2, repair_image_v3
 from video_engine import judge_video_candidate, produce_iteration_v2, produce_video_candidate, production_brain_v1, video_output_folder, video_process
@@ -46,6 +58,16 @@ app.add_url_rule('/api/meta/ads-status', view_func=ads_status, methods=['GET'])
 app.add_url_rule('/api/meta/roas-decision', view_func=meta_roas_decision, methods=['GET', 'POST'])
 app.add_url_rule('/api/meta/roas-execute', view_func=meta_roas_execute, methods=['POST'])
 app.add_url_rule('/api/automation/ad-machine-tick', view_func=ad_machine_tick, methods=['POST'])
+app.add_url_rule('/api/ads/pending', view_func=ads_pending, methods=['GET', 'POST'])
+app.add_url_rule('/api/ads/edit/<ad_id>', view_func=ads_edit, methods=['PUT'])
+app.add_url_rule('/api/ads/approve/<ad_id>', view_func=ads_approve, methods=['POST'])
+app.add_url_rule('/api/ads/reject/<ad_id>', view_func=ads_reject, methods=['POST'])
+app.add_url_rule('/api/ads/publish/<ad_id>', view_func=ads_publish, methods=['POST'])
+app.add_url_rule('/api/ads/feedback', view_func=ads_feedback, methods=['POST'])
+app.add_url_rule('/api/ads/improve-copy', view_func=ads_improve_copy, methods=['POST'])
+app.add_url_rule('/api/meta/adsets-live', view_func=meta_adsets_live, methods=['GET'])
+app.add_url_rule('/api/meta/ad-live-creative', view_func=meta_ad_live_creative, methods=['GET'])
+app.add_url_rule('/api/meta/video-thumbnail', view_func=meta_video_thumbnail, methods=['GET'])
 app.add_url_rule('/api/instagram/reel', view_func=post_reel_async, methods=['POST'])
 app.add_url_rule('/api/instagram/reel-publish/<creation_id>', view_func=reel_publish, methods=['POST'])
 app.add_url_rule('/api/facebook/post', view_func=facebook_post, methods=['POST'])
