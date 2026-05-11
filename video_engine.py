@@ -558,8 +558,22 @@ def produce_video_candidate():
         if not ok_11:
             return jsonify({"ok": False, "error": "1:1 render failed", "detail": err_11}), 500
 
-        upload_916 = _upload_video_to_drive(out_916, f"{safe_label}_WEARTH_9x16_candidate.mp4", output_folder_id)
-        upload_11 = _upload_video_to_drive(out_11, f"{safe_label}_WEARTH_1x1_candidate.mp4", output_folder_id)
+        source_parent = ""
+        parents = source_meta.get("parents") or []
+        if isinstance(parents, list) and parents:
+            source_parent = parents[0]
+        upload_parent = output_folder_id or source_parent
+        if not upload_parent:
+            return jsonify(
+                {
+                    "ok": False,
+                    "error": "No Drive output folder available. Set VIDEOS_FOLDER or pass output_folder_id.",
+                    "hint": "Service accounts cannot upload to their own My Drive quota; upload must target a shared folder.",
+                }
+            ), 400
+
+        upload_916 = _upload_video_to_drive(out_916, f"{safe_label}_WEARTH_9x16_candidate.mp4", upload_parent)
+        upload_11 = _upload_video_to_drive(out_11, f"{safe_label}_WEARTH_1x1_candidate.mp4", upload_parent)
 
         result = {
             "ok": True,
@@ -579,6 +593,7 @@ def produce_video_candidate():
                 "reels_stories_9_16": upload_916,
                 "carousel_1_1": upload_11,
             },
+            "output_folder_id": upload_parent,
             "next_step": "judge_candidate_before_launch",
             "launch_gate": {
                 "can_launch_without_judge": False,
