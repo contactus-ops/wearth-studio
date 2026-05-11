@@ -14,7 +14,13 @@ OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-20250514")
 DRIVE_DOWNLOAD = 'https://drive.google.com/uc?export=download&id='
-VIDEOS_FOLDER = (os.environ.get("VIDEOS_FOLDER") or os.environ.get("GOOGLE_DRIVE_OUTPUT_FOLDER_ID") or "").strip()
+VIDEOS_FOLDER = (
+    os.environ.get("VIDEOS_FOLDER")
+    or os.environ.get("GOOGLE_PROCESSED_DRIVE_FOLDER_ID")
+    or os.environ.get("GOOGLE_DRIVE_OUTPUT_FOLDER_ID")
+    or ""
+).strip()
+DRIVE_FOLDER_MIME = "application/vnd.google-apps.folder"
 MAX_SOURCE_MB = float(os.environ.get("VIDEO_MAX_SOURCE_MB") or "1200")
 
 WEARTH_CAPTIONS = [
@@ -103,6 +109,85 @@ def _upload_video_to_drive(path: str, name: str, parent_folder_id: str | None = 
         created["public_warning"] = "could_not_set_anyone_reader"
     created["download_url"] = DRIVE_DOWNLOAD + created["id"]
     return created
+
+
+def _drive_query_literal(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("'", "\\'")
+
+
+def _find_drive_child_folder(drive, parent_folder_id: str, folder_name: str) -> dict | None:
+    parent_folder_id = (parent_folder_id or "").strip()
+    folder_name = (folder_name or "").strip()
+    if not parent_folder_id or not folder_name:
+        return None
+    q = (
+        f"mimeType='{DRIVE_FOLDER_MIME}' and trashed=false "
+        f"and name='{_drive_query_literal(folder_name)}' "
+        f"and '{_drive_query_literal(parent_folder_id)}' in parents"
+    )
+    resp = drive.files().list(
+        q=q,
+        pageSize=10,
+        fields="files(id,name,webViewLink,parents)",
+        includeItemsFromAllDrives=True,
+        supportsAllDrives=True,
+    ).execute()
+    folders = resp.get("files") or []
+    return folders[0] if folders else None
+
+
+def _create_drive_child_folder(drive, parent_folder_id: str, folder_name: str) -> dict:
+    body = {
+        "name": folder_name,
+        "mimeType": DRIVE_FOLDER_MIME,
+        "parents": [parent_folder_id],
+    }
+    return drive.files().create(
+        body=body,
+        fields="id,name,webViewLink,parents",
+        supportsAllDrives=True,
+    ).execute()
+
+
+def _ensure_combo_output_folder(drive, root_folder_id: str, folder_name: str) -> dict:
+    root_folder_id = (root_folder_id or "").strip()
+    folder_name = (folder_name or "").strip()
+    if not root_folder_id:
+        raise RuntimeError("root output folder id required")
+    if not folder_name:
+        raise RuntimeError("folder_name required to create combo output folder")
+    existing = _find_drive_child_folder(drive, root_folder_id, folder_name)
+    if existing:
+        existing["created"] = False
+        return existing
+    created = _create_drive_child_folder(drive, root_folder_id, folder_name)
+    created["created"] = True
+    return created
+
+
+def video_output_folder():
+    """
+    POST /api/video/output-folder
+    Ensures a dedicated processed-output subfolder exists for a source combo folder.
+    """
+    data = request.get_json(force=True, silent=True) or {}
+    root_folder_id = (
+        data.get("root_folder_id")
+        or data.get("output_folder_id")
+        or VIDEOS_FOLDER
+        or ""
+    ).strip()
+    folder_name = (data.get("folder_name") or data.get("combo_folder_name") or "").strip()
+    if not root_folder_id:
+        return jsonify({"ok": False, "error": "root output folder required. Set VIDEOS_FOLDER or pass output_folder_id."}), 400
+    if not folder_name:
+        return jsonify({"ok": False, "error": "folder_name required"}), 400
+    try:
+        _info, _sheets, drive = _google_services()
+        folder = _ensure_combo_output_folder(drive, root_folder_id, folder_name)
+        return jsonify({"ok": True, "root_folder_id": root_folder_id, "folder": folder})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
 
 
 def _probe_video(path: str) -> dict:
@@ -300,6 +385,7 @@ def _update_sheet_video_result(sheets, sheet_id: str, row_number: int, summary: 
         },
         "actions": summary.get("actions_applied") or [],
         "source_duration_s": summary.get("source", {}).get("duration_s"),
+        "output_folder": summary.get("output_folder") or {"id": summary.get("output_folder_id")},
     }
     sheets.spreadsheets().values().batchUpdate(
         spreadsheetId=sheet_id,
@@ -773,7 +859,13 @@ def produce_video_candidate():
         parents = source_meta.get("parents") or []
         if isinstance(parents, list) and parents:
             source_parent = parents[0]
-        upload_parent = output_folder_id or folder_id or source_parent
+        output_folder = None
+        if output_folder_id and folder_name:
+            output_folder = _ensure_combo_output_folder(_drive, output_folder_id, folder_name)
+            upload_parent = output_folder["id"]
+            actions.append("organized_exports_in_combo_output_folder")
+        else:
+            upload_parent = output_folder_id or folder_id or source_parent
         if not upload_parent:
             return jsonify(
                 {
@@ -805,6 +897,8 @@ def produce_video_candidate():
                 "carousel_1_1": upload_11,
             },
             "output_folder_id": upload_parent,
+            "output_root_folder_id": output_folder_id or None,
+            "output_folder": output_folder,
             "next_step": "judge_candidate_before_launch",
             "launch_gate": {
                 "can_launch_without_judge": False,
