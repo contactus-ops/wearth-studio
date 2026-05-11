@@ -483,14 +483,16 @@ def _clean_square_canvas_v2(img):
     return rgba.convert('RGB')
 
 def _premium_card_background(size):
-    bg = Image.new('RGB', size, (236, 229, 216))
-    shade = Image.new('RGBA', size, (0, 0, 0, 0))
-    draw = ImageDraw.Draw(shade)
     w, h = size
-    for i in range(0, min(w, h) // 2, 18):
-        alpha = max(0, 34 - int(i / 24))
-        draw.rectangle((i, i, w - i, h - i), outline=(92, 76, 56, alpha), width=3)
-    return Image.alpha_composite(bg.convert('RGBA'), shade).convert('RGB')
+    top = (244, 239, 230)
+    bottom = (222, 211, 195)
+    bg = Image.new('RGB', size, top)
+    draw = ImageDraw.Draw(bg)
+    for y in range(h):
+        t = y / max(1, h - 1)
+        color = tuple(int(top[i] * (1 - t) + bottom[i] * t) for i in range(3))
+        draw.line((0, y, w, y), fill=color)
+    return bg
 
 def _paste_with_soft_shadow(canvas, img, xy, radius=16):
     x, y = xy
@@ -518,6 +520,12 @@ def _draw_editorial_caption(canvas, text, y, font_size):
     margin = 58 if canvas.height > 1200 else 44
     lines = _wrap_text(draw, text, font, canvas.width - margin * 2)
     yy = y
+    panel_top = max(0, y - 28)
+    draw.rounded_rectangle(
+        (margin - 18, panel_top, canvas.width - margin + 18, min(canvas.height - 34, panel_top + int(font_size * 2.9))),
+        radius=20,
+        fill=(246, 241, 232, 216),
+    )
     for line in lines[:2]:
         draw.text((margin + 2, yy + 2), line, font=font, fill=(255, 255, 255, 110))
         draw.text((margin, yy), line, font=font, fill=(43, 36, 28, 255))
@@ -538,8 +546,7 @@ def _editorial_rescue_export_v3(src, target_size, caption):
     canvas = _paste_with_soft_shadow(canvas, photo, (x, y))
     caption_y = y + photo.height + (44 if target_h > target_w else 30)
     canvas = _draw_editorial_caption(canvas, caption, caption_y, 42 if target_h > target_w else 34)
-    canvas = _apply_subtle_vignette(canvas)
-    return canvas
+    return ImageEnhance.Contrast(canvas).enhance(1.04)
 
 def repair_image_v1():
     data = request.get_json(force=True, silent=True) or {}
