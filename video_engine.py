@@ -14,10 +14,11 @@ OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-20250514")
 DRIVE_DOWNLOAD = 'https://drive.google.com/uc?export=download&id='
-VIDEOS_FOLDER = (
-    os.environ.get("VIDEOS_FOLDER")
+VIDEOS_FOLDER = (os.environ.get("VIDEOS_FOLDER") or os.environ.get("GOOGLE_DRIVE_OUTPUT_FOLDER_ID") or "").strip()
+PROCESSED_CREATIVE_OUTPUTS_FOLDER = (
+    os.environ.get("GOOGLE_PROCESSED_CREATIVE_OUTPUTS_FOLDER_ID")
     or os.environ.get("GOOGLE_PROCESSED_DRIVE_FOLDER_ID")
-    or os.environ.get("GOOGLE_DRIVE_OUTPUT_FOLDER_ID")
+    or VIDEOS_FOLDER
     or ""
 ).strip()
 DRIVE_FOLDER_MIME = "application/vnd.google-apps.folder"
@@ -195,12 +196,15 @@ def video_output_folder():
     root_folder_id = (
         data.get("root_folder_id")
         or data.get("output_folder_id")
-        or VIDEOS_FOLDER
+        or PROCESSED_CREATIVE_OUTPUTS_FOLDER
         or ""
     ).strip()
     folder_name = (data.get("folder_name") or data.get("combo_folder_name") or "").strip()
     if not root_folder_id:
-        return jsonify({"ok": False, "error": "root output folder required. Set VIDEOS_FOLDER or pass output_folder_id."}), 400
+        return jsonify({
+            "ok": False,
+            "error": "root output folder required. Set GOOGLE_PROCESSED_CREATIVE_OUTPUTS_FOLDER_ID or pass output_folder_id.",
+        }), 400
     if not folder_name:
         return jsonify({"ok": False, "error": "folder_name required"}), 400
     try:
@@ -819,7 +823,7 @@ def produce_video_candidate():
     folder_id = (data.get("folder_id") or "").strip()
     hook = (data.get("hook") or HOOK_LINES[0]).strip()
     target_duration = float(data.get("target_duration_s") or 24.0)
-    output_folder_id = (data.get("output_folder_id") or VIDEOS_FOLDER or "").strip()
+    output_folder_id = (data.get("output_folder_id") or PROCESSED_CREATIVE_OUTPUTS_FOLDER or "").strip()
 
     input_path = audio_path = ass_916 = ass_11 = None
     outputs: list[str] = []
