@@ -1,5 +1,5 @@
 import os, io, base64, json, tempfile, requests, anthropic
-from PIL import Image, ImageEnhance, ImageDraw, ImageFilter, ImageFont, ImageStat
+from PIL import Image, ImageEnhance, ImageDraw, ImageFilter, ImageFont, ImageOps, ImageStat
 from flask import request, jsonify
 
 ANTHROPIC_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
@@ -448,6 +448,40 @@ def _save_jpeg_temp(img, suffix):
     img.save(tmp.name, format='JPEG', quality=92, optimize=True)
     return tmp.name
 
+def _premium_polish_v2(img):
+    img = img.convert('RGB')
+    denoised = img.filter(ImageFilter.MedianFilter(size=3)).filter(ImageFilter.SMOOTH)
+    img = Image.blend(img, denoised, 0.22)
+    img = ImageOps.autocontrast(img, cutoff=1)
+    img = ImageEnhance.Brightness(img).enhance(1.025)
+    img = ImageEnhance.Contrast(img).enhance(1.08)
+    img = ImageEnhance.Color(img).enhance(1.035)
+    return img.filter(ImageFilter.UnsharpMask(radius=1.1, percent=105, threshold=4))
+
+def _clean_square_canvas_v2(img):
+    target_size = (1080, 1080)
+    foreground = img.convert('RGB')
+    foreground.thumbnail((930, 930), Image.Resampling.LANCZOS)
+    base = img.resize(target_size, Image.Resampling.LANCZOS).filter(ImageFilter.GaussianBlur(radius=56))
+    base = ImageEnhance.Brightness(base).enhance(0.72)
+    base = ImageEnhance.Color(base).enhance(0.55)
+    warm = Image.new('RGB', target_size, (74, 65, 55))
+    canvas = Image.blend(base, warm, 0.62)
+    shadow = Image.new('RGBA', target_size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(shadow)
+    x = (target_size[0] - foreground.width) // 2
+    y = (target_size[1] - foreground.height) // 2
+    draw.rounded_rectangle(
+        (x - 10, y - 8, x + foreground.width + 10, y + foreground.height + 14),
+        radius=18,
+        fill=(0, 0, 0, 46),
+    )
+    shadow = shadow.filter(ImageFilter.GaussianBlur(radius=18))
+    rgba = canvas.convert('RGBA')
+    rgba.alpha_composite(shadow)
+    rgba.paste(foreground, (x, y))
+    return rgba.convert('RGB')
+
 def repair_image_v1():
     data = request.get_json(force=True, silent=True) or {}
     file_id = (data.get('image_file_id') or data.get('file_id') or '').strip()
@@ -508,6 +542,75 @@ def repair_image_v1():
             'next_step': 'parent_image_judge_before_launch',
         }
         return jsonify(result)
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+    finally:
+        for path in paths:
+            try:
+                os.unlink(path)
+            except Exception:
+                pass
+
+def repair_image_v2():
+    data = request.get_json(force=True, silent=True) or {}
+    feed_id = (data.get('feed_4_5_file_id') or data.get('feed_file_id') or '').strip()
+    square_id = (data.get('carousel_1_1_file_id') or data.get('square_file_id') or '').strip()
+    folder_name = (data.get('folder_name') or '').strip()
+    combo_label = (data.get('combo_label') or f'Drive folder {folder_name}').strip()
+    output_folder_id = (data.get('output_folder_id') or PROCESSED_CREATIVE_OUTPUTS_FOLDER or '').strip()
+    judge = data.get('judge') if isinstance(data.get('judge'), dict) else {}
+    if not (feed_id and square_id):
+        return jsonify({'ok': False, 'error': 'feed_4_5_file_id and carousel_1_1_file_id required'}), 400
+    if not folder_name:
+        return jsonify({'ok': False, 'error': 'folder_name required so v2 outputs land in the correct processed folder'}), 400
+    paths = []
+    try:
+        from google_engine import _google_services
+        _info, _sheets, drive = _google_services()
+        output_folder = _ensure_combo_output_folder(drive, output_folder_id, folder_name)
+        upload_parent = output_folder['id']
+
+        feed_meta, feed_bytes = _drive_image_meta_and_bytes(feed_id)
+        square_meta, square_bytes = _drive_image_meta_and_bytes(square_id)
+        feed_src = Image.open(io.BytesIO(feed_bytes)).convert('RGB')
+        square_src = Image.open(io.BytesIO(square_bytes)).convert('RGB')
+
+        feed_v2 = _premium_polish_v2(feed_src.resize((1080, 1350), Image.Resampling.LANCZOS))
+        square_base = feed_v2 if feed_v2.height >= feed_v2.width else _premium_polish_v2(square_src)
+        square_v2 = _premium_polish_v2(_clean_square_canvas_v2(square_base))
+
+        safe_label = ''.join(ch if ch.isalnum() or ch in '-_' else '-' for ch in (combo_label or f'folder-{folder_name}')).strip('-')[:60]
+        exports = {'feed_4_5': feed_v2, 'carousel_1_1': square_v2}
+        uploads = {}
+        for key, img in exports.items():
+            path = _save_jpeg_temp(img, f'_{key}_v2.jpg')
+            paths.append(path)
+            uploads[key] = _upload_image_to_drive(path, f'{safe_label}_WEARTH_{key}_image_v2.jpg', upload_parent)
+
+        return jsonify({
+            'ok': True,
+            'inputs': {
+                'feed_4_5': {'file_id': feed_id, 'name': feed_meta.get('name')},
+                'carousel_1_1': {'file_id': square_id, 'name': square_meta.get('name')},
+            },
+            'actions_applied': [
+                'denoised_with_light_blend',
+                'applied_autocontrast_and_premium_lighting',
+                'applied_controlled_sharpening',
+                'rebuilt_square_on_clean_warm_luxury_canvas',
+                'uploaded_v2_to_processed_shared_drive',
+            ],
+            'judge_notes_used': judge.get('iteration_brief') or data.get('iteration_brief') or [],
+            'exports': uploads,
+            'output_root_folder_id': output_folder_id,
+            'output_folder_id': upload_parent,
+            'output_folder': output_folder,
+            'launch_gate': {
+                'can_launch_without_judge': False,
+                'reason': 'Image v2 must pass parent image judge before Meta launch.',
+            },
+            'next_step': 'run_parent_image_judge_on_v2',
+        })
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
     finally:
