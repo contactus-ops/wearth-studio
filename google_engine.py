@@ -294,12 +294,30 @@ def google_sync_combos():
                 body={"values": append_rows},
             ).execute()
 
+        updated_existing = []
+        if used_names:
+            updates = []
+            for row_num, row in enumerate(existing_rows, start=2):
+                folder_name = row[1] if len(row) > 1 else ""
+                if folder_name not in used_names:
+                    continue
+                note = used_note or "Already launched before queue initialization"
+                updates.append({"range": f"combos!F{row_num}", "values": [[used_status]]})
+                updates.append({"range": f"combos!N{row_num}", "values": [[note]]})
+                updated_existing.append(folder_name)
+            if updates:
+                sheets.spreadsheets().values().batchUpdate(
+                    spreadsheetId=sheet_id,
+                    body={"valueInputOption": "RAW", "data": updates},
+                ).execute()
+
         return jsonify(
             {
                 "ok": True,
                 "parent_folder_id": parent_id,
                 "found_count": len(summaries),
                 "appended_count": len(append_rows),
+                "updated_existing_used": updated_existing,
                 "skipped_existing": skipped_existing,
                 "used_folder_names": sorted(used_names),
                 "appended_rows": append_rows,
