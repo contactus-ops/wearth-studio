@@ -423,8 +423,33 @@ def _post_adset_update(adset_id: str, payload: dict) -> dict:
 
 def _safe_execution_plan(decision: dict) -> list[dict]:
     ai_plan = decision.get("ai_plan") or {}
-    actions = ai_plan.get("recommended_actions") or decision.get("heuristic_actions") or []
-    cards = _card_index(decision.get("scorecards") or [])
+    actions = list(ai_plan.get("recommended_actions") or decision.get("heuristic_actions") or [])
+    scorecards = decision.get("scorecards") or []
+    cards = _card_index(scorecards)
+    has_budget_action = {
+        str(a.get("adset_id"))
+        for a in actions
+        if isinstance(a, dict) and str(a.get("action_type") or "") == "decrease_budget"
+    }
+    for card in scorecards:
+        adset_id = str(card.get("adset_id") or "")
+        if not adset_id or adset_id in has_budget_action:
+            continue
+        if (
+            card.get("stage") == "no_purchase_after_spend"
+            and int(card.get("purchases") or 0) == 0
+            and int(card.get("daily_budget_paise") or 0) > DEFAULT_REDUCED_BUDGET_PAISE
+        ):
+            actions.append({
+                "action_type": "decrease_budget",
+                "adset_id": adset_id,
+                "priority": "high",
+                "reason": "Deterministic cash-protection rule: meaningful spend with zero purchases.",
+                "expected_effect": "Reduce waste while tracking/funnel and creative are investigated.",
+                "risk": "Lower data volume, accepted because zero-purchase spend is already above threshold.",
+                "proposed_daily_budget_paise": DEFAULT_REDUCED_BUDGET_PAISE,
+                "source": "deterministic_cash_protection",
+            })
     safe = []
     for action in actions:
         if not isinstance(action, dict):
