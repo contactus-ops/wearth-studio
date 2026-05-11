@@ -38,6 +38,8 @@ INSIGHT_FIELDS = ",".join(
 )
 ADSET_FIELDS = "id,name,status,effective_status,daily_budget,bid_strategy,optimization_goal,targeting"
 MAX_DAILY_BUDGET_PAISE = int(os.environ.get("META_MAX_DAILY_BUDGET_PAISE") or "100000")
+MIN_DAILY_BUDGET_PAISE = int(os.environ.get("META_MIN_DAILY_BUDGET_PAISE") or "10000")
+DEFAULT_REDUCED_BUDGET_PAISE = int(os.environ.get("META_DEFAULT_REDUCED_BUDGET_PAISE") or "20000")
 
 
 def _h() -> dict:
@@ -242,14 +244,23 @@ def _anthropic_decision(cards: list[dict], heuristic_actions: list[dict], target
     if not ANTHROPIC_API_KEY:
         return {"ok": False, "error": "ANTHROPIC_API_KEY missing"}
     prompt = {
-        "task": "Act as WEARTH Active's Meta ads decision brain. Recommend the next actions to reach ROAS 4 as fast as possible without reckless changes.",
-        "brand": "WEARTH Active: premium plant-based activewear for women in India. Quiet luxury, fabric science, premium activewear, not discount or generic gym content.",
+        "task": "Act as WEARTH Active's autonomous Meta ads decision brain. Recommend the next actions to reach ROAS 4 as fast as possible without reckless changes.",
+        "brand": "WEARTH Active: founder-led challenger luxury activewear for women in India. Premium plant-based activewear, fabric science, quiet luxury, not discount or generic gym content.",
+        "challenger_brand_doctrine": [
+            "Think like the best bootstrap DTC growth teams, not a big-brand media buyer.",
+            "Protect cash aggressively; buy learning in small controlled tests.",
+            "Use MVMT-style challenger principles: direct-to-consumer value, sharp short copy, lifestyle/UGC testing, constant creative iteration, and price-value disruption.",
+            "WEARTH is roughly 50 percent below Lululemon pricing while aiming for superior quality, skin feel, climate fit, and material story. Treat accessible luxury and better-than-incumbent comfort as a strategic edge.",
+            "Raw founder-led creative can win if it feels honest, specific, and premium enough; reject raw creative when it looks careless, bathroom-like, confusing, or low-trust.",
+            "Never confuse CTR with success. Clicks without purchases means either tracking/funnel failure or a weak conversion bridge.",
+        ],
         "target_roas": target_roas,
         "hard_guardrails": [
             "Never propose daily_budget_paise above 100000.",
             "Do not recommend launch/publish unless creative has passed a separate parent creative judge.",
             "Do not make many variables change at once; isolate audience, creative, copy, or budget decisions.",
             "If spend is low, prefer hold_collect_data instead of false certainty.",
+            "If CTR is healthy but purchases are zero after meaningful spend, investigate tracking/funnel and improve conversion creative before changing audience.",
             "Every recommendation must include evidence from the scorecards.",
         ],
         "allowed_action_types": [
@@ -337,22 +348,17 @@ def _sanitize_ai_actions(ai_plan: dict) -> dict:
     return sanitized
 
 
-def meta_roas_decision():
-    """
-    POST /api/meta/roas-decision
-    Read-first ad intelligence: fetch Meta scorecards, generate a gated action plan.
-    This endpoint does not mutate Meta. A separate executor should apply approved actions.
-    """
-    data = request.get_json(force=True, silent=True) if request.method == "POST" else {}
+def _decision_payload(data: dict | None, query_args=None) -> dict:
     data = data or {}
+    query_args = query_args or {}
     if not META_TOKEN:
-        return jsonify({"ok": False, "error": "META_ACCESS_TOKEN missing"}), 500
-    campaign_id = (data.get("campaign_id") or request.args.get("campaign_id") or META_CAMPAIGN_ID or "").strip()
+        return {"ok": False, "error": "META_ACCESS_TOKEN missing", "http_status": 500}
+    campaign_id = (data.get("campaign_id") or query_args.get("campaign_id") or META_CAMPAIGN_ID or "").strip()
     if not campaign_id:
-        return jsonify({"ok": False, "error": "campaign_id or META_CAMPAIGN_ID required"}), 400
-    target_roas = _float(data.get("target_roas") or request.args.get("target_roas"), 4.0)
-    date_preset = (data.get("date_preset") or request.args.get("date_preset") or "last_7d").strip()
-    min_spend_inr = _float(data.get("min_spend_inr") or request.args.get("min_spend_inr"), 500.0)
+        return {"ok": False, "error": "campaign_id or META_CAMPAIGN_ID required", "http_status": 400}
+    target_roas = _float(data.get("target_roas") or query_args.get("target_roas"), 4.0)
+    date_preset = (data.get("date_preset") or query_args.get("date_preset") or "last_7d").strip()
+    min_spend_inr = _float(data.get("min_spend_inr") or query_args.get("min_spend_inr"), 500.0)
 
     adsets, errors = _campaign_adsets(campaign_id)
     cards = []
@@ -385,4 +391,162 @@ def meta_roas_decision():
             "next_safe_layer": "Build /api/meta/roas-execute for approved budget/status/audience actions only after decision quality is verified.",
         },
     }
-    return jsonify(response)
+    return response
+
+
+def meta_roas_decision():
+    """
+    POST /api/meta/roas-decision
+    Read-first ad intelligence: fetch Meta scorecards, generate a gated action plan.
+    This endpoint does not mutate Meta. A separate executor should apply approved actions.
+    """
+    data = request.get_json(force=True, silent=True) if request.method == "POST" else {}
+    response = _decision_payload(data, request.args)
+    http_status = int(response.pop("http_status", 200))
+    return jsonify(response), http_status
+
+
+def _card_index(scorecards: list[dict]) -> dict:
+    return {str(card.get("adset_id")): card for card in scorecards if card.get("adset_id")}
+
+
+def _post_adset_update(adset_id: str, payload: dict) -> dict:
+    r = requests.post(f"{GRAPH}/{adset_id}", headers=_h(), json=payload, timeout=60)
+    out = {"adset_id": adset_id, "http": r.status_code, "raw": r.text[:800]}
+    try:
+        out["json"] = r.json()
+    except Exception:
+        pass
+    out["ok"] = r.status_code in (200, 201) and bool((out.get("json") or {}).get("success", True))
+    return out
+
+
+def _safe_execution_plan(decision: dict) -> list[dict]:
+    ai_plan = decision.get("ai_plan") or {}
+    actions = ai_plan.get("recommended_actions") or decision.get("heuristic_actions") or []
+    cards = _card_index(decision.get("scorecards") or [])
+    safe = []
+    for action in actions:
+        if not isinstance(action, dict):
+            continue
+        action_type = str(action.get("action_type") or "")
+        adset_id = str(action.get("adset_id") or "")
+        card = cards.get(adset_id) or {}
+        proposed_budget = action.get("proposed_daily_budget_paise")
+        if proposed_budget is not None:
+            proposed_budget = int(_float(proposed_budget, 0))
+        current_budget = int(card.get("daily_budget_paise") or 0)
+        spend = float(card.get("spend_inr") or 0)
+        purchases = int(card.get("purchases") or 0)
+
+        item = {
+            "action": action,
+            "adset_snapshot": card,
+            "execution_allowed": False,
+            "execution_kind": "noop",
+            "reason": "Not auto-safe.",
+        }
+
+        if action_type == "hold_collect_data":
+            item.update({
+                "execution_allowed": True,
+                "execution_kind": "no_mutation",
+                "reason": "Hold is safe and requires no Meta mutation.",
+            })
+        elif action_type == "investigate_tracking":
+            item.update({
+                "execution_allowed": True,
+                "execution_kind": "task_only",
+                "reason": "Tracking investigation is logged as an action item; no Meta mutation.",
+            })
+        elif action_type in {"introduce_new_creative", "change_creative_and_hook", "change_copy_or_creative", "change_copy"}:
+            item.update({
+                "execution_allowed": True,
+                "execution_kind": "creative_queue",
+                "reason": "Creative branch may run, but launch still requires parent judge approval.",
+            })
+        elif action_type == "decrease_budget" and adset_id and proposed_budget:
+            capped = max(MIN_DAILY_BUDGET_PAISE, min(proposed_budget, MAX_DAILY_BUDGET_PAISE))
+            if current_budget and capped < current_budget and (purchases == 0 or current_budget > MAX_DAILY_BUDGET_PAISE):
+                item.update({
+                    "execution_allowed": True,
+                    "execution_kind": "meta_budget_update",
+                    "reason": "Budget decrease is auto-safe because it reduces risk/spend.",
+                    "payload": {"daily_budget": str(capped)},
+                })
+            else:
+                item["reason"] = "Budget decrease rejected because it does not reduce current risk."
+        elif action_type == "increase_budget":
+            item["reason"] = "Budget increases are not auto-safe until ROAS proof is stronger and executor history is trusted."
+        elif action_type in {"pause_adset", "broaden_audience", "narrow_audience", "enable_advantage_audience"}:
+            item["reason"] = "Audience/status mutations are not auto-safe in the first executor layer."
+
+        safe.append(item)
+    return safe
+
+
+def _execute_safe_plan(items: list[dict], mode: str) -> list[dict]:
+    executed = []
+    for item in items:
+        kind = item.get("execution_kind")
+        action = item.get("action") or {}
+        result = {
+            "action_type": action.get("action_type"),
+            "adset_id": action.get("adset_id"),
+            "execution_kind": kind,
+            "executed": False,
+            "reason": item.get("reason"),
+        }
+        if not item.get("execution_allowed"):
+            result["status"] = "blocked_by_guardrail"
+        elif mode == "dry_run":
+            result["status"] = "would_execute"
+        elif kind == "meta_budget_update":
+            result["status"] = "executed"
+            result["executed"] = True
+            result["meta_result"] = _post_adset_update(str(action.get("adset_id")), item.get("payload") or {})
+            if not result["meta_result"].get("ok"):
+                result["status"] = "meta_error"
+                result["executed"] = False
+        elif kind == "creative_queue":
+            result["status"] = "queued_next_layer"
+            result["next_endpoint"] = "/api/google/pick-next-combo -> /api/creative/scan-combo -> /api/video/produce-candidate -> /api/video/judge-candidate"
+        else:
+            result["status"] = "recorded_no_mutation"
+        executed.append(result)
+    return executed
+
+
+def meta_roas_execute():
+    """
+    POST /api/meta/roas-execute
+    Autonomous executor for low-risk actions only. It can reduce budget, hold, log tracking
+    investigation, and queue creative workflow. It does not launch unapproved creative.
+    """
+    data = request.get_json(force=True, silent=True) or {}
+    mode = (data.get("mode") or request.args.get("mode") or "auto_safe").strip()
+    if mode not in {"dry_run", "auto_safe"}:
+        return jsonify({"ok": False, "error": "mode must be dry_run or auto_safe"}), 400
+
+    decision = _decision_payload(data, request.args)
+    http_status = int(decision.pop("http_status", 200))
+    if http_status != 200 or not decision.get("ok"):
+        return jsonify(decision), http_status
+
+    safe_plan = _safe_execution_plan(decision)
+    execution_results = _execute_safe_plan(safe_plan, mode)
+    return jsonify({
+        "ok": True,
+        "mode": mode,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "decision": decision,
+        "safe_plan": safe_plan,
+        "execution_results": execution_results,
+        "guardrails": {
+            "max_daily_budget_paise": MAX_DAILY_BUDGET_PAISE,
+            "min_daily_budget_paise": MIN_DAILY_BUDGET_PAISE,
+            "creative_launch_requires_parent_judge": True,
+            "audience_mutations_enabled": False,
+            "budget_increases_enabled": False,
+        },
+    })
