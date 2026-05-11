@@ -128,7 +128,7 @@ def _find_drive_child_folder(drive, parent_folder_id: str, folder_name: str) -> 
     resp = drive.files().list(
         q=q,
         pageSize=10,
-        fields="files(id,name,webViewLink,parents)",
+        fields="files(id,name,webViewLink,parents,driveId)",
         includeItemsFromAllDrives=True,
         supportsAllDrives=True,
     ).execute()
@@ -144,9 +144,26 @@ def _create_drive_child_folder(drive, parent_folder_id: str, folder_name: str) -
     }
     return drive.files().create(
         body=body,
-        fields="id,name,webViewLink,parents",
+        fields="id,name,webViewLink,parents,driveId",
         supportsAllDrives=True,
     ).execute()
+
+
+def _drive_folder_meta(drive, folder_id: str) -> dict:
+    return drive.files().get(
+        fileId=folder_id,
+        fields="id,name,mimeType,webViewLink,parents,driveId",
+        supportsAllDrives=True,
+    ).execute()
+
+
+def _shared_drive_output_error(root_meta: dict) -> str | None:
+    if root_meta.get("driveId"):
+        return None
+    return (
+        "Configured output root is not on a Google Shared Drive. "
+        "Service-account uploads into My Drive folders can fail because service accounts do not have storage quota."
+    )
 
 
 def _ensure_combo_output_folder(drive, root_folder_id: str, folder_name: str) -> dict:
@@ -156,6 +173,10 @@ def _ensure_combo_output_folder(drive, root_folder_id: str, folder_name: str) ->
         raise RuntimeError("root output folder id required")
     if not folder_name:
         raise RuntimeError("folder_name required to create combo output folder")
+    root_meta = _drive_folder_meta(drive, root_folder_id)
+    storage_error = _shared_drive_output_error(root_meta)
+    if storage_error:
+        raise RuntimeError(storage_error)
     existing = _find_drive_child_folder(drive, root_folder_id, folder_name)
     if existing:
         existing["created"] = False
@@ -184,8 +205,17 @@ def video_output_folder():
         return jsonify({"ok": False, "error": "folder_name required"}), 400
     try:
         _info, _sheets, drive = _google_services()
+        root_meta = _drive_folder_meta(drive, root_folder_id)
+        storage_error = _shared_drive_output_error(root_meta)
+        if storage_error:
+            return jsonify({
+                "ok": False,
+                "error": storage_error,
+                "root_folder": root_meta,
+                "required_action": "Use a folder located inside a Google Shared Drive and add the service account as Content Manager.",
+            }), 409
         folder = _ensure_combo_output_folder(drive, root_folder_id, folder_name)
-        return jsonify({"ok": True, "root_folder_id": root_folder_id, "folder": folder})
+        return jsonify({"ok": True, "root_folder_id": root_folder_id, "root_folder": root_meta, "folder": folder})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 500
 
@@ -806,6 +836,17 @@ def produce_video_candidate():
             video_file_id = combo["video_file_id"]
             combo_label = combo_label or combo.get("combo_label") or f"Drive folder {combo.get('folder_name')}"
             folder_name = folder_name or combo.get("folder_name") or ""
+
+        if output_folder_id and folder_name:
+            root_meta = _drive_folder_meta(_drive, output_folder_id)
+            storage_error = _shared_drive_output_error(root_meta)
+            if storage_error:
+                return jsonify({
+                    "ok": False,
+                    "error": storage_error,
+                    "root_folder": root_meta,
+                    "required_action": "Use a folder located inside a Google Shared Drive and add the service account as Content Manager.",
+                }), 400
 
         input_path, source_meta = _drive_download_to_path(video_file_id, ".mp4")
         source_probe = _probe_video(input_path)
