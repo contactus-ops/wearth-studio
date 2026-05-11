@@ -1,5 +1,6 @@
 import json
 import os
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from flask import jsonify, request
@@ -86,6 +87,10 @@ def _row_from_combo(combo: Dict[str, Any], status: str, note: str = "") -> List[
 def _sheet_values(sheets, sheet_id: str, range_name: str) -> List[List[str]]:
     resp = sheets.spreadsheets().values().get(spreadsheetId=sheet_id, range=range_name).execute()
     return resp.get("values") or []
+
+
+def _cell(row: List[str], idx: int) -> str:
+    return row[idx].strip() if len(row) > idx and isinstance(row[idx], str) else ""
 
 
 def _ensure_combos_headers(sheets, sheet_id: str) -> None:
@@ -321,6 +326,99 @@ def google_sync_combos():
                 "skipped_existing": skipped_existing,
                 "used_folder_names": sorted(used_names),
                 "appended_rows": append_rows,
+            }
+        )
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+def google_pick_next_combo():
+    """
+    POST /api/google/pick-next-combo
+    Atomically-ish locks the first queued combo by setting status=processing.
+
+    Body (optional):
+      {
+        "lock_note": "creative pipeline",
+        "status_from": "queued",
+        "status_to": "processing"
+      }
+    """
+    data = request.get_json(force=True, silent=True) or {}
+    sheet_id = _sheet_id()
+    if not sheet_id:
+        return jsonify({"ok": False, "error": "GOOGLE_SHEET_ID is not set"}), 500
+
+    status_from = str(data.get("status_from") or "queued").strip().lower()
+    status_to = str(data.get("status_to") or "processing").strip()
+    lock_note = str(data.get("lock_note") or "locked by pick-next-combo").strip()
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+    try:
+        _info, sheets, _drive = _google_services()
+        _ensure_combos_headers(sheets, sheet_id)
+
+        rows = _sheet_values(sheets, sheet_id, "combos!A2:N")
+        candidates = []
+        for row_num, row in enumerate(rows, start=2):
+            status = _cell(row, 5).lower()
+            folder_id = _cell(row, 0)
+            folder_name = _cell(row, 1)
+            image_file_id = _cell(row, 2)
+            video_file_id = _cell(row, 3)
+            if status != status_from:
+                continue
+            if not (folder_id and folder_name and image_file_id and video_file_id):
+                continue
+            candidates.append((row_num, row))
+
+        if not candidates:
+            return jsonify(
+                {
+                    "ok": True,
+                    "picked": False,
+                    "message": f"No combo rows with status '{status_from}' and complete image/video IDs.",
+                }
+            )
+
+        for row_num, row in candidates:
+            # Race guard: re-read just this row before updating it.
+            live = _sheet_values(sheets, sheet_id, f"combos!A{row_num}:N{row_num}")
+            live_row = live[0] if live else []
+            if _cell(live_row, 5).lower() != status_from:
+                continue
+
+            note = f"{lock_note} at {now}"
+            updates = [
+                {"range": f"combos!F{row_num}", "values": [[status_to]]},
+                {"range": f"combos!L{row_num}", "values": [[now]]},
+                {"range": f"combos!M{row_num}", "values": [[f"locked:{status_to}"]]},
+                {"range": f"combos!N{row_num}", "values": [[note]]},
+            ]
+            sheets.spreadsheets().values().batchUpdate(
+                spreadsheetId=sheet_id,
+                body={"valueInputOption": "RAW", "data": updates},
+            ).execute()
+
+            picked = {
+                "row_number": row_num,
+                "folder_id": _cell(live_row, 0),
+                "folder_name": _cell(live_row, 1),
+                "image_file_id": _cell(live_row, 2),
+                "video_file_id": _cell(live_row, 3),
+                "combo_label": _cell(live_row, 4),
+                "previous_status": _cell(live_row, 5),
+                "status": status_to,
+                "locked_at": now,
+                "notes": note,
+            }
+            return jsonify({"ok": True, "picked": True, "combo": picked})
+
+        return jsonify(
+            {
+                "ok": True,
+                "picked": False,
+                "message": "Queued candidates were already claimed by another process.",
             }
         )
     except Exception as exc:
