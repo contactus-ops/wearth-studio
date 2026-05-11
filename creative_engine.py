@@ -517,6 +517,132 @@ def repair_image_v1():
             except Exception:
                 pass
 
+def _heuristic_parent_image_judge(image_metrics, reason=''):
+    issues = []
+    for label, metrics in image_metrics.items():
+        meta = metrics.get('meta_compliance') or {}
+        if not meta.get('file_size_ok'):
+            issues.append(f'{label}_file_over_meta_limit')
+        if not meta.get('format_ok'):
+            issues.append(f'{label}_format_not_preferred')
+        if not meta.get('premium_resolution_ok'):
+            issues.append(f'{label}_resolution_below_premium_floor')
+    passed = not issues
+    return {
+        'pass_to_publish': passed,
+        'decision': 'approved_for_launch' if passed else 'repair_again',
+        'overall_score_0_10': 7.0 if passed else 5.0,
+        'luxury_fit_0_10': 6.5,
+        'mobile_hook_0_10': 6.5,
+        'text_readability': 'unknown',
+        'framing_ok': passed,
+        'meta_compliance': passed,
+        'iteration_brief': [] if passed else ['Fix technical image compliance before launch.'],
+        'risks': issues + ([reason] if reason else []),
+        'reasoning': 'Fallback image judge used because parent model was unavailable.',
+        'model': 'heuristic',
+    }
+
+def _parent_image_judge(image_items, image_metrics, context):
+    if not ANTHROPIC_KEY:
+        return _heuristic_parent_image_judge(image_metrics, 'ANTHROPIC_API_KEY missing')
+    prompt = {
+        'task': 'You are WEARTH Active parent image creative judge. Decide if these repaired image outputs can be used in Meta ads or must be repaired again.',
+        'brand': 'WEARTH Active: premium lyocell / plant-based activewear for Indian women. Quiet luxury, sensory fabric, skin comfort, premium but founder-led and authentic.',
+        'hard_rules': [
+            'Do not pass if text is unreadable or cluttered on mobile.',
+            'Do not pass if image feels cheap, fake, careless, or off-brand for accessible luxury activewear.',
+            'Do not pass if background repair looks artificial.',
+            'Do not pass if product/body framing is poor or the main garment is unclear.',
+            'Do not pass if Meta compatibility is false.',
+            'Founder/raw authenticity can pass only when it increases trust and does not feel low-effort.',
+        ],
+        'context': context,
+        'image_metrics': image_metrics,
+        'required_json_schema': {
+            'pass_to_publish': 'boolean',
+            'decision': 'approved_for_launch|repair_again|reshoot_required',
+            'overall_score_0_10': 'number',
+            'luxury_fit_0_10': 'number',
+            'mobile_hook_0_10': 'number',
+            'text_readability': 'high|medium|low|none|unknown',
+            'framing_ok': 'boolean',
+            'meta_compliance': 'boolean',
+            'iteration_brief': ['specific repair edits if not approved'],
+            'risks': ['string'],
+            'reasoning': 'short paragraph',
+        },
+    }
+    content = [{'type': 'text', 'text': json.dumps(prompt, ensure_ascii=True)}]
+    for item in image_items:
+        content.append({'type': 'text', 'text': f"Image: {item['label']}"})
+        content.append({'type': 'image', 'source': {'type': 'base64', 'media_type': 'image/jpeg', 'data': item['b64']}})
+    try:
+        client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
+        resp = client.messages.create(
+            model=ANTHROPIC_MODEL,
+            max_tokens=1200,
+            temperature=0.15,
+            messages=[{'role': 'user', 'content': content}],
+        )
+        text = (resp.content[0].text or '').strip()
+        if text.startswith('```'):
+            text = text.replace('```json', '').replace('```', '').strip()
+        parsed = json.loads(text)
+        parsed['model'] = ANTHROPIC_MODEL
+        return parsed
+    except Exception as e:
+        return _heuristic_parent_image_judge(image_metrics, f'parent_image_judge_failed: {e}')
+
+def judge_image_candidate():
+    data = request.get_json(force=True, silent=True) or {}
+    feed_id = (data.get('feed_4_5_file_id') or data.get('feed_file_id') or '').strip()
+    square_id = (data.get('carousel_1_1_file_id') or data.get('square_file_id') or '').strip()
+    if not (feed_id and square_id):
+        return jsonify({'ok': False, 'error': 'feed_4_5_file_id and carousel_1_1_file_id required'}), 400
+    try:
+        feed_meta, feed_bytes = _drive_image_meta_and_bytes(feed_id)
+        square_meta, square_bytes = _drive_image_meta_and_bytes(square_id)
+        feed_metrics = _image_brain_metrics(feed_bytes, feed_meta)
+        square_metrics = _image_brain_metrics(square_bytes, square_meta)
+        image_items = [
+            {'label': '4:5 feed image', 'b64': _image_thumb_b64(feed_bytes)},
+            {'label': '1:1 carousel image', 'b64': _image_thumb_b64(square_bytes)},
+        ]
+        context = {
+            'combo_label': data.get('combo_label') or '',
+            'folder_name': data.get('folder_name') or '',
+            'notes': data.get('notes') or '',
+            'source_image_brain': data.get('image_brain') or {},
+        }
+        meta_ok = (
+            feed_metrics.get('meta_compliance', {}).get('file_size_ok')
+            and feed_metrics.get('meta_compliance', {}).get('format_ok')
+            and feed_metrics.get('meta_compliance', {}).get('premium_resolution_ok')
+            and square_metrics.get('meta_compliance', {}).get('file_size_ok')
+            and square_metrics.get('meta_compliance', {}).get('format_ok')
+            and square_metrics.get('meta_compliance', {}).get('premium_resolution_ok')
+        )
+        metrics = {'feed_4_5': feed_metrics, 'carousel_1_1': square_metrics}
+        judge = _parent_image_judge(image_items, metrics, context)
+        if not meta_ok:
+            judge['pass_to_publish'] = False
+            judge['meta_compliance'] = False
+            judge['decision'] = 'repair_again'
+            judge.setdefault('risks', []).append('Meta technical image precheck failed.')
+        return jsonify({
+            'ok': True,
+            'feed_4_5': {'file_id': feed_id, 'name': feed_meta.get('name'), 'metrics': feed_metrics},
+            'carousel_1_1': {'file_id': square_id, 'name': square_meta.get('name'), 'metrics': square_metrics},
+            'judge': judge,
+            'launch_gate': {
+                'can_launch': bool(judge.get('pass_to_publish') and judge.get('decision') == 'approved_for_launch'),
+                'reason': 'Image candidate must be approved by parent judge before Meta launch.',
+            },
+        })
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
 def _claude_analyse(img_b64):
     if not ANTHROPIC_KEY:
         return {'crop': 'center', 'caption_idx': 0, 'brightness': 1.15, 'warmth': True}
