@@ -487,7 +487,7 @@ def _premium_card_background(size):
     shade = Image.new('RGBA', size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(shade)
     w, h = size
-    for i in range(0, max(w, h), 18):
+    for i in range(0, min(w, h) // 2, 18):
         alpha = max(0, 34 - int(i / 24))
         draw.rectangle((i, i, w - i, h - i), outline=(92, 76, 56, alpha), width=3)
     return Image.alpha_composite(bg.convert('RGBA'), shade).convert('RGB')
