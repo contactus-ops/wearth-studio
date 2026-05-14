@@ -1,5 +1,5 @@
 import os
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from ad_intelligence_engine import meta_roas_decision, meta_roas_execute
 from automation_engine import ad_machine_tick
 from creative_scan_engine import creative_scan_combo
@@ -16,12 +16,15 @@ from dashboard_engine import (
     meta_campaign_dashboard,
     meta_video_thumbnail,
 )
-from seo_engine import run_seo_engine
+from seo_engine import generate_article_endpoint, run_seo_engine, seo_job_status, seo_status
 from creative_engine import creative_enhance, image_brain_v1, judge_image_candidate, repair_image_v1, repair_image_v2, repair_image_v3
-from video_engine import judge_video_candidate, produce_iteration_v2, produce_video_candidate, production_brain_v1, video_output_folder, video_process
+from video_engine import judge_video_candidate, produce_iteration_v2, produce_video_candidate, production_brain_v1, video_output_folder, video_process, video_process_upload, video_upload_source
 from meta_engine import (
     launch_ads,
     launch_carousel_ads,
+    instagram_auto_post,
+    instagram_auto_publish_cycle,
+    instagram_post,
     post_reel_async,
     reel_publish,
     retarget_adsets,
@@ -31,7 +34,8 @@ from meta_engine import (
     ads_status,
 )
 from facebook_engine import facebook_post, token_debug, find_accounts
-from google_engine import google_drive_combos, google_pick_next_combo, google_sync_combos, google_verify
+from google_engine import google_drive_combos, google_drive_videos, google_pick_next_combo, google_sync_combos, google_verify
+from klaviyo_engine import active_count as klaviyo_active_count, hot_profiles as klaviyo_hot_profiles, suppress_cold_run
 
 app = Flask(__name__)
 
@@ -43,6 +47,10 @@ def add_cors_headers(response):
     return response
 
 app.add_url_rule('/api/seo/generate', view_func=run_seo_engine, methods=['POST'])
+app.add_url_rule('/generate-article', view_func=generate_article_endpoint, methods=['POST'])
+app.add_url_rule('/api/seo/generate-article', view_func=generate_article_endpoint, methods=['POST'])
+app.add_url_rule('/seo-job/<job_id>', view_func=seo_job_status, methods=['GET'])
+app.add_url_rule('/seo-status', view_func=seo_status, methods=['GET'])
 app.add_url_rule('/api/creative/enhance', view_func=creative_enhance, methods=['POST'])
 app.add_url_rule('/api/creative/image-brain-v1', view_func=image_brain_v1, methods=['POST'])
 app.add_url_rule('/api/creative/repair-image-v1', view_func=repair_image_v1, methods=['POST'])
@@ -51,6 +59,8 @@ app.add_url_rule('/api/creative/repair-image-v3', view_func=repair_image_v3, met
 app.add_url_rule('/api/creative/judge-image-candidate', view_func=judge_image_candidate, methods=['POST'])
 app.add_url_rule('/api/creative/scan-combo', view_func=creative_scan_combo, methods=['POST'])
 app.add_url_rule('/api/video/process', view_func=video_process, methods=['POST'])
+app.add_url_rule('/api/video/upload-source', view_func=video_upload_source, methods=['POST'])
+app.add_url_rule('/api/video/process-upload', view_func=video_process_upload, methods=['POST'])
 app.add_url_rule('/api/video/output-folder', view_func=video_output_folder, methods=['POST'])
 app.add_url_rule('/api/video/production-brain-v1', view_func=production_brain_v1, methods=['POST'])
 app.add_url_rule('/api/video/produce-candidate', view_func=produce_video_candidate, methods=['POST'])
@@ -78,14 +88,59 @@ app.add_url_rule('/api/meta/campaign-dashboard', view_func=meta_campaign_dashboa
 app.add_url_rule('/api/meta/ad-live-creative', view_func=meta_ad_live_creative, methods=['GET'])
 app.add_url_rule('/api/meta/video-thumbnail', view_func=meta_video_thumbnail, methods=['GET'])
 app.add_url_rule('/api/instagram/reel', view_func=post_reel_async, methods=['POST'])
+app.add_url_rule('/api/instagram/post', view_func=instagram_post, methods=['POST'])
+app.add_url_rule('/api/instagram/auto-post', view_func=instagram_auto_post, methods=['POST'])
+app.add_url_rule('/api/instagram/auto-publish-cycle', view_func=instagram_auto_publish_cycle, methods=['POST'])
 app.add_url_rule('/api/instagram/reel-publish/<creation_id>', view_func=reel_publish, methods=['POST'])
 app.add_url_rule('/api/facebook/post', view_func=facebook_post, methods=['POST'])
 app.add_url_rule('/api/meta/token-debug', view_func=token_debug, methods=['GET'])
 app.add_url_rule('/api/meta/find-accounts', view_func=find_accounts, methods=['GET'])
 app.add_url_rule('/api/google/verify', view_func=google_verify, methods=['GET'])
+app.add_url_rule('/api/drive/videos', view_func=google_drive_videos, methods=['GET'])
 app.add_url_rule('/api/google/drive-combos', view_func=google_drive_combos, methods=['GET'])
 app.add_url_rule('/api/google/sync-combos', view_func=google_sync_combos, methods=['POST'])
 app.add_url_rule('/api/google/pick-next-combo', view_func=google_pick_next_combo, methods=['POST'])
+
+@app.route('/api/klaviyo/hot-profiles', methods=['GET'])
+def klaviyo_hot_profiles_route():
+    try:
+        return jsonify(klaviyo_hot_profiles())
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+@app.route('/api/klaviyo/active-count', methods=['GET'])
+def klaviyo_active_count_route():
+    try:
+        bypass = (request.args.get('bypass_cache') or '').strip().lower() in ('1', 'true', 'yes')
+        return jsonify(
+            klaviyo_active_count(
+                list_id=request.args.get('list_id', ''),
+                segment_id=request.args.get('segment_id', ''),
+                bypass_cache=bypass,
+            )
+        )
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+@app.route('/api/klaviyo/suppress-cold-dry-run', methods=['POST'])
+def klaviyo_suppress_cold_dry_run_route():
+    try:
+        payload = request.get_json(silent=True) or {}
+        return jsonify(suppress_cold_run(dry_run=True, payload_in=payload))
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+@app.route('/api/klaviyo/suppress-cold', methods=['POST'])
+def klaviyo_suppress_cold_route():
+    try:
+        payload = request.get_json(silent=True) or {}
+        return jsonify(suppress_cold_run(dry_run=False, payload_in=payload))
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e), 'reason': 'validation'}), 200
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 200
 
 @app.route('/health')
 def health():
