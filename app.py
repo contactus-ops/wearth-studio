@@ -1,4 +1,8 @@
+import json
 import os
+from collections import Counter
+from pathlib import Path
+
 from flask import Flask, jsonify, request
 from ad_intelligence_engine import meta_roas_decision, meta_roas_execute
 from automation_engine import ad_machine_tick
@@ -156,6 +160,47 @@ def clarity_health_route():
 @app.route('/api/clarity/sweep-now', methods=['POST'])
 def clarity_sweep_now_route():
     return clarity_sweep_now()
+
+@app.route('/api/js-errors', methods=['POST'])
+def js_errors_endpoint():
+    """Receive and log JS errors from live site."""
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+        log_path = Path('/data/js_errors.jsonl')
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(log_path, 'a', encoding='utf-8') as f:
+            f.write(json.dumps(data) + '\n')
+        return '', 204
+    except Exception:
+        return '', 204
+
+
+@app.route('/api/js-errors/recent', methods=['GET'])
+def js_errors_recent():
+    """View recent JS errors (admin only)."""
+    token = request.headers.get('X-Wearth-Admin', '')
+    if token != os.getenv('WEARTH_N8N_MAIL_TOKEN', ''):
+        return jsonify({'error': 'unauthorized'}), 401
+    log_path = Path('/data/js_errors.jsonl')
+    if not log_path.exists():
+        return jsonify({'errors': [], 'count': 0})
+    lines = log_path.read_text(encoding='utf-8').strip().split('\n')[-200:]
+    errors = [json.loads(l) for l in lines if l.strip()]
+    summary = Counter()
+    for e in errors:
+        ua = e.get('ua', '')
+        family = 'Instagram' if 'Instagram' in ua else \
+                 'Facebook' if 'FBAN' in ua or 'FBAV' in ua else \
+                 'Chrome' if 'Chrome' in ua else \
+                 'Safari' if 'Safari' in ua else 'Other'
+        summary[(e.get('msg', '')[:80], family)] += 1
+    return jsonify({
+        'count': len(errors),
+        'summary': [{'msg': k[0], 'browser': k[1], 'hits': v}
+                    for k, v in summary.most_common(30)],
+        'recent': errors[-10:]
+    })
+
 
 @app.route('/health')
 def health():
