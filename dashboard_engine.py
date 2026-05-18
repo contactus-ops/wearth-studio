@@ -174,6 +174,36 @@ def meta_video_thumbnail():
     return jsonify({"ok": True, "thumbnail_url": None})
 
 
+def meta_campaign_used_videos():
+    """Meta video_ids already used in campaign ads (for n8n Monday picker). Read-only."""
+    campaign_id = (request.args.get("campaign_id") or META_CAMPAIGN_ID or "").strip()
+    if not campaign_id:
+        return jsonify({"ok": False, "error": "campaign_id required"}), 400
+    url = f"{GRAPH}/{campaign_id}/ads"
+    params = {
+        "fields": "creative{object_story_spec{video_data{id,video_id}}},status",
+        "limit": 500,
+    }
+    data, err, http = _get_json(url, params, timeout=90)
+    if err:
+        return jsonify({"ok": False, "error": err, "http": http, "campaign_id": campaign_id}), 500
+    video_ids: set[str] = set()
+    for row in (data or {}).get("data") or []:
+        creative = (row.get("creative") or {}).get("object_story_spec") or {}
+        video_data = creative.get("video_data") or {}
+        for key in ("video_id", "id"):
+            vid = video_data.get(key)
+            if vid:
+                video_ids.add(str(vid))
+    return jsonify(
+        {
+            "ok": True,
+            "campaign_id": campaign_id,
+            "video_ids": sorted(video_ids),
+        }
+    )
+
+
 def _metric_card_from_insight(row: dict) -> dict:
     spend = _float(row.get("spend"))
     clicks = _float(row.get("clicks"))
@@ -240,6 +270,33 @@ def _ads_for_adset(adset_id: str, date_preset: str) -> tuple[list[dict], list[di
     return ads, errors
 
 
+def _adset_brief(card: dict) -> str:
+    target = card.get("targeting_snapshot") or {}
+    bits = []
+    age_min = target.get("age_min")
+    age_max = target.get("age_max")
+    if age_min or age_max:
+        bits.append(f"Age {age_min or '-'}-{age_max or '-'}")
+    genders = target.get("genders") or []
+    if genders == [1]:
+        bits.append("Women")
+    elif genders == [2]:
+        bits.append("Men")
+    elif genders:
+        bits.append(f"Gender {','.join(str(x) for x in genders)}")
+    if target.get("advantage_audience") is not None:
+        bits.append(f"Advantage {'on' if target.get('advantage_audience') else 'off'}")
+    if card.get("optimization_goal"):
+        bits.append(str(card.get("optimization_goal")).replace("_", " ").title())
+    stage = card.get("stage")
+    if stage:
+        bits.append(str(stage).replace("_", " "))
+    budget = card.get("daily_budget_inr")
+    if budget:
+        bits.append(f"Budget Rs {budget}/day")
+    return " · ".join(bits) or "Targeting details loading from Meta"
+
+
 def meta_campaign_dashboard():
     campaign_id = (request.args.get("campaign_id") or META_CAMPAIGN_ID or "").strip()
     date_preset = (request.args.get("date_preset") or "last_7d").strip()
@@ -291,6 +348,7 @@ def meta_campaign_dashboard():
                 "adset_status": card.get("effective_status") or card.get("status"),
                 "adset_stage": card.get("stage"),
                 "adset_daily_budget_inr": card.get("daily_budget_inr"),
+                "adset_brief": _adset_brief(card),
             }
             enriched_ads.append(enriched)
             flat_ads.append(enriched)

@@ -14,6 +14,7 @@ from dashboard_engine import (
     meta_ad_live_creative,
     meta_adsets_live,
     meta_campaign_dashboard,
+    meta_campaign_used_videos,
     meta_video_thumbnail,
 )
 from seo_engine import generate_article_endpoint, run_seo_engine, seo_job_status, seo_status
@@ -36,6 +37,7 @@ from meta_engine import (
 from facebook_engine import facebook_post, token_debug, find_accounts
 from google_engine import google_drive_combos, google_drive_videos, google_pick_next_combo, google_sync_combos, google_verify
 from klaviyo_engine import active_count as klaviyo_active_count, hot_profiles as klaviyo_hot_profiles, suppress_cold_run
+from clarity_engine import clarity_health, clarity_insights, clarity_sweep_now
 
 app = Flask(__name__)
 
@@ -85,6 +87,7 @@ app.add_url_rule('/api/ads/feedback', view_func=ads_feedback, methods=['POST'])
 app.add_url_rule('/api/ads/improve-copy', view_func=ads_improve_copy, methods=['POST'])
 app.add_url_rule('/api/meta/adsets-live', view_func=meta_adsets_live, methods=['GET'])
 app.add_url_rule('/api/meta/campaign-dashboard', view_func=meta_campaign_dashboard, methods=['GET'])
+app.add_url_rule('/api/meta/campaign-used-videos', view_func=meta_campaign_used_videos, methods=['GET'])
 app.add_url_rule('/api/meta/ad-live-creative', view_func=meta_ad_live_creative, methods=['GET'])
 app.add_url_rule('/api/meta/video-thumbnail', view_func=meta_video_thumbnail, methods=['GET'])
 app.add_url_rule('/api/instagram/reel', view_func=post_reel_async, methods=['POST'])
@@ -141,6 +144,18 @@ def klaviyo_suppress_cold_route():
         return jsonify({'ok': False, 'error': str(e), 'reason': 'validation'}), 200
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 200
+
+@app.route('/api/clarity/insights', methods=['GET'])
+def clarity_insights_route():
+    return clarity_insights()
+
+@app.route('/api/clarity/health', methods=['GET'])
+def clarity_health_route():
+    return clarity_health()
+
+@app.route('/api/clarity/sweep-now', methods=['POST'])
+def clarity_sweep_now_route():
+    return clarity_sweep_now()
 
 @app.route('/health')
 def health():
