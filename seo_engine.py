@@ -11,8 +11,16 @@ import json
 import re
 import random
 import requests
+import threading
+import time
 from datetime import datetime
+from flask import jsonify, request
 from urllib.parse import quote_plus
+
+from blog_image_engine import (
+    optimize_image_from_url,
+    shopify_image_attachment_payload,
+)
 
 # ─── CONFIG ───────────────────────────────────────────────────────────────────
 
@@ -25,6 +33,7 @@ SEO_IMAGES_FOLDER = (
     (os.environ.get("SEO_IMAGES_FOLDER") or os.environ.get("DRIVE_IMAGES_FOLDER") or "").strip()
 )
 INSTAGRAM_IMAGES_FOLDER = (os.environ.get("INSTAGRAM_IMAGES_FOLDER") or "").strip()
+_seo_results = {}
 
 SHOPIFY_BASE = f"https://{SHOPIFY_STORE}/admin/api/2024-01"
 HEADERS_SHOPIFY = {
@@ -135,10 +144,56 @@ def get_existing_articles() -> list:
     except:
         return []
 
+def prepare_article_hero_image(article: dict) -> dict:
+    """Download hero, compress to quality-first JPEG ≤500KB (blog_image_engine)."""
+    url = (article.get("image_url") or "").strip()
+    if not url:
+        return article
+    print("Optimizing hero image for blog (<500KB JPEG)...")
+    try:
+        jpeg_bytes, meta = optimize_image_from_url(url)
+        article["image_jpeg_bytes"] = jpeg_bytes
+        article["image_optimize_meta"] = meta
+        print(
+            f"Hero ready: {meta.get('kb')}KB @ Q{meta.get('quality')} "
+            f"({meta.get('width_after')}x{meta.get('height_after')})"
+        )
+    except Exception as exc:
+        print(f"Hero optimize fallback (original URL): {exc}")
+    return article
+
+
+def update_article_hero_image(
+    blog_id: str, article_id: int, jpeg_bytes: bytes, *, alt: str
+) -> dict:
+    """PUT article image via base64 attachment (read-only on theme)."""
+    payload = {
+        "article": {
+            "id": article_id,
+            "image": shopify_image_attachment_payload(jpeg_bytes, alt),
+        }
+    }
+    r = requests.put(
+        f"{SHOPIFY_BASE}/blogs/{blog_id}/articles/{article_id}.json",
+        headers=HEADERS_SHOPIFY,
+        json=payload,
+        timeout=120,
+    )
+    if r.status_code not in (200, 201):
+        raise Exception(f"Shopify article image update: {r.status_code} {r.text[:500]}")
+    return r.json().get("article") or {}
+
+
 def publish_article(blog_id: str, article: dict) -> dict:
     """Publish article to Shopify blog."""
     article_title = article["title"]
     image_alt = f"{article_title} — plant-based activewear by WEARTH Active India"
+    if article.get("image_jpeg_bytes"):
+        image_field = shopify_image_attachment_payload(article["image_jpeg_bytes"], image_alt)
+    elif article.get("image_url"):
+        image_field = {"src": article["image_url"], "alt": image_alt}
+    else:
+        image_field = {"alt": image_alt}
     payload = {
         "article": {
             "title": article_title,
@@ -146,10 +201,7 @@ def publish_article(blog_id: str, article: dict) -> dict:
             "summary_html": f"<p>{article['meta_description']}</p>",
             "tags": ", ".join(article.get("tags", [])),
             "published": True,
-            "image": {
-                "src": article.get("image_url", ""),
-                "alt": image_alt,
-            },
+            "image": image_field,
             "metafields": [
                 {
                     "key": "description_tag",
@@ -555,6 +607,7 @@ def run_seo_engine(dry_run: bool = False, article_index: int = None) -> dict:
         article.get("title") or "",
     )
     print(f"Image: {article['image_url']}\n")
+    article = prepare_article_hero_image(article)
 
     if dry_run:
         print("--- BODY HTML PREVIEW (first 500 chars) ---")
@@ -579,6 +632,75 @@ def run_seo_engine(dry_run: bool = False, article_index: int = None) -> dict:
     print(f"Running forever. Next post: Monday or Thursday 8am IST.\n")
 
     return published_article
+
+
+def generate_article_endpoint():
+    """
+    Legacy async endpoint used by the n8n SEO workflow.
+    POST /generate-article returns a job id; n8n polls /seo-job/<job_id>.
+    """
+    data = request.get_json(force=True, silent=True) or {}
+    dry_run_raw = data.get("dry_run", False)
+    dry_run = str(dry_run_raw).lower() == "true" if isinstance(dry_run_raw, str) else bool(dry_run_raw)
+
+    if not ANTHROPIC_KEY:
+        return jsonify({"status": "error", "error": "ANTHROPIC_API_KEY not set"}), 500
+    if not SHOPIFY_TOKEN:
+        return jsonify({"status": "error", "error": "SHOPIFY_TOKEN not set"}), 500
+
+    job_id = str(int(time.time()))
+    _seo_results[job_id] = {
+        "status": "running",
+        "started_at": datetime.utcnow().isoformat() + "Z",
+        "dry_run": dry_run,
+    }
+
+    def run():
+        try:
+            article = run_seo_engine(dry_run=dry_run, article_index=data.get("index"))
+            handle = article.get("handle", "") if isinstance(article, dict) else ""
+            opt = article.get("image_optimize_meta") if isinstance(article, dict) else {}
+            _seo_results[job_id] = {
+                "status": "complete",
+                "completed_at": datetime.utcnow().isoformat() + "Z",
+                "article": article if isinstance(article, dict) else {},
+                "title": article.get("title", "") if isinstance(article, dict) else "",
+                "handle": handle,
+                "url": f"https://wearthactive.com/blogs/news/{handle}" if handle else "",
+                "image": ((article.get("image") or {}).get("src") if isinstance(article, dict) else "") or "",
+                "hero_image_kb": opt.get("kb") if isinstance(opt, dict) else None,
+                "summary": article.get("summary_html", "") if isinstance(article, dict) else "",
+            }
+        except Exception as exc:
+            _seo_results[job_id] = {
+                "status": "error",
+                "completed_at": datetime.utcnow().isoformat() + "Z",
+                "error": str(exc),
+            }
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    return jsonify({"status": "started", "job_id": job_id, "message": f"Check /seo-job/{job_id} for result"})
+
+
+def seo_job_status(job_id):
+    return jsonify(_seo_results.get(str(job_id), {"status": "not_found"}))
+
+
+def seo_status():
+    try:
+        published = get_existing_articles()
+    except Exception as exc:
+        return jsonify({"status": "error", "error": str(exc)}), 500
+    return jsonify(
+        {
+            "status": "ok",
+            "published": len(published),
+            "engine": "infinite",
+            "running_jobs": sum(1 for row in _seo_results.values() if row.get("status") == "running"),
+            "next_up": "Claude researches and picks automatically",
+        }
+    )
 
 
 if __name__ == "__main__":
