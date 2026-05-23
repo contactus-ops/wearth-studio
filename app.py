@@ -3,6 +3,7 @@ import os
 from collections import Counter
 from pathlib import Path
 
+import requests
 from flask import Flask, jsonify, request
 from ad_intelligence_engine import meta_roas_decision, meta_roas_execute
 from automation_engine import ad_machine_tick
@@ -160,6 +161,61 @@ def clarity_health_route():
 @app.route('/api/clarity/sweep-now', methods=['POST'])
 def clarity_sweep_now_route():
     return clarity_sweep_now()
+
+
+@app.route('/api/whatsapp/send', methods=['POST'])
+def send_whatsapp():
+    data = request.get_json(silent=True) or {}
+    phone = (data.get('phone') or '').replace('+', '').replace(' ', '')
+    message = data.get('message') or ''
+    if not phone or not message:
+        return jsonify({'error': 'phone and message required'}), 400
+
+    api_token = os.environ.get('CHATWOOT_API_TOKEN')
+    if not api_token:
+        return jsonify({'error': 'CHATWOOT_API_TOKEN not set'}), 500
+
+    account_id = os.environ.get('CHATWOOT_ACCOUNT_ID', '31')
+    inbox_id = os.environ.get('CHATWOOT_INBOX_ID', '409')
+    base_url = (os.environ.get('CHATWOOT_BASE_URL') or 'https://lnchat.vocallabs.ai').rstrip('/')
+
+    headers = {'api_access_token': api_token, 'Content-Type': 'application/json'}
+
+    contact_res = requests.post(
+        f'{base_url}/api/v1/accounts/{account_id}/contacts',
+        headers=headers,
+        json={'phone_number': f'+{phone}', 'name': data.get('name', phone)},
+        timeout=60,
+    )
+    contact_body = contact_res.json() if contact_res.content else {}
+    contact_id = contact_body.get('id') or (contact_body.get('payload') or {}).get('contact', {}).get('id')
+    if not contact_id:
+        return jsonify({'error': 'contact creation failed', 'detail': contact_body}), 502
+
+    conv_res = requests.post(
+        f'{base_url}/api/v1/accounts/{account_id}/conversations',
+        headers=headers,
+        json={'inbox_id': int(inbox_id), 'contact_id': contact_id},
+        timeout=60,
+    )
+    conv_body = conv_res.json() if conv_res.content else {}
+    conv_id = conv_body.get('id')
+    if not conv_id:
+        return jsonify({'error': 'conversation creation failed', 'detail': conv_body}), 502
+
+    msg_res = requests.post(
+        f'{base_url}/api/v1/accounts/{account_id}/conversations/{conv_id}/messages',
+        headers=headers,
+        json={'content': message, 'message_type': 'outgoing', 'private': False},
+        timeout=60,
+    )
+    msg_body = msg_res.json() if msg_res.content else {}
+
+    if not msg_res.ok:
+        return jsonify({'error': 'message send failed', 'detail': msg_body}), 502
+
+    return jsonify({'success': True, 'message_id': msg_body.get('id')})
+
 
 @app.route('/api/js-errors', methods=['POST'])
 def js_errors_endpoint():
