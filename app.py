@@ -219,17 +219,28 @@ def send_whatsapp():
     if err_resp is not None:
         return err_resp, err_code
     _token, account_id, inbox_id, base_url, headers = cfg
+    name = data.get('name', phone)
 
-    contact_res = requests.post(
-        f'{base_url}/api/v1/accounts/{account_id}/contacts',
+    search_res = requests.get(
+        f'{base_url}/api/v1/accounts/{account_id}/contacts/search',
         headers=headers,
-        json={'phone_number': f'+{phone}', 'name': data.get('name', phone)},
-        timeout=60,
+        params={'q': phone, 'include_contacts': 'true'},
+        timeout=10,
     )
-    contact_body = contact_res.json() if contact_res.content else {}
-    contact_id = contact_body.get('id') or (contact_body.get('payload') or {}).get('contact', {}).get('id')
-    if not contact_id:
-        return jsonify({'error': 'contact creation failed', 'detail': contact_body}), 502
+    contacts = search_res.json().get('payload', [])
+    if contacts:
+        contact_id = contacts[0]['id']
+    else:
+        contact_res = requests.post(
+            f'{base_url}/api/v1/accounts/{account_id}/contacts',
+            headers=headers,
+            json={'phone_number': f'+{phone}', 'name': name},
+            timeout=10,
+        )
+        contact_res_json = contact_res.json()
+        if 'id' not in contact_res_json:
+            return jsonify({'error': 'contact creation failed', 'detail': contact_res_json}), 502
+        contact_id = contact_res_json['id']
 
     conv_res = requests.post(
         f'{base_url}/api/v1/accounts/{account_id}/conversations',
