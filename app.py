@@ -214,7 +214,39 @@ def send_whatsapp():
     if not msg_res.ok:
         return jsonify({'error': 'message send failed', 'detail': msg_body}), 502
 
-    return jsonify({'success': True, 'message_id': msg_body.get('id')})
+    out = {'success': True, 'message_id': msg_body.get('id')}
+
+    image_url = (data.get('image_url') or '').strip()
+    if image_url:
+        img_res = requests.get(image_url, timeout=60)
+        if not img_res.ok:
+            return jsonify({
+                'success': True,
+                'message_id': msg_body.get('id'),
+                'error': 'image fetch failed',
+                'image_url': image_url,
+            }), 502
+
+        img_ct = (img_res.headers.get('Content-Type') or 'image/png').split(';')[0].strip()
+        img_name = 'intro.png' if 'png' in img_ct else 'intro.jpg'
+        img_res_post = requests.post(
+            f'{base_url}/api/v1/accounts/{account_id}/conversations/{conv_id}/messages',
+            headers={'api_access_token': api_token},
+            files={'attachments[]': (img_name, img_res.content, img_ct)},
+            data={'message_type': 'outgoing', 'private': 'false'},
+            timeout=120,
+        )
+        img_msg_body = img_res_post.json() if img_res_post.content else {}
+        if not img_res_post.ok:
+            return jsonify({
+                'success': True,
+                'message_id': msg_body.get('id'),
+                'error': 'image attachment failed',
+                'detail': img_msg_body,
+            }), 502
+        out['image_message_id'] = img_msg_body.get('id')
+
+    return jsonify(out)
 
 
 @app.route('/api/js-errors', methods=['POST'])
