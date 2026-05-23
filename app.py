@@ -163,6 +163,50 @@ def clarity_sweep_now_route():
     return clarity_sweep_now()
 
 
+def _chatwoot_config():
+    api_token = os.environ.get('CHATWOOT_API_TOKEN')
+    if not api_token:
+        return None, jsonify({'error': 'CHATWOOT_API_TOKEN not set'}), 500
+    account_id = os.environ.get('CHATWOOT_ACCOUNT_ID', '31')
+    inbox_id = os.environ.get('CHATWOOT_INBOX_ID', '409')
+    base_url = (os.environ.get('CHATWOOT_BASE_URL') or 'https://lnchat.vocallabs.ai').rstrip('/')
+    headers = {'api_access_token': api_token, 'Content-Type': 'application/json'}
+    return (api_token, account_id, inbox_id, base_url, headers), None, None
+
+
+@app.route('/api/whatsapp/inbox', methods=['GET'])
+def whatsapp_inbox_info():
+    """Return WhatsApp business number from Chatwoot inbox/channel config."""
+    cfg, err_resp, err_code = _chatwoot_config()
+    if err_resp is not None:
+        return err_resp, err_code
+    _token, account_id, inbox_id, base_url, headers = cfg
+
+    inbox_res = requests.get(
+        f'{base_url}/api/v1/accounts/{account_id}/inboxes/{inbox_id}',
+        headers=headers,
+        timeout=30,
+    )
+    body = inbox_res.json() if inbox_res.content else {}
+    payload = body.get('payload') if isinstance(body.get('payload'), dict) else body
+
+    phone = (
+        payload.get('phone_number')
+        or (payload.get('channel') or {}).get('phone_number')
+        or (payload.get('channel') or {}).get('provider_config', {}).get('phone_number')
+        or (payload.get('channel') or {}).get('provider_config', {}).get('business_account_id')
+    )
+
+    return jsonify({
+        'account_id': account_id,
+        'inbox_id': inbox_id,
+        'inbox_name': payload.get('name'),
+        'channel_type': payload.get('channel_type'),
+        'business_phone_number': phone,
+        'channel': payload.get('channel'),
+    })
+
+
 @app.route('/api/whatsapp/send', methods=['POST'])
 def send_whatsapp():
     data = request.get_json(silent=True) or {}
@@ -171,15 +215,10 @@ def send_whatsapp():
     if not phone or not message:
         return jsonify({'error': 'phone and message required'}), 400
 
-    api_token = os.environ.get('CHATWOOT_API_TOKEN')
-    if not api_token:
-        return jsonify({'error': 'CHATWOOT_API_TOKEN not set'}), 500
-
-    account_id = os.environ.get('CHATWOOT_ACCOUNT_ID', '31')
-    inbox_id = os.environ.get('CHATWOOT_INBOX_ID', '409')
-    base_url = (os.environ.get('CHATWOOT_BASE_URL') or 'https://lnchat.vocallabs.ai').rstrip('/')
-
-    headers = {'api_access_token': api_token, 'Content-Type': 'application/json'}
+    cfg, err_resp, err_code = _chatwoot_config()
+    if err_resp is not None:
+        return err_resp, err_code
+    _token, account_id, inbox_id, base_url, headers = cfg
 
     contact_res = requests.post(
         f'{base_url}/api/v1/accounts/{account_id}/contacts',
