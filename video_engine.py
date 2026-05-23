@@ -231,6 +231,155 @@ def video_output_folder():
         return jsonify({"ok": False, "error": str(exc)}), 500
 
 
+def video_upload_source():
+    """
+    POST /api/video/upload-source
+    Multipart field: file. Uploads a raw founder video into VIDEOS_FOLDER for processing.
+    """
+    file = request.files.get("file")
+    if not file:
+        return jsonify({"ok": False, "error": "multipart file field required"}), 400
+    folder_id = (request.form.get("folder_id") or VIDEOS_FOLDER or "").strip()
+    if not folder_id:
+        return jsonify({"ok": False, "error": "VIDEOS_FOLDER or folder_id required"}), 400
+
+    raw_name = file.filename or "wearth-source-video.mp4"
+    safe_name = re.sub(r"[^a-zA-Z0-9_. -]+", "-", raw_name).strip()[:120] or "wearth-source-video.mp4"
+    suffix = os.path.splitext(safe_name)[1] or ".mp4"
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    tmp_path = tmp.name
+    tmp.close()
+    try:
+        file.save(tmp_path)
+        size_mb = os.path.getsize(tmp_path) / (1024 * 1024)
+        if size_mb > MAX_SOURCE_MB:
+            return jsonify({"ok": False, "error": f"source video too large ({size_mb:.1f} MB)"}), 400
+        uploaded = _upload_video_to_drive(tmp_path, safe_name, folder_id)
+        return jsonify({"ok": True, "video": uploaded})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except Exception:
+            pass
+
+
+def video_process_upload():
+    """
+    POST /api/video/process-upload
+    Faster dashboard path: upload raw video directly to Railway temp storage, process immediately,
+    and upload only final 9:16 + 1:1 outputs to Drive.
+    """
+    file = request.files.get("file")
+    if not file:
+        return jsonify({"ok": False, "error": "multipart file field required"}), 400
+
+    hook = (request.form.get("hook") or HOOK_LINES[0]).strip()
+    target_duration = float(request.form.get("target_duration_s") or 12.0)
+    output_folder_id = (request.form.get("output_folder_id") or PROCESSED_CREATIVE_OUTPUTS_FOLDER or "").strip()
+    if not output_folder_id:
+        return jsonify({"ok": False, "error": "GOOGLE_PROCESSED_CREATIVE_OUTPUTS_FOLDER_ID or output_folder_id required"}), 400
+
+    raw_name = file.filename or "wearth-source-video.mp4"
+    safe_name = re.sub(r"[^a-zA-Z0-9_. -]+", "-", raw_name).strip()[:120] or "wearth-source-video.mp4"
+    safe_label = re.sub(r"[^a-zA-Z0-9_-]+", "-", os.path.splitext(safe_name)[0]).strip("-")[:60] or "dashboard-video"
+    suffix = os.path.splitext(safe_name)[1] or ".mp4"
+    input_path = tempfile.NamedTemporaryFile(delete=False, suffix=suffix).name
+    ass_916 = ass_11 = None
+    outputs: list[str] = []
+    try:
+        file.save(input_path)
+        size_mb = os.path.getsize(input_path) / (1024 * 1024)
+        if size_mb > MAX_SOURCE_MB:
+            return jsonify({"ok": False, "error": f"source video too large ({size_mb:.1f} MB)"}), 400
+
+        _info, _sheets, drive = _google_services()
+        root_meta = _drive_folder_meta(drive, output_folder_id)
+        storage_error = _shared_drive_output_error(root_meta)
+        if storage_error:
+            return jsonify({
+                "ok": False,
+                "error": storage_error,
+                "required_action": "Use a folder inside a Google Shared Drive and add the service account as Content Manager.",
+            }), 400
+        output_folder = _ensure_combo_output_folder(drive, output_folder_id, "dashboard-video-brain")
+        upload_parent = output_folder["id"]
+
+        source_probe = _probe_video(input_path)
+        duration = source_probe.get("duration_s") or 0
+        start_s, clip_duration = _choose_clip_window(duration, target_duration)
+        production_plan = _production_brain_plan(source_probe, None, None, hook, target_duration)
+        hook = production_plan.get("hook_plan", {}).get("opening_hook") or hook
+        speed = float((production_plan.get("pacing_plan") or {}).get("speed_multiplier") or 1.0)
+
+        ass_916 = tempfile.NamedTemporaryFile(delete=False, suffix="_direct_916.ass").name
+        with open(ass_916, "w", encoding="utf-8") as f:
+            f.write(_build_hook_ass(hook, clip_duration, (1080, 1920)))
+        ass_11 = tempfile.NamedTemporaryFile(delete=False, suffix="_direct_11.ass").name
+        with open(ass_11, "w", encoding="utf-8") as f:
+            f.write(_build_hook_ass(hook, clip_duration, (1080, 1080)))
+
+        out_916 = tempfile.NamedTemporaryFile(delete=False, suffix="_9x16_direct.mp4").name
+        out_11 = tempfile.NamedTemporaryFile(delete=False, suffix="_1x1_direct.mp4").name
+        outputs.extend([out_916, out_11])
+
+        ok_916, err_916 = _render_export(input_path, out_916, start_s, clip_duration, "9:16", ass_916, speed=speed)
+        if not ok_916:
+            return jsonify({"ok": False, "error": "9:16 render failed", "detail": err_916}), 500
+        ok_11, err_11 = _render_export(input_path, out_11, start_s, clip_duration, "1:1", ass_11, speed=speed)
+        if not ok_11:
+            return jsonify({"ok": False, "error": "1:1 render failed", "detail": err_11}), 500
+
+        upload_916 = _upload_video_to_drive(out_916, f"{safe_label}_WEARTH_9x16_direct.mp4", upload_parent)
+        upload_11 = _upload_video_to_drive(out_11, f"{safe_label}_WEARTH_1x1_direct.mp4", upload_parent)
+
+        return jsonify({
+            "ok": True,
+            "mode": "direct_upload_fast_path",
+            "combo_label": safe_name,
+            "folder_name": "dashboard-video-brain",
+            "source": {
+                "file_id": "",
+                "name": safe_name,
+                "size_mb": round(size_mb, 2),
+                **source_probe,
+            },
+            "clip": {"start_s": start_s, "duration_s": round(clip_duration, 2), "hook": hook},
+            "production_brain": production_plan,
+            "actions_applied": [
+                "direct_browser_upload_to_processor",
+                "skipped_raw_drive_roundtrip",
+                "burned_in_hook_title_card_fast_path",
+                "exported_9_16_reels_stories",
+                "exported_1_1_carousel",
+                "uploaded_final_outputs_to_drive",
+            ],
+            "transcript_preview": "",
+            "exports": {
+                "reels_stories_9_16": upload_916,
+                "carousel_1_1": upload_11,
+            },
+            "output_folder_id": upload_parent,
+            "output_root_folder_id": output_folder_id,
+            "output_folder": output_folder,
+            "next_step": "review_outputs_before_launch",
+            "launch_gate": {
+                "can_launch_without_judge": False,
+                "reason": "Review output before launch.",
+            },
+        })
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+    finally:
+        for p in [input_path, ass_916, ass_11, *outputs]:
+            if p and os.path.exists(p):
+                try:
+                    os.unlink(p)
+                except Exception:
+                    pass
+
+
 def _probe_video(path: str) -> dict:
     ffmpeg = _resolve_ffmpeg()
     if not ffmpeg:

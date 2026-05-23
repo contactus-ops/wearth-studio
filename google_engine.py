@@ -9,6 +9,7 @@ from flask import jsonify, request
 SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets"
 DRIVE_SCOPE = "https://www.googleapis.com/auth/drive"
 DRIVE_FOLDER_MIME = "application/vnd.google-apps.folder"
+DRIVE_DOWNLOAD = "https://drive.google.com/uc?export=download&id="
 COMBOS_HEADERS = [
     "folder_id",
     "folder_name",
@@ -61,6 +62,16 @@ def _drive_parent_folder_id() -> str:
         request.args.get("folder_id")
         or os.environ.get("GOOGLE_DRIVE_PARENT_FOLDER_ID")
         or os.environ.get("DRIVE_PARENT_FOLDER_ID")
+        or ""
+    ).strip()
+
+
+def _drive_videos_folder_id() -> str:
+    return (
+        request.args.get("folder_id")
+        or os.environ.get("VIDEOS_FOLDER")
+        or os.environ.get("META_AD_VIDEOS_DRIVE_FOLDER_ID")
+        or os.environ.get("GOOGLE_DRIVE_PARENT_FOLDER_ID")
         or ""
     ).strip()
 
@@ -421,5 +432,38 @@ def google_pick_next_combo():
                 "message": "Queued candidates were already claimed by another process.",
             }
         )
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+def google_drive_videos():
+    """
+    GET /api/drive/videos?folder_id=<optional>
+    Lists source videos available for the dashboard Video Brain.
+    """
+    folder_id = _drive_videos_folder_id()
+    if not folder_id:
+        return jsonify({"ok": False, "error": "VIDEOS_FOLDER or folder_id required"}), 400
+    try:
+        _info, _sheets, drive = _google_services()
+        rows = _list_drive_children(drive, folder_id)
+        videos = []
+        for row in rows:
+            mime = row.get("mimeType") or ""
+            if not mime.startswith("video/"):
+                continue
+            file_id = row.get("id") or ""
+            videos.append(
+                {
+                    "id": file_id,
+                    "name": row.get("name") or "",
+                    "url": DRIVE_DOWNLOAD + file_id,
+                    "thumbnail": f"https://drive.google.com/thumbnail?id={file_id}&sz=w800",
+                    "mime_type": mime,
+                    "webViewLink": row.get("webViewLink") or "",
+                    "modifiedTime": row.get("modifiedTime") or "",
+                }
+            )
+        return jsonify({"ok": True, "folder_id": folder_id, "count": len(videos), "videos": videos})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 500

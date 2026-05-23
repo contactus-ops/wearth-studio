@@ -3,6 +3,8 @@ import copy
 import json
 import time
 import base64
+import random
+import importlib
 import requests
 from flask import request, jsonify
 
@@ -12,6 +14,8 @@ META_PAGE_ID = os.environ.get('META_PAGE_ID', '')
 META_CAMPAIGN_ID = os.environ.get('META_CAMPAIGN_ID', '120245108704880305')
 META_PIXEL_ID = os.environ.get('META_PIXEL_ID', '')
 IG_USER_ID = os.environ.get('IG_USER_ID', '')
+GOOGLE_DRIVE_API_KEY = os.environ.get('GOOGLE_DRIVE_API_KEY', '')
+INSTAGRAM_IMAGES_FOLDER = os.environ.get('INSTAGRAM_IMAGES_FOLDER', '')
 GRAPH = 'https://graph.facebook.com/v22.0'
 DRIVE_DL = 'https://drive.google.com/uc?export=download&id='
 
@@ -940,6 +944,357 @@ def ads_status():
             continue
         out.append({"ok": True, **(r.json() or {})})
     return jsonify({"ok": True, "ads": out})
+
+
+def _default_instagram_caption() -> str:
+    return (
+        "fabric grown, not made.\n\n"
+        "WEARTH Active.\n"
+        "Plant-based activewear for skin that knows the difference.\n"
+        "Shop wearthactive.com\n\n"
+        "#WEARTH #PlantBasedActivewear #ActivewearIndia #NoPolyester"
+    )
+
+
+def _clean_media_url(value):
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, dict):
+        for key in ("url", "image_url", "video_url", "webViewLink", "src"):
+            out = str(value.get(key) or "").strip()
+            if out:
+                return out
+    return ""
+
+
+def _publish_instagram_image(image_url: str, caption: str):
+    if not IG_USER_ID:
+        return None, ("IG_USER_ID not set", 500)
+    if not image_url:
+        return None, ("image_url required", 400)
+    r = requests.post(
+        f"{GRAPH}/{IG_USER_ID}/media",
+        headers=_h(),
+        json={"image_url": image_url, "caption": caption},
+        timeout=60,
+    )
+    if r.status_code not in [200, 201]:
+        return None, (f"container: {r.text[:500]}", 500)
+    creation_id = r.json().get("id")
+    r2 = requests.post(
+        f"{GRAPH}/{IG_USER_ID}/media_publish",
+        headers=_h(),
+        json={"creation_id": creation_id},
+        timeout=60,
+    )
+    if r2.status_code not in [200, 201]:
+        return None, (f"publish: {r2.text[:500]}", 500)
+    return {"creation_id": creation_id, "media_id": r2.json().get("id")}, None
+
+
+def _instagram_drive_image_candidates() -> list:
+    folder_id = (INSTAGRAM_IMAGES_FOLDER or "").strip()
+    if not GOOGLE_DRIVE_API_KEY or not folder_id:
+        return []
+    params = {
+        "key": GOOGLE_DRIVE_API_KEY,
+        "q": f"'{folder_id}' in parents and trashed=false and mimeType contains 'image/'",
+        "fields": "files(id,name,mimeType,modifiedTime)",
+        "pageSize": 100,
+        "orderBy": "modifiedTime desc",
+    }
+    r = requests.get("https://www.googleapis.com/drive/v3/files", params=params, timeout=25)
+    if r.status_code != 200:
+        return []
+    return [
+        {
+            "id": row.get("id"),
+            "name": row.get("name"),
+            "image_url": f"{DRIVE_DL}{row.get('id')}",
+        }
+        for row in (r.json().get("files") or [])
+        if row.get("id")
+    ]
+
+
+def _make_drive_public_url(file_id: str) -> str:
+    file_id = str(file_id or "").strip()
+    if not file_id:
+        return ""
+    sa_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "")
+    if sa_json:
+        try:
+            from google.oauth2 import service_account
+            from googleapiclient.discovery import build
+
+            creds = service_account.Credentials.from_service_account_info(
+                json.loads(sa_json), scopes=["https://www.googleapis.com/auth/drive"]
+            )
+            svc = build("drive", "v3", credentials=creds, cache_discovery=False)
+            svc.permissions().create(
+                fileId=file_id,
+                body={"type": "anyone", "role": "reader"},
+                supportsAllDrives=True,
+            ).execute()
+        except Exception:
+            pass
+    return f"{DRIVE_DL}{file_id}"
+
+
+def _used_tracker():
+    try:
+        return importlib.import_module("scripts.used_media_tracker")
+    except Exception:
+        return None
+
+
+def _instagram_combo_candidates() -> list:
+    parent_id = (
+        os.environ.get("GOOGLE_DRIVE_PARENT_FOLDER_ID")
+        or os.environ.get("DRIVE_PARENT_FOLDER_ID")
+        or ""
+    ).strip()
+    if not parent_id:
+        return []
+    try:
+        from google_engine import DRIVE_FOLDER_MIME, _folder_combo_summary, _google_services, _list_drive_children
+
+        _info, _sheets, drive = _google_services()
+        folders = _list_drive_children(drive, parent_id, DRIVE_FOLDER_MIME)
+        combos = [_folder_combo_summary(drive, folder) for folder in folders]
+        ready = [c for c in combos if c.get("ready") and c.get("image_file_id") and c.get("video_file_id")]
+        used = set()
+        tracker = _used_tracker()
+        if tracker:
+            used = set(tracker.get_used_ids("instagram"))
+        fresh = [c for c in ready if str(c.get("folder_id") or "") not in used]
+        return fresh or ready[:1]
+    except Exception:
+        return []
+
+
+def _ig_post(endpoint: str, payload: dict, timeout: int = 120) -> dict:
+    r = requests.post(f"{GRAPH}/{endpoint}", headers=_h(), data=payload, timeout=timeout)
+    if r.status_code not in [200, 201]:
+        raise RuntimeError((r.text or "")[:700])
+    return r.json() or {}
+
+
+def _ig_wait_container(creation_id: str, max_polls: int = 24) -> None:
+    for _ in range(max_polls):
+        status = requests.get(
+            f"{GRAPH}/{creation_id}",
+            headers=_h(),
+            params={"fields": "status_code"},
+            timeout=30,
+        ).json()
+        code = status.get("status_code")
+        if code == "FINISHED":
+            return
+        if code == "ERROR":
+            raise RuntimeError(f"Instagram processing error for {creation_id}")
+        time.sleep(5)
+
+
+def _ig_publish_creation(creation_id: str, timeout: int = 60, max_attempts: int = 8) -> dict:
+    last_err = ""
+    for _ in range(max_attempts):
+        try:
+            return _ig_post(f"{IG_USER_ID}/media_publish", {"creation_id": creation_id}, timeout=timeout)
+        except RuntimeError as exc:
+            last_err = str(exc)
+            if any(token in last_err for token in ("9007", "2207027", "not ready", "Media ID is not available")):
+                time.sleep(8)
+                continue
+            raise
+    raise RuntimeError(last_err or f"publish failed for {creation_id}")
+
+
+def _publish_instagram_reel(video_url: str, caption: str) -> dict:
+    if not IG_USER_ID:
+        raise RuntimeError("IG_USER_ID not set")
+    if not video_url:
+        raise RuntimeError("video_url required")
+    container = _ig_post(
+        f"{IG_USER_ID}/media",
+        {
+            "media_type": "REELS",
+            "video_url": video_url,
+            "caption": caption,
+            "share_to_feed": "true",
+        },
+        timeout=120,
+    )
+    creation_id = container.get("id")
+    _ig_wait_container(creation_id, max_polls=36)
+    published = _ig_publish_creation(creation_id, timeout=60)
+    return {"creation_id": creation_id, "media_id": published.get("id"), "format": "reel"}
+
+
+def _publish_instagram_carousel(image_url: str, video_url: str, caption: str) -> dict:
+    if not IG_USER_ID:
+        raise RuntimeError("IG_USER_ID not set")
+    if not image_url or not video_url:
+        raise RuntimeError("image_url and video_url required")
+    image_child = _ig_post(
+        f"{IG_USER_ID}/media",
+        {"image_url": image_url, "is_carousel_item": "true"},
+        timeout=90,
+    )
+    image_child_id = image_child.get("id")
+    _ig_wait_container(image_child_id, max_polls=18)
+    video_child = _ig_post(
+        f"{IG_USER_ID}/media",
+        {"media_type": "VIDEO", "video_url": video_url, "is_carousel_item": "true"},
+        timeout=120,
+    )
+    video_child_id = video_child.get("id")
+    _ig_wait_container(video_child_id, max_polls=36)
+    parent = _ig_post(
+        f"{IG_USER_ID}/media",
+        {
+            "media_type": "CAROUSEL",
+            "children": ",".join([str(image_child_id), str(video_child_id)]),
+            "caption": caption,
+        },
+        timeout=90,
+    )
+    creation_id = parent.get("id")
+    _ig_wait_container(creation_id, max_polls=18)
+    published = _ig_publish_creation(creation_id, timeout=60)
+    return {
+        "creation_id": creation_id,
+        "media_id": published.get("id"),
+        "format": "carousel",
+        "children": [image_child.get("id"), video_child_id],
+    }
+
+
+def instagram_auto_publish_cycle():
+    """
+    N8N-safe Instagram scheduler endpoint.
+    It prefers carousel from the next Drive image+video combo, falls back to Reel, then image post.
+    Always returns HTTP 200 so n8n keeps running; failures are reported in the JSON body.
+    """
+    data = request.get_json(force=True, silent=True) or {}
+    dry_run = bool(data.get("dry_run"))
+    caption = data.get("caption") or _default_instagram_caption()
+    attempts = []
+
+    try:
+        combos = _instagram_combo_candidates()
+        combo = combos[0] if combos else None
+        image_url = ""
+        video_url = ""
+        chosen = {}
+        if combo:
+            image_url = _make_drive_public_url(combo.get("image_file_id"))
+            video_url = _make_drive_public_url(combo.get("video_file_id"))
+            chosen = {"source": "drive_combo", **combo, "image_url": image_url, "video_url": video_url}
+        else:
+            images = _instagram_drive_image_candidates()
+            if images:
+                chosen = {"source": "instagram_images_folder", **random.choice(images[:20])}
+                image_url = chosen.get("image_url") or ""
+
+        if not chosen:
+            return jsonify({
+                "ok": True,
+                "posted": False,
+                "soft_error": "No Instagram media candidate found.",
+                "attempts": attempts,
+            })
+
+        if dry_run:
+            return jsonify({"ok": True, "dry_run": True, "posted": False, "chosen": chosen, "caption": caption})
+
+        if image_url and video_url:
+            try:
+                result = _publish_instagram_carousel(image_url, video_url, caption)
+                tracker = _used_tracker()
+                if tracker and combo:
+                    tracker.mark_used("instagram", str(combo.get("folder_id") or ""))
+                return jsonify({"ok": True, "posted": True, "chosen": chosen, "result": result, "attempts": attempts})
+            except Exception as exc:
+                attempts.append({"format": "carousel", "ok": False, "error": str(exc)[:700]})
+
+        if video_url:
+            try:
+                result = _publish_instagram_reel(video_url, caption)
+                tracker = _used_tracker()
+                if tracker and combo:
+                    tracker.mark_used("instagram", str(combo.get("folder_id") or ""))
+                return jsonify({"ok": True, "posted": True, "chosen": chosen, "result": result, "attempts": attempts})
+            except Exception as exc:
+                attempts.append({"format": "reel", "ok": False, "error": str(exc)[:700]})
+
+        if image_url:
+            result, err = _publish_instagram_image(image_url, caption)
+            if not err:
+                tracker = _used_tracker()
+                if tracker:
+                    tracker.mark_used("instagram", str((combo or chosen).get("folder_id") or chosen.get("id") or ""))
+                return jsonify({"ok": True, "posted": True, "chosen": chosen, "result": {**result, "format": "image"}, "attempts": attempts})
+            attempts.append({"format": "image", "ok": False, "error": str(err[0])[:700]})
+
+        return jsonify({"ok": True, "posted": False, "chosen": chosen, "soft_error": "All publish formats failed.", "attempts": attempts})
+    except Exception as exc:
+        return jsonify({"ok": True, "posted": False, "soft_error": str(exc)[:900], "attempts": attempts})
+
+
+def instagram_post():
+    """
+    Compatibility endpoint for n8n: POST /api/instagram/post.
+    Accepts image_url/media_url/url or video_url and publishes to the configured IG user.
+    """
+    data = request.get_json(force=True, silent=True) or {}
+    caption = (
+        data.get("caption")
+        or data.get("message")
+        or data.get("text")
+        or data.get("Instagram caption text")
+        or _default_instagram_caption()
+    )
+    video_url = _clean_media_url(data.get("video_url") or data.get("video") or "")
+    image_url = _clean_media_url(
+        data.get("image_url")
+        or data.get("media_url")
+        or data.get("url")
+        or data.get("image")
+        or data.get("imageData")
+        or ""
+    )
+    if video_url:
+        return post_reel()
+    result, err = _publish_instagram_image(image_url, caption)
+    if err:
+        msg, status = err
+        return jsonify({"ok": False, "error": msg}), status
+    return jsonify({"ok": True, **result, "url": "https://www.instagram.com/wearth_active/"})
+
+
+def instagram_auto_post():
+    """
+    n8n-safe endpoint: no OpenAI/n8n image credential required.
+    Picks a public image from INSTAGRAM_IMAGES_FOLDER and posts it with the supplied/default caption.
+    """
+    data = request.get_json(force=True, silent=True) or {}
+    caption = data.get("caption") or _default_instagram_caption()
+    images = _instagram_drive_image_candidates()
+    if not images:
+        return jsonify({
+            "ok": False,
+            "error": "No Drive images found. Check GOOGLE_DRIVE_API_KEY and INSTAGRAM_IMAGES_FOLDER.",
+        }), 500
+    chosen = random.choice(images[:20])
+    if data.get("dry_run"):
+        return jsonify({"ok": True, "dry_run": True, "chosen": chosen, "caption": caption})
+    result, err = _publish_instagram_image(chosen["image_url"], caption)
+    if err:
+        msg, status = err
+        return jsonify({"ok": False, "error": msg, "chosen": chosen}), status
+    return jsonify({"ok": True, **result, "chosen": chosen, "url": "https://www.instagram.com/wearth_active/"})
+
 
 def post_reel():
     data = request.get_json(force=True, silent=True) or {}
