@@ -168,6 +168,19 @@ def parse_clarity_export_csv(text: str) -> dict[str, Any]:
     }
 
 
+def clarity_date_to_iso(raw: str) -> str:
+    """Clarity export uses MM/DD/YYYY."""
+    s = (raw or "").strip()
+    if not s:
+        return ""
+    for fmt in ("%m/%d/%Y", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(s, fmt).date().isoformat()
+        except ValueError:
+            continue
+    return ""
+
+
 def merge_clarity_into_shopify_report(shopify: dict[str, Any], clarity: dict[str, Any]) -> dict[str, Any]:
     """Overlay Clarity session metrics onto Shopify daily row (orders fields preserved)."""
     out = dict(shopify)

@@ -31,7 +31,11 @@ from growth_dashboard.meta_daily import MetaTokenExpiredError, fetch_daily_ad_in
 from growth_dashboard.klaviyo_weekly import fetch_campaigns_last_30d, rows_for_sheet as klaviyo_rows
 from growth_dashboard.creative_registry import build_registry_rows
 from growth_dashboard.site_snapshots import run_site_audit
-from growth_dashboard.clarity_csv import merge_clarity_into_shopify_report, parse_clarity_export_csv
+from growth_dashboard.clarity_csv import (
+    clarity_date_to_iso,
+    merge_clarity_into_shopify_report,
+    parse_clarity_export_csv,
+)
 from growth_dashboard.shopify_daily import fetch_daily_report, row_for_sheet as shopify_row
 
 
