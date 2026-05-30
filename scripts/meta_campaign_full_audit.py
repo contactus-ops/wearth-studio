@@ -226,24 +226,50 @@ def _fetch_insights_7d(object_id: str, level: str) -> dict:
 
 def _upload_to_drive(local_files: list[Path], folder_name: str) -> dict[str, Any]:
     try:
-        from growth_dashboard.google_client import drive_growth_root_id, ensure_drive_folder, upload_file_to_folder
         from google_engine import _google_services
+        from video_engine import _drive_folder_meta, _ensure_combo_output_folder, _shared_drive_output_error
 
         _, _, drive = _google_services()
-        parent = drive_growth_root_id()
+        parent = (
+            os.environ.get("META_AUDIT_DRIVE_FOLDER_ID")
+            or os.environ.get("VIDEOS_FOLDER")
+            or os.environ.get("DRIVE_VIDEOS_FOLDER")
+            or os.environ.get("GOOGLE_DRIVE_PARENT_FOLDER_ID")
+            or ""
+        ).strip()
         if not parent:
-            return {"ok": False, "error": "GOOGLE_DRIVE_PARENT_FOLDER_ID not set"}
-        folder = ensure_drive_folder(drive, folder_name, parent)
+            return {"ok": False, "error": "No Drive parent folder ID in env"}
+        root_meta = _drive_folder_meta(drive, parent)
+        sd_err = _shared_drive_output_error(root_meta)
+        if sd_err:
+            return {"ok": False, "error": sd_err, "parent_id": parent}
+        folder = _ensure_combo_output_folder(drive, parent, folder_name)
         links: list[dict] = []
+        from googleapiclient.http import MediaFileUpload
+
         for p in local_files:
             if not p.exists():
                 continue
-            mime = "video/mp4" if p.suffix.lower() == ".mp4" else "image/jpeg"
-            if p.suffix.lower() == ".png":
+            mime = "application/json" if p.suffix == ".json" else "text/markdown"
+            if p.suffix.lower() == ".mp4":
+                mime = "video/mp4"
+            elif p.suffix.lower() in (".jpg", ".jpeg"):
+                mime = "image/jpeg"
+            elif p.suffix.lower() == ".png":
                 mime = "image/png"
-            up = upload_file_to_folder(drive, folder["id"], str(p), mime)
-            links.append({"file": p.name, "link": up["link"]})
-        return {"ok": True, "folder_link": folder["link"], "folder_id": folder["id"], "files": links}
+            media = MediaFileUpload(str(p), mimetype=mime, resumable=True)
+            created = (
+                drive.files()
+                .create(
+                    body={"name": p.name, "parents": [folder["id"]]},
+                    media_body=media,
+                    fields="id,webViewLink",
+                    supportsAllDrives=True,
+                )
+                .execute()
+            )
+            links.append({"file": p.name, "link": created.get("webViewLink")})
+        return {"ok": True, "folder_link": folder.get("webViewLink"), "folder_id": folder["id"], "files": links}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
