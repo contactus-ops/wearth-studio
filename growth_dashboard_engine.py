@@ -189,8 +189,30 @@ def growth_sync_clarity_csv():
             return jsonify({"ok": False, "error": "upload CSV as multipart field file"}), 400
 
         clarity = parse_clarity_export_csv(raw)
-        report_date = (request.args.get("date") or clarity.get("report_date") or "").strip() or None
-        shopify = fetch_daily_report(report_date)
+        report_date = (request.args.get("date") or "").strip()
+        if not report_date:
+            report_date = clarity_date_to_iso(str(clarity.get("report_date") or ""))
+        try:
+            shopify = fetch_daily_report(report_date or None)
+        except Exception as shop_err:
+            day = report_date or clarity_date_to_iso(str(clarity.get("report_date") or "")) or ""
+            shopify = {
+                "date": day,
+                "sessions": "",
+                "unique_visitors": "",
+                "bounce_rate": "",
+                "top_5_landing_pages": "",
+                "top_5_exit_pages": "",
+                "conversion_rate": "",
+                "atc_rate": "",
+                "checkout_initiation_rate": "",
+                "purchase_rate": "",
+                "revenue_inr": "",
+                "average_order_value_inr": "",
+                "top_5_products_by_views": "",
+                "top_5_products_by_atc": "",
+                "data_source_note": f"orders_api_failed:{shop_err}",
+            }
         merged = merge_clarity_into_shopify_report(shopify, clarity)
 
         _, sheets, drive = _google_services()
