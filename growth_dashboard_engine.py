@@ -68,7 +68,11 @@ def growth_verify():
             }
         )
     except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
+        import traceback
+
+        return jsonify(
+            {"ok": False, "error": str(e) or repr(e), "detail": traceback.format_exc()[-2500:]}
+        ), 500
 
 
 def growth_sync_meta_daily():
