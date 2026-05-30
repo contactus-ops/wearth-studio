@@ -106,8 +106,8 @@ CLARITY_HEADERS = [
 
 
 def growth_sheet_id() -> str:
-    """Dedicated growth sheet only — do not reuse GOOGLE_SHEET_ID (Ad Intelligence combos)."""
-    return (os.environ.get("GROWTH_DASHBOARD_SHEET_ID") or "").strip()
+    """Prefer GROWTH_DASHBOARD_SHEET_ID; else reuse GOOGLE_SHEET_ID (adds growth tabs alongside combos)."""
+    return (os.environ.get("GROWTH_DASHBOARD_SHEET_ID") or os.environ.get("GOOGLE_SHEET_ID") or "").strip()
 
 
 def drive_growth_root_id() -> str:
