@@ -132,15 +132,19 @@ def ensure_growth_sheet(sheets, drive=None) -> dict[str, Any]:
         return {"sheet_id": sid, "title": (meta.get("properties") or {}).get("title"), "created": False}
 
     parent = drive_growth_root_id()
+    sid = ""
     if drive and parent:
         meta = {
             "name": GROWTH_SHEET_TITLE,
             "mimeType": "application/vnd.google-apps.spreadsheet",
             "parents": [parent],
         }
-        f = drive.files().create(body=meta, fields="id", supportsAllDrives=True).execute()
-        sid = f["id"]
-    else:
+        try:
+            f = drive.files().create(body=meta, fields="id", supportsAllDrives=True).execute()
+            sid = f["id"]
+        except Exception:
+            sid = ""
+    if not sid:
         body = {
             "properties": {"title": GROWTH_SHEET_TITLE},
             "sheets": [
@@ -157,6 +161,16 @@ def ensure_growth_sheet(sheets, drive=None) -> dict[str, Any]:
         }
         created = sheets.spreadsheets().create(body=body).execute()
         sid = created["spreadsheetId"]
+        if drive and parent:
+            try:
+                drive.files().update(
+                    fileId=sid,
+                    addParents=parent,
+                    fields="id",
+                    supportsAllDrives=True,
+                ).execute()
+            except Exception:
+                pass
 
     tabs = (TAB_META, TAB_SHOPIFY, TAB_KLAVIYO, TAB_CREATIVE, TAB_SNAPSHOTS, TAB_CLARITY)
     requests = []
