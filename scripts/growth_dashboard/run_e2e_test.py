@@ -45,8 +45,8 @@ def _json_resp(resp):
 
 def main() -> int:
     report: dict = {"steps": []}
-    _, sheets, _ = _google_services()
-    setup = ensure_growth_sheet(sheets)
+    _, sheets, drive = _google_services()
+    setup = ensure_growth_sheet(sheets, drive)
     os.environ["GROWTH_DASHBOARD_SHEET_ID"] = setup["sheet_id"]
     sid = growth_sheet_id()
     report["sheet_url"] = sheet_url(sid)

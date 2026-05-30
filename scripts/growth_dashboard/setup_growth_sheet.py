@@ -30,8 +30,8 @@ from growth_dashboard.google_client import (
 
 
 def main() -> int:
-    _, sheets, _ = _google_services()
-    setup = ensure_growth_sheet(sheets)
+    _, sheets, drive = _google_services()
+    setup = ensure_growth_sheet(sheets, drive)
     sid = setup["sheet_id"]
     for tab, headers in (
         (TAB_META, META_HEADERS),

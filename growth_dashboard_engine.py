@@ -51,7 +51,7 @@ def growth_verify():
         return _deny()
     try:
         info, sheets, drive = _google_services()
-        setup = ensure_growth_sheet(sheets)
+        setup = ensure_growth_sheet(sheets, drive)
         sid = setup["sheet_id"] or growth_sheet_id()
         meta = sheets.spreadsheets().get(spreadsheetId=sid).execute()
         parent = os.environ.get("GROWTH_DRIVE_ROOT_FOLDER_ID") or os.environ.get("GOOGLE_DRIVE_PARENT_FOLDER_ID")
@@ -76,8 +76,8 @@ def growth_sync_meta_daily():
         return _deny()
     synced = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     try:
-        _, sheets, _ = _google_services()
-        setup = ensure_growth_sheet(sheets)
+        _, sheets, drive = _google_services()
+        setup = ensure_growth_sheet(sheets, drive)
         sid = setup["sheet_id"]
         ensure_tab_headers(sheets, sid, TAB_META, META_HEADERS)
         insights = fetch_daily_ad_insights(request.args.get("date") or None)
@@ -104,8 +104,8 @@ def growth_sync_shopify_daily():
         return _deny()
     synced = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     try:
-        _, sheets, _ = _google_services()
-        setup = ensure_growth_sheet(sheets)
+        _, sheets, drive = _google_services()
+        setup = ensure_growth_sheet(sheets, drive)
         sid = setup["sheet_id"]
         ensure_tab_headers(sheets, sid, TAB_SHOPIFY, SHOPIFY_HEADERS)
         report = fetch_daily_report(request.args.get("date") or None)
@@ -121,8 +121,8 @@ def growth_sync_klaviyo_weekly():
         return _deny()
     synced = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     try:
-        _, sheets, _ = _google_services()
-        setup = ensure_growth_sheet(sheets)
+        _, sheets, drive = _google_services()
+        setup = ensure_growth_sheet(sheets, drive)
         sid = setup["sheet_id"]
         ensure_tab_headers(sheets, sid, TAB_KLAVIYO, KLAVIYO_HEADERS)
         campaigns = fetch_campaigns_last_30d()
@@ -143,8 +143,8 @@ def growth_sync_creative_registry():
     if not _admin_ok():
         return _deny()
     try:
-        _, sheets, _ = _google_services()
-        setup = ensure_growth_sheet(sheets)
+        _, sheets, drive = _google_services()
+        setup = ensure_growth_sheet(sheets, drive)
         sid = setup["sheet_id"]
         ensure_tab_headers(sheets, sid, TAB_CREATIVE, CREATIVE_HEADERS)
         rows = build_registry_rows()
@@ -159,8 +159,8 @@ def growth_run_site_audit():
         return _deny()
     try:
         result = run_site_audit()
-        _, sheets, _ = _google_services()
-        sid = growth_sheet_id() or ensure_growth_sheet(sheets)["sheet_id"]
+        _, sheets, drive = _google_services()
+        sid = growth_sheet_id() or ensure_growth_sheet(sheets, drive)["sheet_id"]
         return jsonify({**result, "sheet_url": sheet_url(sid)})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
@@ -185,8 +185,8 @@ def growth_sync_clarity_csv():
         shopify = fetch_daily_report(report_date)
         merged = merge_clarity_into_shopify_report(shopify, clarity)
 
-        _, sheets, _ = _google_services()
-        setup = ensure_growth_sheet(sheets)
+        _, sheets, drive = _google_services()
+        setup = ensure_growth_sheet(sheets, drive)
         sid = setup["sheet_id"]
         ensure_tab_headers(sheets, sid, TAB_SHOPIFY, SHOPIFY_HEADERS)
         n = append_rows(sheets, sid, TAB_SHOPIFY, [shopify_row(merged, synced)])

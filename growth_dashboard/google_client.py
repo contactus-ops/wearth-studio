@@ -124,29 +124,51 @@ def tab_title_to_range(title: str) -> str:
     return f"'{safe}'"
 
 
-def ensure_growth_sheet(sheets) -> dict[str, Any]:
+def ensure_growth_sheet(sheets, drive=None) -> dict[str, Any]:
     """Create spreadsheet + tabs if GROWTH_DASHBOARD_SHEET_ID unset; return sheet id + tab map."""
     sid = growth_sheet_id()
     if sid:
         meta = sheets.spreadsheets().get(spreadsheetId=sid).execute()
         return {"sheet_id": sid, "title": (meta.get("properties") or {}).get("title"), "created": False}
 
-    body = {
-        "properties": {"title": GROWTH_SHEET_TITLE},
-        "sheets": [
-            {"properties": {"title": t}}
-            for t in (
-                TAB_META,
-                TAB_SHOPIFY,
-                TAB_KLAVIYO,
-                TAB_CREATIVE,
-                TAB_SNAPSHOTS,
-                TAB_CLARITY,
-            )
-        ],
-    }
-    created = sheets.spreadsheets().create(body=body).execute()
-    sid = created["spreadsheetId"]
+    parent = drive_growth_root_id()
+    if drive and parent:
+        meta = {
+            "name": GROWTH_SHEET_TITLE,
+            "mimeType": "application/vnd.google-apps.spreadsheet",
+            "parents": [parent],
+        }
+        f = drive.files().create(body=meta, fields="id", supportsAllDrives=True).execute()
+        sid = f["id"]
+    else:
+        body = {
+            "properties": {"title": GROWTH_SHEET_TITLE},
+            "sheets": [
+                {"properties": {"title": t}}
+                for t in (
+                    TAB_META,
+                    TAB_SHOPIFY,
+                    TAB_KLAVIYO,
+                    TAB_CREATIVE,
+                    TAB_SNAPSHOTS,
+                    TAB_CLARITY,
+                )
+            ],
+        }
+        created = sheets.spreadsheets().create(body=body).execute()
+        sid = created["spreadsheetId"]
+
+    tabs = (TAB_META, TAB_SHOPIFY, TAB_KLAVIYO, TAB_CREATIVE, TAB_SNAPSHOTS, TAB_CLARITY)
+    requests = []
+    meta = sheets.spreadsheets().get(spreadsheetId=sid).execute()
+    existing = {(s.get("properties") or {}).get("title") for s in meta.get("sheets", [])}
+    for title in tabs:
+        if title not in existing:
+            requests.append({"addSheet": {"properties": {"title": title}}})
+    if requests:
+        sheets.spreadsheets().batchUpdate(
+            spreadsheetId=sid, body={"requests": requests}
+        ).execute()
     return {"sheet_id": sid, "title": GROWTH_SHEET_TITLE, "created": True}
 
 

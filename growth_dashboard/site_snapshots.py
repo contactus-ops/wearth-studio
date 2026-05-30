@@ -58,7 +58,7 @@ def run_site_audit(*, out_dir: Path | None = None) -> dict[str, Any]:
     if not sheet_id:
         from growth_dashboard.google_client import ensure_growth_sheet
 
-        sheet_id = ensure_growth_sheet(sheets)["sheet_id"]
+        sheet_id = ensure_growth_sheet(sheets, drive)["sheet_id"]
     ensure_tab_headers(sheets, sheet_id, TAB_SNAPSHOTS, SNAPSHOT_HEADERS)
 
     sheet_rows: list[list] = []
