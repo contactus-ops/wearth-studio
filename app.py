@@ -43,6 +43,7 @@ from facebook_engine import facebook_post, token_debug, find_accounts
 from google_engine import google_drive_combos, google_drive_videos, google_pick_next_combo, google_sync_combos, google_verify
 from klaviyo_engine import active_count as klaviyo_active_count, hot_profiles as klaviyo_hot_profiles, suppress_cold_run
 from clarity_engine import clarity_health, clarity_insights, clarity_sweep_now
+from meta_audit_engine import meta_campaign_full_audit
 from growth_dashboard_engine import (
     growth_run_site_audit,
     growth_sync_all_daily,
@@ -126,6 +127,7 @@ app.add_url_rule('/api/growth/sync-creative-registry', view_func=growth_sync_cre
 app.add_url_rule('/api/growth/run-site-audit', view_func=growth_run_site_audit, methods=['POST'])
 app.add_url_rule('/api/growth/sync-daily', view_func=growth_sync_all_daily, methods=['POST'])
 app.add_url_rule('/api/growth/sync-clarity-csv', view_func=growth_sync_clarity_csv, methods=['POST'])
+app.add_url_rule('/api/meta/campaign-full-audit', view_func=meta_campaign_full_audit, methods=['POST'])
 
 @app.route('/api/klaviyo/hot-profiles', methods=['GET'])
 def klaviyo_hot_profiles_route():
