@@ -43,6 +43,16 @@ from facebook_engine import facebook_post, token_debug, find_accounts
 from google_engine import google_drive_combos, google_drive_videos, google_pick_next_combo, google_sync_combos, google_verify
 from klaviyo_engine import active_count as klaviyo_active_count, hot_profiles as klaviyo_hot_profiles, suppress_cold_run
 from clarity_engine import clarity_health, clarity_insights, clarity_sweep_now
+from growth_dashboard_engine import (
+    growth_run_site_audit,
+    growth_sync_all_daily,
+    growth_sync_clarity_csv,
+    growth_sync_creative_registry,
+    growth_sync_klaviyo_weekly,
+    growth_sync_meta_daily,
+    growth_sync_shopify_daily,
+    growth_verify,
+)
 
 app = Flask(__name__)
 
@@ -108,6 +118,14 @@ app.add_url_rule('/api/drive/videos', view_func=google_drive_videos, methods=['G
 app.add_url_rule('/api/google/drive-combos', view_func=google_drive_combos, methods=['GET'])
 app.add_url_rule('/api/google/sync-combos', view_func=google_sync_combos, methods=['POST'])
 app.add_url_rule('/api/google/pick-next-combo', view_func=google_pick_next_combo, methods=['POST'])
+app.add_url_rule('/api/growth/verify', view_func=growth_verify, methods=['GET'])
+app.add_url_rule('/api/growth/sync-meta-daily', view_func=growth_sync_meta_daily, methods=['POST'])
+app.add_url_rule('/api/growth/sync-shopify-daily', view_func=growth_sync_shopify_daily, methods=['POST'])
+app.add_url_rule('/api/growth/sync-klaviyo-weekly', view_func=growth_sync_klaviyo_weekly, methods=['POST'])
+app.add_url_rule('/api/growth/sync-creative-registry', view_func=growth_sync_creative_registry, methods=['POST'])
+app.add_url_rule('/api/growth/run-site-audit', view_func=growth_run_site_audit, methods=['POST'])
+app.add_url_rule('/api/growth/sync-daily', view_func=growth_sync_all_daily, methods=['POST'])
+app.add_url_rule('/api/growth/sync-clarity-csv', view_func=growth_sync_clarity_csv, methods=['POST'])
 
 @app.route('/api/klaviyo/hot-profiles', methods=['GET'])
 def klaviyo_hot_profiles_route():
