@@ -124,58 +124,11 @@ def tab_title_to_range(title: str) -> str:
     return f"'{safe}'"
 
 
-def ensure_growth_sheet(sheets, drive=None) -> dict[str, Any]:
-    """Create spreadsheet + tabs if GROWTH_DASHBOARD_SHEET_ID unset; return sheet id + tab map."""
-    sid = growth_sheet_id()
-    if sid:
-        meta = sheets.spreadsheets().get(spreadsheetId=sid).execute()
-        return {"sheet_id": sid, "title": (meta.get("properties") or {}).get("title"), "created": False}
-
-    parent = drive_growth_root_id()
-    sid = ""
-    if drive and parent:
-        meta = {
-            "name": GROWTH_SHEET_TITLE,
-            "mimeType": "application/vnd.google-apps.spreadsheet",
-            "parents": [parent],
-        }
-        try:
-            f = drive.files().create(body=meta, fields="id", supportsAllDrives=True).execute()
-            sid = f["id"]
-        except Exception:
-            sid = ""
-    if not sid:
-        body = {
-            "properties": {"title": GROWTH_SHEET_TITLE},
-            "sheets": [
-                {"properties": {"title": t}}
-                for t in (
-                    TAB_META,
-                    TAB_SHOPIFY,
-                    TAB_KLAVIYO,
-                    TAB_CREATIVE,
-                    TAB_SNAPSHOTS,
-                    TAB_CLARITY,
-                )
-            ],
-        }
-        created = sheets.spreadsheets().create(body=body).execute()
-        sid = created["spreadsheetId"]
-        if drive and parent:
-            try:
-                drive.files().update(
-                    fileId=sid,
-                    addParents=parent,
-                    fields="id",
-                    supportsAllDrives=True,
-                ).execute()
-            except Exception:
-                pass
-
+def _ensure_growth_tabs(sheets, sid: str) -> None:
     tabs = (TAB_META, TAB_SHOPIFY, TAB_KLAVIYO, TAB_CREATIVE, TAB_SNAPSHOTS, TAB_CLARITY)
-    requests = []
     meta = sheets.spreadsheets().get(spreadsheetId=sid).execute()
     existing = {(s.get("properties") or {}).get("title") for s in meta.get("sheets", [])}
+    requests = []
     for title in tabs:
         if title not in existing:
             requests.append({"addSheet": {"properties": {"title": title}}})
@@ -183,7 +136,20 @@ def ensure_growth_sheet(sheets, drive=None) -> dict[str, Any]:
         sheets.spreadsheets().batchUpdate(
             spreadsheetId=sid, body={"requests": requests}
         ).execute()
-    return {"sheet_id": sid, "title": GROWTH_SHEET_TITLE, "created": True}
+    return list(existing | set(tabs))
+
+
+def ensure_growth_sheet(sheets, drive=None) -> dict[str, Any]:
+    """Ensure growth tabs exist on configured spreadsheet (reuse GOOGLE_SHEET_ID when needed)."""
+    sid = growth_sheet_id()
+    if not sid:
+        raise RuntimeError(
+            "Set GROWTH_DASHBOARD_SHEET_ID or GOOGLE_SHEET_ID on Railway (service account cannot create new spreadsheets)."
+        )
+    meta = sheets.spreadsheets().get(spreadsheetId=sid).execute()
+    tab_names = _ensure_growth_tabs(sheets, sid)
+    title = (meta.get("properties") or {}).get("title") or GROWTH_SHEET_TITLE
+    return {"sheet_id": sid, "title": title, "created": False, "tabs": tab_names}
 
 
 def ensure_tab_headers(sheets, sheet_id: str, tab: str, headers: list[str]) -> None:

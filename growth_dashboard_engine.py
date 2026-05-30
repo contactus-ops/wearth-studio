@@ -53,7 +53,6 @@ def growth_verify():
         info, sheets, drive = _google_services()
         setup = ensure_growth_sheet(sheets, drive)
         sid = setup["sheet_id"] or growth_sheet_id()
-        meta = sheets.spreadsheets().get(spreadsheetId=sid).execute()
         parent = os.environ.get("GROWTH_DRIVE_ROOT_FOLDER_ID") or os.environ.get("GOOGLE_DRIVE_PARENT_FOLDER_ID")
         return jsonify(
             {
@@ -61,10 +60,11 @@ def growth_verify():
                 "service_account": info.get("client_email"),
                 "sheet_id": sid,
                 "sheet_url": sheet_url(sid),
-                "sheet_title": (meta.get("properties") or {}).get("title"),
-                "tabs": [(s.get("properties") or {}).get("title") for s in meta.get("sheets", [])],
+                "sheet_title": setup.get("title"),
+                "tabs": setup.get("tabs") or [],
                 "drive_parent": parent,
                 "meta_insights_token_set": bool(os.environ.get("META_INSIGHTS_TOKEN")),
+                "note": "Growth tabs live on GOOGLE_SHEET_ID until GROWTH_DASHBOARD_SHEET_ID is set.",
             }
         )
     except Exception as e:
