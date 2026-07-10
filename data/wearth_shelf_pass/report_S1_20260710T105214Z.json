@@ -1,0 +1,31 @@
+{
+  "step": "S1",
+  "stamp": "20260710T105214Z",
+  "already_present": [
+    "editorial price under title",
+    "editorial compare-at when higher"
+  ],
+  "files": [
+    {
+      "file": "sections/wearth-editorial-collection.liquid",
+      "bytes_before": 42931,
+      "bytes_after": 43165,
+      "backup": "C:\\Users\\ABI\\wearth-studio\\data\\wearth_shelf_pass\\backup_live\\sections__wearth-editorial-collection.liquid_20260710T105214Z.liquid",
+      "diff": "C:\\Users\\ABI\\wearth-studio\\data\\wearth_shelf_pass\\diff_S1_sections__wearth-editorial-collection.liquid_20260710T105214Z.txt"
+    },
+    {
+      "file": "assets/wearth-editorial-collection.css",
+      "bytes_before": 7317,
+      "bytes_after": 7641,
+      "backup": "C:\\Users\\ABI\\wearth-studio\\data\\wearth_shelf_pass\\backup_live\\assets__wearth-editorial-collection.css_20260710T105214Z.css",
+      "diff": "C:\\Users\\ABI\\wearth-studio\\data\\wearth_shelf_pass\\diff_S1_assets__wearth-editorial-collection.css_20260710T105214Z.txt"
+    },
+    {
+      "file": "snippets/card-product.liquid",
+      "bytes_before": 33289,
+      "bytes_after": 33785,
+      "backup": "C:\\Users\\ABI\\wearth-studio\\data\\wearth_shelf_pass\\backup_live\\snippets__card-product.liquid_20260710T105214Z.liquid",
+      "diff": "C:\\Users\\ABI\\wearth-studio\\data\\wearth_shelf_pass\\diff_S1_snippets__card-product.liquid_20260710T105214Z.txt"
+    }
+  ]
+}

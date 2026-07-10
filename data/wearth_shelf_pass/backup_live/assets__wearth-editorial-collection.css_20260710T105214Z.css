@@ -1,0 +1,381 @@
+/* WEARTH Editorial Collection — conversion-focused long scroll */
+
+.wearth-editorial-collection {
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 32px 16px 96px;
+  background: #faf7f2;
+}
+
+.wearth-ec-empty {
+  text-align: center;
+  padding: 4rem 1rem;
+  color: #5c4a32;
+}
+
+.wearth-ec-module {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 20px;
+  margin-bottom: 0;
+  padding-bottom: 72px;
+  align-items: center;
+  scroll-margin-top: 80px;
+}
+
+.wearth-ec-module:last-of-type {
+  padding-bottom: 40px;
+}
+
+.wearth-ec-image {
+  display: block;
+  position: relative;
+  overflow: hidden;
+  background: #f2ebe0;
+  border-radius: 0;
+  aspect-ratio: 4 / 5;
+  width: 100%;
+}
+
+.wearth-ec-image img,
+.wearth-ec-placeholder {
+  display: block;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 800ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.wearth-ec-image:hover img {
+  transform: scale(1.03);
+}
+
+.wearth-ec-card {
+  padding: 4px 8px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.wearth-ec-micro {
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: #7a6344;
+}
+
+.wearth-ec-hook {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.45;
+  color: #4a4038;
+  font-weight: 400;
+}
+
+.wearth-ec-title {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(1.5rem, 4.5vw, 2rem);
+  font-weight: 400;
+  letter-spacing: 0.005em;
+  line-height: 1.15;
+  margin: 0;
+  color: #1f1b17;
+}
+
+.wearth-ec-title a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.wearth-ec-price {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #2a241d;
+  letter-spacing: 0.01em;
+}
+
+.wearth-ec-compare {
+  opacity: 0.55;
+  margin-right: 0.5rem;
+  font-weight: 400;
+}
+
+.wearth-ec-cta {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 14px 32px;
+  border: 1px solid #1f1b17;
+  background: transparent;
+  color: #1f1b17;
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  font-weight: 500;
+  text-decoration: none;
+  align-self: flex-start;
+  transition: background 200ms ease, color 200ms ease, border-color 200ms ease;
+}
+
+.wearth-ec-cta:hover {
+  background: #1f1b17;
+  color: #f5f1ea;
+}
+
+.wearth-ec-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1.5rem;
+  padding: 2rem 0;
+  flex-wrap: wrap;
+}
+
+.wearth-ec-page-link {
+  font-size: 0.75rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #1f1b17;
+  text-decoration: none;
+  border-bottom: 1px solid #7a6344;
+}
+
+.wearth-ec-page-num {
+  font-size: 0.8rem;
+  color: #6f6357;
+}
+
+/* Hide legacy grid when editorial section is active */
+.wearth-editorial-collection-section ~ .shopify-section .product-grid,
+.template-collection .wearth-editorial-collection-section + .shopify-section[id*="product-grid"],
+.template-collection .shopify-section:has(.product-grid),
+.template-collection .product-grid {
+  display: none !important;
+}
+
+@media (max-width: 749px) {
+  .wearth-editorial-collection {
+    padding: 16px 12px 64px;
+  }
+
+  .wearth-ec-module {
+    min-height: 0;
+    padding-bottom: 44px;
+    gap: 14px;
+    justify-content: flex-start;
+  }
+
+  .wearth-ec-image {
+    aspect-ratio: 3 / 4;
+    max-height: 62vh;
+    max-height: 62dvh;
+  }
+
+  .wearth-ec-card {
+    flex: 0 0 auto;
+  }
+
+  .wearth-ec-cta {
+    width: 100%;
+    text-align: center;
+    align-self: stretch;
+    padding: 16px 24px;
+  }
+}
+
+@media (min-width: 750px) {
+  .wearth-ec-module {
+    grid-template-columns: 1.15fr 1fr;
+    gap: 72px;
+    margin-bottom: 0;
+    padding-bottom: 120px;
+  }
+
+  .wearth-ec-right {
+    grid-template-columns: 1fr 1.15fr;
+  }
+
+  .wearth-ec-right .wearth-ec-image {
+    order: 2;
+  }
+
+  .wearth-ec-right .wearth-ec-card {
+    order: 1;
+    padding-right: 32px;
+  }
+
+  .wearth-ec-card {
+    padding-left: 32px;
+    gap: 14px;
+  }
+}
+
+/* WEARTH COLLECTION V2 — color swatches */
+.wearth-ec-swatches {
+  display: flex;
+  gap: 8px;
+  margin: 2px 0 4px;
+  flex-wrap: wrap;
+}
+
+.wearth-ec-swatch {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid rgba(31, 27, 23, 0.18);
+  padding: 0;
+  cursor: pointer;
+  background-color: #d0c5b0;
+  transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.wearth-ec-swatch:hover {
+  transform: scale(1.12);
+}
+
+.wearth-ec-swatch[aria-pressed="true"] {
+  box-shadow: 0 0 0 2px #f5f1ea, 0 0 0 3px #1f1b17;
+  transform: scale(1.08);
+}
+
+/* WEARTH COLLECTION V2 — editorial breakers */
+.wearth-ec-breaker {
+  margin: 24px -16px 56px;
+  padding: 80px 24px;
+  background: linear-gradient(180deg, #f5f1ea 0%, #1f1b17 100%);
+  color: #f5f1ea;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+  opacity: 0;
+  transform: translateY(24px);
+  transition: opacity 800ms cubic-bezier(0.4, 0, 0.2, 1),
+    transform 800ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.wearth-ec-breaker.in-view {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.wearth-ec-breaker-eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: #c4b896;
+  margin: 0 0 14px;
+}
+
+.wearth-ec-breaker-head {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(1.7rem, 6vw, 2.8rem);
+  font-weight: 400;
+  line-height: 1.15;
+  margin: 0 0 12px;
+  letter-spacing: 0.003em;
+  color: #f5f1ea;
+}
+
+.wearth-ec-breaker-sub {
+  font-size: 0.92rem;
+  line-height: 1.5;
+  margin: 0;
+  color: rgba(245, 241, 234, 0.78);
+  letter-spacing: 0.012em;
+}
+
+@media (min-width: 750px) {
+  .wearth-ec-breaker {
+    margin: 32px 0 96px;
+    padding: 130px 32px;
+    border-radius: 0;
+  }
+}
+
+/* WEARTH VIDEO CARDS V1 — collection editorial */
+.wearth-ec-module--has-video .wearth-ec-image {
+  cursor: pointer;
+}
+
+.wearth-ec-module--video-playing .wearth-ec-video {
+  opacity: 1;
+}
+
+.wearth-ec-video {
+  display: block;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: #f2ebe0;
+  z-index: 2;
+  opacity: 0;
+  transition: opacity 420ms ease;
+}
+
+.wearth-ec-video.wearth-ec-video--playing {
+  opacity: 1;
+}
+
+.wearth-ec-video-fallback {
+  display: block;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 1;
+  transition: transform 800ms cubic-bezier(0.4, 0, 0.2, 1), opacity 0.35s ease;
+}
+
+.wearth-ec-module--video-playing .wearth-ec-video-fallback,
+.wearth-ec-module--video-swapping .wearth-ec-video-fallback {
+  opacity: 0;
+  visibility: hidden;
+}
+
+.wearth-ec-variant-videos {
+  display: none !important;
+}
+
+.wearth-ec-image:hover .wearth-ec-video-fallback {
+  transform: scale(1.02);
+}
+
+.wearth-ec-video-badge {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 3;
+  padding: 6px 10px;
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: #f5f1ea;
+  background: rgba(31, 27, 23, 0.52);
+  backdrop-filter: blur(4px);
+  pointer-events: none;
+  transition: opacity 300ms ease;
+}
+
+.wearth-ec-module--video-active .wearth-ec-video-badge {
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wearth-ec-video,
+  .wearth-ec-video-badge {
+    display: none !important;
+  }
+
+  .wearth-ec-module--video-active .wearth-ec-video-fallback {
+    opacity: 1 !important;
+    visibility: visible !important;
+  }
+}

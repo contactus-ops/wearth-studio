@@ -1,0 +1,20 @@
+--- live/sections/wearth-editorial-collection.liquid
++++ patched/sections/wearth-editorial-collection.liquid
+@@ -387,6 +387,9 @@
+             <h2 class="wearth-ec-title">
+               <a href="{{ product.url }}">{{ product.title }}</a>
+             </h2>
++            {%- if product.handle == 'the-first-set' -%}
++              <span class="wearth-ec-start-badge">the place to start</span>
++            {%- endif -%}
+ 
+             {%- assign color_option_idx = -1 -%}
+             {%- for opt in product.options -%}
+@@ -564,6 +567,7 @@
+               {%- endif -%}
+               <span>{{ product.price | money }}</span>
+             </div>
++            <p class="wearth-ec-fabric">eucalyptus fibre, no polyester</p>
+             <a class="wearth-ec-cta" href="{{ product.url }}">Explore the piece</a>
+           </div>
+         </article>

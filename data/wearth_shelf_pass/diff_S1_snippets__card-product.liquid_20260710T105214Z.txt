@@ -1,0 +1,27 @@
+--- live/snippets/card-product.liquid
++++ patched/snippets/card-product.liquid
+@@ -586,14 +586,21 @@
+         <h3 class="card__heading">
+           <a href="{{ wearth_default_url }}" class="full-unstyled-link wearth-phase1-pdp-link" data-wearth-phase1-link>{{ card_product.title }}</a>
+         </h3>
++        {%- if card_product.handle == 'the-first-set' -%}
++          <span class="wearth-card-start-badge" style="display:block;font-size:10px;letter-spacing:.12em;text-transform:lowercase;color:#6b5d4f;font-weight:400;margin:2px 0 0;">the place to start</span>
++        {%- endif -%}
+         {%- if wearth_card_hook != blank -%}
+           <span class="wearth-card-hook" style="display:block;font-size:11px;letter-spacing:.08em;color:#6b5d4f;margin:2px 0 4px;font-weight:500;">{{ wearth_card_hook }}</span>
+         {%- endif -%}
+-        {%- assign wearth_comp_line = '95% Eucalyptus · 0% Polyester' -%}
+-        <span class="wearth-card-comp" style="display:block;font-size:10px;letter-spacing:.09em;color:#c4a15f;font-weight:500;text-transform:uppercase;margin:0 0 4px;">{{ wearth_comp_line }}</span>
+         <div class="card-information">
+-          <a href="{{ wearth_default_url }}" class="wearth-card-price-link wearth-phase1-pdp-link" data-wearth-phase1-link><span class="price-item">{{ card_product.price | money }}</span></a>
++          <a href="{{ wearth_default_url }}" class="wearth-card-price-link wearth-phase1-pdp-link" data-wearth-phase1-link>
++            {%- if card_product.compare_at_price > card_product.price -%}
++              <s class="price-item price-item--regular" style="opacity:.55;margin-right:.4rem;font-weight:400;">{{ card_product.compare_at_price | money }}</s>
++            {%- endif -%}
++            <span class="price-item">{{ card_product.price | money }}</span>
++          </a>
+         </div>
++        <span class="wearth-card-comp" style="display:block;font-size:11px;letter-spacing:.04em;color:#8a7f72;font-weight:400;text-transform:none;margin:4px 0 0;">eucalyptus fibre, no polyester</span>
+         <div class="wearth-card-actions">
+           <button type="button" class="wearth-card-action-btn wearth-card-action-atc wearth-phase1-atc" data-wearth-phase1-atc>
+             Add to cart
