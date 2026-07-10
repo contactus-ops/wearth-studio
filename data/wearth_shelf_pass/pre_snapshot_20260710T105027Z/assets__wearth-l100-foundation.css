@@ -1,0 +1,1452 @@
+/* WEARTH L100 FOUNDATION SYSTEM */
+:root{
+  --wearth-bg:#f5f2ec;
+  --wearth-surface:#f8f5ef;
+  --wearth-ink:#1f1b17;
+  --wearth-muted:#6e6354;
+  --wearth-gold:#9a8152;
+  --wearth-deep:#2a241d;
+  --wearth-radius:14px;
+  --wearth-shadow:0 12px 30px rgba(40,30,18,.10);
+}
+
+body, .color-background-1, .gradient{background-color:var(--wearth-bg); color:var(--wearth-ink);}
+
+.header-wrapper, .shopify-section-header-sticky{background:rgba(245,242,236,.92);backdrop-filter:saturate(1.1) blur(8px);}
+.header__menu-item, .header__icon{color:var(--wearth-ink)!important;}
+
+.button, .shopify-payment-button__button{
+  border-radius:999px!important;
+  letter-spacing:.14em!important;
+  text-transform:uppercase;
+  font-weight:600;
+  min-height:46px;
+}
+
+.template-index .banner__heading,
+.template-product .product__title h1,
+.template-collection .card__heading a{
+  color:var(--wearth-deep);
+  letter-spacing:.01em;
+}
+
+.template-index .rich-text__blocks{
+  background:rgba(86,68,40,.06);
+  border-radius:10px;
+  padding:clamp(16px,2.5vw,28px);
+}
+
+.template-collection .card-wrapper .card{
+  background:var(--wearth-surface);
+  border:1px solid rgba(120,95,56,.13);
+  border-radius:var(--wearth-radius);
+  box-shadow:0 8px 24px rgba(42,34,22,.05);
+  overflow:hidden;
+}
+.template-collection .card__information{padding:14px 12px 16px;}
+.template-collection .card__heading{margin-bottom:.35rem;}
+.template-collection .price{margin-top:0;}
+
+.wearth-card-microcopy{display:block;margin-top:8px;}
+.wearth-card-microcopy .wearth-price-note{
+  display:block;
+  color:var(--wearth-gold);
+  font-size:11px;
+  letter-spacing:.17em;
+  text-transform:uppercase;
+  font-weight:600;
+  line-height:1.3;
+}
+
+.template-product .product__info-wrapper{
+  background:var(--wearth-surface);
+  border:1px solid rgba(122,96,58,.14);
+  border-radius:16px;
+  padding:clamp(18px,2.3vw,30px);
+  box-shadow:var(--wearth-shadow);
+}
+
+.template-product .price__container .price-item{font-size:clamp(1.9rem,2.8vw,2.6rem);line-height:1.06;}
+.wearth-pdp-price-stack{display:block;margin-top:10px;}
+.wearth-pdp-price-stack .wearth-price-justify{
+  display:block;
+  color:#5e5444;
+  font-size:12px;
+  letter-spacing:.14em;
+  line-height:1.5;
+  text-transform:uppercase;
+  font-weight:600;
+}
+
+.template-cart .cart__footer,
+.template-cart .cart-items{background:var(--wearth-surface);border-radius:14px;}
+.template-cart .cart__checkout-button{min-height:52px;font-size:1rem;letter-spacing:.13em;}
+
+@media screen and (max-width:749px){
+  .template-index .banner__heading{font-size:clamp(2.2rem,8.5vw,4rem)!important;line-height:1.12!important;text-wrap:balance;}
+  .template-collection .card-wrapper .card{border-radius:12px;}
+  .template-collection .card__information{padding:10px 8px 12px;}
+  .wearth-card-microcopy .wearth-price-note{font-size:10px;letter-spacing:.13em;margin-top:6px;}
+  .template-product .product__info-wrapper{padding:14px 12px;border-radius:12px;}
+  .wearth-pdp-price-stack .wearth-price-justify{font-size:11px;letter-spacing:.1em;line-height:1.42;}
+}
+
+
+/* WEARTH L100 MOTION LAYER */
+.media img{transition:transform .45s ease,filter .35s ease;}
+.card-wrapper:hover .media img{transform:scale(1.015);filter:saturate(1.04);}
+.button{transition:transform .16s ease,box-shadow .16s ease;}
+.button:hover{transform:translateY(-1px);}
+@media (prefers-reduced-motion: reduce){.media img,.button{transition:none!important;}}
+
+
+/* WEARTH L100 PHASE3 STORY + CONVERSION */
+.template-index .rich-text h2{font-size:clamp(1.5rem,2.6vw,2.2rem);letter-spacing:.01em;}
+.template-index .rich-text__text p{font-size:clamp(1rem,1.4vw,1.22rem);line-height:1.65;}
+.template-index .rich-text__text p + p{margin-top:14px;text-transform:uppercase;letter-spacing:.12em;color:#6f5c3c;font-weight:600;font-size:.88rem;}
+
+.template-index .featured-collection .title{font-size:clamp(1.4rem,2.5vw,2rem);letter-spacing:.01em;}
+.template-index .featured-collection .title-wrapper-with-link{margin-bottom:16px;}
+.template-index .featured-collection .card-wrapper .card{transition:transform .24s ease,box-shadow .24s ease;}
+.template-index .featured-collection .card-wrapper:hover .card{transform:translateY(-3px);box-shadow:0 16px 34px rgba(36,28,16,.14);} 
+
+.template-index .text-slide{border-top:1px solid rgba(120,95,56,.2);border-bottom:1px solid rgba(120,95,56,.2);} 
+
+.template-product .product-form__buttons{margin-top:16px;}
+.template-product .product-form__buttons .button{box-shadow:0 12px 28px rgba(24,18,12,.18);} 
+
+@media screen and (max-width:749px){
+  .template-index .featured-collection .title{font-size:1.45rem;}
+  .template-index .featured-collection .grid{row-gap:14px;}
+  .template-product .product-form__buttons{position:sticky;bottom:10px;z-index:10;}
+}
+
+
+/* WEARTH L100 PHASE4 PERFORMANCE */
+/* Render below-the-fold sections more efficiently */
+.shopify-section:nth-of-type(n+4){
+  content-visibility:auto;
+  contain-intrinsic-size:1px 800px;
+}
+
+/* Improve tap ergonomics and reduce accidental misses */
+button, .button, a.button, .header__icon, .menu-drawer__menu-item{
+  touch-action:manipulation;
+}
+
+/* Cleaner visual stability for media blocks */
+.media, .product__media, .card__media{
+  background:rgba(32,26,18,.04);
+}
+
+/* Keep interaction sharp without heavy animation */
+.card, .button, .header__icon, .menu-drawer__menu-item{
+  will-change:transform;
+}
+
+@media screen and (max-width:749px){
+  .shopify-section:nth-of-type(n+3){
+    content-visibility:auto;
+    contain-intrinsic-size:1px 620px;
+  }
+  .button, .shopify-payment-button__button{min-height:48px;}
+}
+
+
+/* WEARTH L100 PHASE5 CONVERSION DEPTH */
+.template-collection .wearth-card-subline span{
+  display:block;
+  margin-top:6px;
+  color:#6d614f;
+  font-size:11px;
+  letter-spacing:.05em;
+  line-height:1.35;
+}
+
+.template-product .wearth-pdp-trust-row{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px 12px;
+  margin-top:10px;
+}
+
+.template-product .wearth-pdp-trust-row span{
+  display:inline-flex;
+  align-items:center;
+  padding:6px 10px;
+  border:1px solid rgba(122,96,58,.2);
+  border-radius:999px;
+  color:#5f5444;
+  font-size:10px;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+  background:rgba(154,129,82,.05);
+}
+
+.template-product .product-form__input input[type='radio'] + label{
+  border-radius:999px;
+}
+
+.template-product .product-form__submit,
+.template-product .shopify-payment-button__button{
+  box-shadow:0 14px 30px rgba(26,19,12,.2);
+}
+
+@media screen and (max-width:749px){
+  .template-collection .wearth-card-subline span{font-size:10px;line-height:1.3;margin-top:4px;}
+  .template-product .wearth-pdp-trust-row{gap:6px 8px;margin-top:8px;}
+  .template-product .wearth-pdp-trust-row span{font-size:9px;padding:5px 8px;}
+}
+
+
+/* WEARTH L100 PHASE6 CONSISTENCY QA */
+/* Unified heading cadence */
+.template-index h1,
+.template-index h2,
+.template-collection .card__heading a,
+.template-product .product__title h1{
+  font-kerning:normal;
+  text-rendering:optimizeLegibility;
+}
+
+/* Collection card vertical rhythm consistency */
+.template-collection .card__information{min-height:128px;}
+.template-collection .card__heading{margin-bottom:4px;}
+.template-collection .price{margin-bottom:0;}
+.template-collection .wearth-card-microcopy{min-height:18px;}
+
+/* Prevent trust chips from wrapping awkwardly on narrow mobiles */
+.template-product .wearth-pdp-trust-row span{white-space:nowrap;}
+
+/* CTA hierarchy */
+.template-product .product-form__submit{
+  background:linear-gradient(180deg,#24201b 0%,#17130f 100%);
+  border:1px solid rgba(154,129,82,.45);
+}
+.template-product .shopify-payment-button__button{
+  background:transparent;
+  border:1px solid rgba(62,52,39,.42);
+}
+
+/* Better quote readability */
+.template-index .rich-text__text{max-width:min(68ch,90vw);margin-inline:auto;}
+
+/* Viewport calibration */
+@media screen and (max-width:412px){
+  .template-index .slideshow__text .banner__heading{font-size:clamp(2.05rem,8.2vw,3.1rem)!important;line-height:1.1!important;}
+  .template-index .slideshow__text .banner__text{font-size:.95rem;line-height:1.34;}
+  .template-collection .card__heading a{
+    font-size:1.08rem; line-height:1.28;
+    letter-spacing:.005em; font-weight:500;
+  }
+  .template-collection .card .price-item{
+    font-size:1rem; font-weight:600; letter-spacing:.01em;
+  }
+  .template-collection .wearth-card-microcopy .wearth-price-note{font-size:9.5px;letter-spacing:.11em;}
+  .template-product .price__container .price-item{font-size:clamp(1.75rem,7vw,2.15rem);}
+  .template-product .wearth-pdp-price-stack .wearth-price-justify{font-size:10.5px;letter-spacing:.09em;}
+}
+
+@media screen and (max-width:390px){
+  .template-index .slideshow__text.banner__box{padding-inline:12px;padding-bottom:18px;}
+  .template-product .product__info-wrapper{padding:12px 10px;}
+  .template-product .wearth-pdp-trust-row span{font-size:8.6px;padding:4px 7px;}
+}
+
+@media screen and (max-width:360px){
+  .template-index .slideshow__text .button{padding:.85rem 1.1rem;min-height:46px;}
+  .template-collection .card__information{padding:12px 10px 14px;}
+  .template-collection .card__heading a{font-size:1.04rem;}
+  .template-collection .card .price-item{font-size:.96rem;}
+  .template-product .product-form__buttons .button,
+  .template-product .shopify-payment-button__button{min-height:50px;font-size:.9rem;}
+}
+
+
+/* WEARTH L100 QUOTE TONE INLINE */
+[id*="rich_text_EWEkFM"] .rich-text__blocks{background:rgba(80,64,38,.06);border-radius:10px;padding:clamp(16px,2.2vw,26px);} 
+[id*="rich_text_EWEkFM"] .rich-text__text p{color:#27221b;}
+[id*="rich_text_EWEkFM"] .rich-text__text p + p{color:#5f5138;letter-spacing:.1em;text-transform:uppercase;}
+
+
+/* WEARTH L100 PHASE7 LAUNCH HARDENING */
+/* Header clarity + click confidence */
+.header__menu-item{font-size:.86rem;letter-spacing:.08em;text-transform:uppercase;}
+.header__icon{opacity:.95;}
+.header__icon:hover{opacity:1;}
+
+/* Remove awkward dead space between conversion sections */
+.template-index .shopify-section{margin:0;}
+.template-index .featured-collection{padding-top:10px;padding-bottom:10px;}
+.template-index .rich-text{padding-top:8px;padding-bottom:8px;}
+
+/* Collection card consistency */
+.template-collection .card__heading a{min-height:2.4em;display:block;}
+.template-collection .price{min-height:1.7em;}
+.template-collection .wearth-card-microcopy{min-height:1.2em;}
+.template-collection .wearth-card-subline{min-height:1.2em;}
+
+/* PDP content readability */
+.template-product .product__text{line-height:1.65;color:#2d261e;}
+.template-product .product__description p{line-height:1.7;}
+.template-product .tax-note{margin-top:8px;}
+
+/* Sticky CTA bar: keep visible and not intrusive */
+.template-product .wearth-sticky-atc{
+  box-shadow:0 -8px 22px rgba(22,16,10,.14);
+  border-top:1px solid rgba(120,96,58,.2);
+}
+
+/* Cart checkout confidence */
+.template-cart .cart-item__name{line-height:1.35;}
+.template-cart .totals{padding-top:8px;}
+
+/* Mobile nav/interaction hardening */
+@media screen and (max-width:749px){
+  .header{padding-top:10px;padding-bottom:10px;}
+  .menu-drawer__menu-item{padding-top:12px;padding-bottom:12px;font-size:1rem;}
+  .template-index .featured-collection .card-wrapper .card{box-shadow:0 8px 20px rgba(36,28,16,.08);} 
+  .template-product .product-form__buttons{bottom:8px;}
+  .template-product .product-form__submit{font-size:.92rem;letter-spacing:.11em;}
+}
+
+
+/* WEARTH L100 BUYNOW VISIBILITY FIX */
+.template-product .product-form__submit,
+.template-product .product-form__submit span,
+.template-product .product-form__submit * {
+  color: #f4ebdc !important;
+  -webkit-text-fill-color: #f4ebdc !important;
+  opacity: 1 !important;
+}
+
+.template-product .product-form__submit:hover,
+.template-product .product-form__submit:focus-visible {
+  color: #fff2df !important;
+  -webkit-text-fill-color: #fff2df !important;
+}
+
+
+/* WEARTH L100 FINAL CTA + BUYNOW LOCK */
+/* Source of truth: homepage hero/slide CTA (black-gold) */
+.template-index .slideshow .button--secondary,
+.template-index .slideshow .banner__buttons .button--secondary,
+.template-index .slide-block-slider_E43HfN .button--secondary,
+.template-index .slide-block-slider_9Aj7Hm .button--secondary,
+.template-index .slide-block-slider_JRVYBx .button--secondary {
+  border: 1px solid rgba(215,176,106,.92) !important;
+  color: #f4ebdc !important;
+  -webkit-text-fill-color: #f4ebdc !important;
+  background: linear-gradient(125deg, rgba(33,28,24,.55), rgba(23,26,24,.34)) !important;
+  box-shadow: 0 10px 26px rgba(0,0,0,.24), inset 0 0 0 1px rgba(215,176,106,.22) !important;
+  letter-spacing: .16em !important;
+  text-transform: uppercase !important;
+}
+
+.template-index .slideshow .button--secondary:hover,
+.template-index .slideshow .banner__buttons .button--secondary:hover {
+  transform: translateY(-1px);
+  background: linear-gradient(125deg, rgba(42,36,30,.62), rgba(27,31,28,.40)) !important;
+}
+
+/* Source of truth: PDP dynamic checkout BUY NOW visibility */
+.template-product .shopify-payment-button,
+.template-product .shopify-payment-button__button,
+.template-product .shopify-payment-button__button--unbranded {
+  background: #1c1713 !important;
+  border: 1px solid rgba(215,176,106,.6) !important;
+  color: #f3e8d8 !important;
+  -webkit-text-fill-color: #f3e8d8 !important;
+  opacity: 1 !important;
+}
+
+.template-product .shopify-payment-button__button *,
+.template-product .shopify-payment-button__button--unbranded * {
+  color: #f3e8d8 !important;
+  -webkit-text-fill-color: #f3e8d8 !important;
+  opacity: 1 !important;
+}
+
+.template-product .shopify-payment-button__button:hover,
+.template-product .shopify-payment-button__button--unbranded:hover,
+.template-product .shopify-payment-button__button:focus-visible,
+.template-product .shopify-payment-button__button--unbranded:focus-visible {
+  background: #231d17 !important;
+  color: #fff1dd !important;
+  -webkit-text-fill-color: #fff1dd !important;
+}
+
+
+/* WEARTH ULTIMATE HERO CTA LOCK */
+body.template-index .slideshow .banner__buttons a.button--secondary,
+body.template-index .slideshow .banner__buttons .button--secondary,
+body.template-index .slide-block-slider_E43HfN a.button--secondary,
+body.template-index .slide-block-slider_9Aj7Hm a.button--secondary,
+body.template-index .slide-block-slider_JRVYBx a.button--secondary {
+  background-color: rgba(27,23,19,.76) !important;
+  background-image: linear-gradient(125deg, rgba(33,28,24,.60), rgba(23,26,24,.42)) !important;
+  border: 1px solid rgba(215,176,106,.96) !important;
+  color: #f4ebdc !important;
+  -webkit-text-fill-color: #f4ebdc !important;
+  box-shadow: 0 10px 26px rgba(0,0,0,.24), inset 0 0 0 1px rgba(215,176,106,.26) !important;
+  text-shadow: none !important;
+  opacity: 1 !important;
+}
+
+body.template-index .slideshow .banner__buttons a.button--secondary:hover,
+body.template-index .slideshow .banner__buttons a.button--secondary:focus-visible {
+  background-image: linear-gradient(125deg, rgba(42,36,30,.68), rgba(27,31,28,.46)) !important;
+  color: #fff1dd !important;
+  -webkit-text-fill-color: #fff1dd !important;
+}
+
+
+
+/* WEARTH CARD CTA SAFE V2 */
+.wearth-card-actions{display:block!important;margin-top:8px!important;}
+.wearth-card-actions .wearth-card-action-atc{
+  display:inline-flex!important;align-items:center;justify-content:center;
+  min-height:34px!important;padding:.38rem .58rem!important;
+  font-size:9px!important;letter-spacing:.1em!important;text-transform:uppercase!important;
+  border-radius:999px!important;text-decoration:none!important;
+  border:1px solid rgba(215,176,106,.78)!important;
+  background:linear-gradient(125deg, rgba(33,28,24,.42), rgba(23,26,24,.28))!important;
+  color:#f4ebdc!important;-webkit-text-fill-color:#f4ebdc!important;
+}
+
+/* WEARTH MOBILE COMPOSITION CRISP V4 */
+@media screen and (max-width:749px){
+  .template-index .slideshow .banner__heading{font-size:clamp(1.9rem,7.3vw,2.65rem)!important;line-height:1.06!important;letter-spacing:.004em!important;max-width:10.3ch!important;}
+  .template-index .slideshow .banner__text{font-size:.9rem!important;line-height:1.27!important;max-width:82vw!important;}
+  .template-index .slideshow .banner__buttons--multiple{display:grid!important;grid-template-columns:1fr 1fr;gap:8px!important;width:min(90vw,320px)!important;}
+  .template-index .slideshow .banner__buttons--multiple .button--secondary{font-size:11px!important;letter-spacing:.11em!important;padding:.66rem .42rem!important;min-height:40px!important;}
+}
+
+/* WEARTH STICKY CHECKOUT V2 */
+.wearth-sticky-checkout{display:none;}
+@media screen and (max-width:749px){
+  .template-product .wearth-sticky-checkout{position:fixed;left:8px;right:8px;bottom:8px;z-index:2140;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;border:1px solid rgba(215,176,106,.5);border-radius:14px;background:rgba(26,22,18,.80);backdrop-filter:blur(6px);box-shadow:0 10px 28px rgba(0,0,0,.22);} 
+  .wearth-sticky-checkout__meta{display:flex;flex-direction:column;min-width:0;}
+  .wearth-sticky-checkout__title{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#efe5d8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:42vw;}
+  .wearth-sticky-checkout__price{font-size:12px;letter-spacing:.06em;color:#f4e8d8;font-weight:600;}
+  .wearth-sticky-checkout__btn{border:1px solid rgba(215,176,106,.84);border-radius:999px;background:linear-gradient(125deg,rgba(33,28,24,.40),rgba(23,26,24,.27));color:#f4ebdc;-webkit-text-fill-color:#f4ebdc;font-size:10px;letter-spacing:.12em;text-transform:uppercase;font-weight:600;padding:.62rem .78rem;min-height:38px;}
+}
+
+
+/* WEARTH STICKY CHECKOUT V3 */
+.wearth-sticky-checkout{display:none;}
+@media screen and (max-width:749px){
+  .template-product .wearth-sticky-checkout{position:fixed;left:8px;right:8px;bottom:8px;z-index:2140;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;border:1px solid rgba(215,176,106,.5);border-radius:14px;background:rgba(26,22,18,.80);backdrop-filter:blur(6px);box-shadow:0 10px 28px rgba(0,0,0,.22);} 
+  .wearth-sticky-checkout__meta{display:flex;flex-direction:column;min-width:0;}
+  .wearth-sticky-checkout__title{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#efe5d8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:42vw;}
+  .wearth-sticky-checkout__price{font-size:12px;letter-spacing:.06em;color:#f4e8d8;font-weight:600;}
+  .wearth-sticky-checkout__btn{border:1px solid rgba(215,176,106,.84);border-radius:999px;background:linear-gradient(125deg,rgba(33,28,24,.40),rgba(23,26,24,.27));color:#f4ebdc;-webkit-text-fill-color:#f4ebdc;font-size:10px;letter-spacing:.12em;text-transform:uppercase;font-weight:600;padding:.62rem .78rem;min-height:38px;}
+}
+
+
+
+
+/* WEARTH BUYNOW DESKTOP SOFTENER FINAL */
+@media screen and (min-width:750px){
+  html body.template-product .shopify-payment-button .shopify-payment-button__button,
+  html body.template-product .shopify-payment-button .shopify-payment-button__button--unbranded,
+  html body.template-product form .shopify-payment-button__button{
+    background: linear-gradient(132deg, rgba(62,49,36,.18), rgba(39,33,28,.11)) !important;
+    border: 1px solid rgba(215,176,106,.44) !important;
+    box-shadow: 0 5px 12px rgba(0,0,0,.05), inset 0 0 0 1px rgba(215,176,106,.10) !important;
+    color:#f7efe3 !important;
+    -webkit-text-fill-color:#f7efe3 !important;
+    filter: brightness(1.02) saturate(0.94) !important;
+  }
+}
+
+
+/* WEARTH BUYNOW ULTRASOFT LOCK V1 */
+@media screen and (min-width:750px){
+  html body.template-product .shopify-payment-button,
+  html body.template-product .shopify-payment-button *{ color:#f7efe3 !important; -webkit-text-fill-color:#f7efe3 !important; }
+  html body.template-product .shopify-payment-button .shopify-payment-button__button,
+  html body.template-product .shopify-payment-button .shopify-payment-button__button--unbranded,
+  html body.template-product .shopify-payment-button__button.shopify-payment-button__button--unbranded{
+    background-color: rgba(58,46,34,.20) !important;
+    background-image: linear-gradient(132deg, rgba(72,56,42,.16), rgba(38,32,28,.10)) !important;
+    border: 1px solid rgba(215,176,106,.42) !important;
+    box-shadow: 0 4px 10px rgba(0,0,0,.05), inset 0 0 0 1px rgba(215,176,106,.09) !important;
+    filter: brightness(1.03) !important;
+    opacity: 1 !important;
+  }
+}
+
+
+/* WEARTH CARD ACTION POINTER V1 */
+.wearth-card-action-atc,
+.wearth-card-action-atc:hover,
+.wearth-card-atc-form input[type="submit"],
+.wearth-card-atc-form input[type="submit"]:hover{cursor:pointer!important;}
+.wearth-card-price-link,
+.wearth-card-micro-link{color:inherit!important;text-decoration:none!important;cursor:pointer!important;}
+
+
+
+
+
+
+/* WEARTH MOBILE DRAWER STRUCTURE FIX V1 */
+@media screen and (max-width:749px){
+  .menu-drawer{
+    position:fixed !important;
+    left:0 !important;
+    top:0 !important;
+    bottom:0 !important;
+    width:min(86vw,380px) !important;
+    max-width:86vw !important;
+    height:100dvh !important;
+    max-height:100dvh !important;
+    overflow-y:auto !important;
+    overflow-x:hidden !important;
+    z-index:4600 !important;
+    background:var(--color-background) !important;
+  }
+  .menu-drawer__inner-container,
+  .menu-drawer__navigation-container{height:100% !important; min-height:100% !important;}
+  .menu-drawer__navigation{overflow-y:auto !important;}
+}
+
+
+/* WEARTH MOBILE DRAWER FALLBACK V2 */
+@media screen and (max-width:749px){
+  header-drawer details > .menu-drawer{
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    bottom: 0 !important;
+    width: min(86vw, 380px) !important;
+    max-width: 86vw !important;
+    height: 100dvh !important;
+    max-height: 100dvh !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    z-index: 4700 !important;
+    background: var(--color-background) !important;
+    transform: translateX(-100%) !important;
+    visibility: hidden !important;
+  }
+  header-drawer details[open] > .menu-drawer,
+  header-drawer details.menu-opening > .menu-drawer{
+    transform: translateX(0) !important;
+    visibility: visible !important;
+  }
+  header-drawer details > .menu-drawer .menu-drawer__inner-container,
+  header-drawer details > .menu-drawer .menu-drawer__navigation-container{height:100% !important; min-height:100% !important;}
+}
+
+/* WEARTH PDP MICROCOPY V1 */
+.template-product .wearth-pdp-microcopy{
+  margin: 6px 0 14px;
+}
+.template-product .wearth-pdp-microcopy span{
+  display: inline-block;
+  color: var(--wearth-gold);
+  font-size: 11px;
+  letter-spacing: .17em;
+  text-transform: uppercase;
+  font-weight: 600;
+  line-height: 1.3;
+}
+@media screen and (max-width:749px){
+  .template-product .wearth-pdp-microcopy span{
+    font-size: 10.5px;
+    letter-spacing: .14em;
+  }
+}
+
+/* WEARTH MOBILE CARD READABILITY V1 */
+@media screen and (max-width:749px){
+  .template-collection .card__heading,
+  .template-index .featured-collection .card__heading{
+    margin-bottom:.45rem;
+  }
+  .template-collection .card__heading a,
+  .template-index .featured-collection .card__heading a{
+    font-size:clamp(1.04rem, 4vw, 1.18rem);
+    line-height:1.3;
+    font-weight:500;
+    letter-spacing:.004em;
+    color:#1f1b17;
+  }
+  .template-collection .card .price-item,
+  .template-index .featured-collection .price-item{
+    font-size:clamp(.98rem, 3.7vw, 1.08rem);
+    font-weight:600;
+    color:#2a241d;
+  }
+  .template-index .slideshow__text .banner__heading{
+    font-size:clamp(2rem, 8vw, 3rem)!important;
+    line-height:1.08!important;
+  }
+  .template-index .slideshow__text .banner__text{
+    font-size:.92rem; letter-spacing:.18em;
+  }
+}
+
+/* WEARTH PDP MICROCOPY + CONFIDENCE V1 */
+.template-product .wearth-pdp-microcopy{
+  margin: 6px 0 14px;
+}
+.template-product .wearth-pdp-microcopy span{
+  display: inline-block;
+  color: var(--wearth-gold);
+  font-size: 11px;
+  letter-spacing: .17em;
+  text-transform: uppercase;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.template-product .wearth-pdp-confidence{
+  margin: 18px 0 12px;
+  padding: 12px 14px;
+  border: 1px solid rgba(122,96,58,.18);
+  border-radius: 10px;
+  background: rgba(154,129,82,.05);
+}
+.template-product .wearth-pdp-confidence p{
+  margin: 0;
+  font-size: .92rem;
+  line-height: 1.5;
+  color: #2d261e;
+  font-weight: 500;
+}
+
+@media screen and (max-width:749px){
+  .template-product .wearth-pdp-microcopy span{
+    font-size: 10.5px;
+    letter-spacing: .14em;
+  }
+  .template-product .wearth-pdp-confidence{
+    padding: 10px 12px;
+    margin: 14px 0 10px;
+  }
+  .template-product .wearth-pdp-confidence p{
+    font-size: .88rem;
+    line-height: 1.45;
+  }
+}
+
+/* WEARTH MOBILE CARD READABILITY V2 */
+@media screen and (max-width:749px){
+  .template-collection .card__heading,
+  .template-index .featured-collection .card__heading{
+    margin-bottom: .45rem;
+  }
+  .template-collection .card__heading a,
+  .template-index .featured-collection .card__heading a{
+    font-size: clamp(1.04rem, 4vw, 1.18rem) !important;
+    line-height: 1.3;
+    font-weight: 500;
+    letter-spacing: .004em;
+    color: #1f1b17;
+  }
+  .template-collection .card .price-item,
+  .template-index .featured-collection .price-item{
+    font-size: clamp(.98rem, 3.7vw, 1.08rem) !important;
+    font-weight: 600;
+    color: #2a241d;
+  }
+  .template-collection .card__information,
+  .template-index .featured-collection .card__information{
+    padding: 12px 10px 14px !important;
+  }
+}
+
+/* WEARTH PDP DESCRIPTION COPY V1 */
+.wearth-pdp-copy {
+  max-width: 560px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+  color: #1f1b17;
+  line-height: 1.55;
+}
+.wearth-pdp-tagline {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: clamp(1.1rem, 3.2vw, 1.32rem);
+  font-style: italic;
+  font-weight: 400;
+  color: #2a241d;
+  margin: 0 0 18px;
+  line-height: 1.35;
+  letter-spacing: 0.005em;
+}
+.wearth-pdp-points { list-style: none; padding: 0; margin: 0 0 22px; }
+.wearth-pdp-points li {
+  position: relative;
+  padding: 10px 0 10px 22px;
+  font-size: 0.96rem;
+  line-height: 1.5;
+  border-bottom: 1px solid rgba(31, 27, 23, 0.08);
+}
+.wearth-pdp-points li:last-child { border-bottom: 0; }
+.wearth-pdp-points li:before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 18px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #a08454;
+}
+.wearth-pdp-points li strong {
+  font-weight: 600;
+  color: #1f1b17;
+  letter-spacing: 0.005em;
+}
+.wearth-pdp-quote {
+  margin: 24px 0;
+  padding: 18px 22px;
+  border-left: 2px solid #a08454;
+  background: rgba(154, 129, 82, 0.05);
+  font-style: italic;
+}
+.wearth-pdp-quote p {
+  margin: 0 0 6px;
+  font-family: Georgia, serif;
+  font-size: 1.05rem;
+  color: #2a241d;
+  line-height: 1.4;
+}
+.wearth-pdp-quote cite {
+  display: block;
+  font-style: normal;
+  font-size: 0.74rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: #6f6357;
+  font-weight: 500;
+}
+.wearth-pdp-care {
+  margin: 14px 0 0;
+  font-size: 0.84rem;
+  color: #6f6357;
+  letter-spacing: 0.01em;
+}
+.wearth-pdp-care strong {
+  color: #2a241d;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 0.72rem;
+  margin-right: 6px;
+}
+.wearth-pdp-blog-link {
+  margin: 18px 0 0;
+  font-size: 0.86rem;
+  letter-spacing: 0.01em;
+}
+.wearth-pdp-blog-link a {
+  color: #7a6344;
+  text-decoration: none;
+  border-bottom: 1px solid rgba(122, 99, 68, 0.3);
+  padding-bottom: 2px;
+  transition: border-color 200ms ease;
+  font-weight: 500;
+}
+.wearth-pdp-blog-link a:hover { border-bottom-color: #7a6344; }
+
+/* WEARTH PDP TRUST BAND V1 (renders only where injected in main-product) */
+.wearth-pdp-trust {
+  margin: 18px 0 14px;
+  padding: 14px 18px;
+  background: rgba(154, 129, 82, 0.06);
+  border-radius: 4px;
+  text-align: center;
+  border: 1px solid rgba(154, 129, 82, 0.12);
+}
+.wearth-pdp-trust-line {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-style: italic;
+  font-size: 1rem;
+  color: #2a241d;
+  margin: 0 0 8px;
+  line-height: 1.4;
+}
+.wearth-pdp-trust-strip {
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #6f6357;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.wearth-pdp-trust-strip .dot { opacity: 0.4; }
+@media (max-width: 749px) {
+  .wearth-pdp-tagline { font-size: 1.08rem; }
+  .wearth-pdp-points li { font-size: 0.92rem; padding-left: 20px; }
+  .wearth-pdp-quote { padding: 14px 16px; margin: 18px -4px; }
+  .wearth-pdp-quote p { font-size: 0.98rem; }
+  .wearth-pdp-trust { margin: 14px -4px 10px; padding: 12px 14px; }
+  .wearth-pdp-trust-line { font-size: 0.94rem; }
+  .wearth-pdp-trust-strip { font-size: 0.66rem; gap: 6px; }
+}
+/* WEARTH BLOG FEAR ARTICLE V1 */
+.wearth-blog-fear { max-width: 640px; margin: 0 auto; color: #1f1b17; line-height: 1.55; }
+.wearth-blog-fear h2 {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 1.35rem;
+  font-weight: 600;
+  margin: 28px 0 12px;
+  color: #2a241d;
+}
+.wearth-blog-fear p { margin: 0 0 16px; font-size: 1rem; }
+.wearth-blog-fear ul { margin: 0 0 18px; padding-left: 1.1rem; }
+.wearth-blog-fear li { margin: 0 0 10px; }
+.wearth-blog-fear li strong { color: #1f1b17; }
+.wearth-blog-fear em { font-style: italic; color: #4a3226; }
+.wearth-blog-fear a { color: #7a6344; font-weight: 500; }
+/* WEARTH PDP MOTION BELOW ATC V1 */
+.wearth-pdp-motion {
+  margin: 22px 0 6px;
+  width: 100%;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #1f1b17;
+  line-height: 0;
+}
+.wearth-pdp-motion__video {
+  width: 100%;
+  height: auto;
+  display: block;
+  object-fit: cover;
+  vertical-align: middle;
+  opacity: 0;
+  transition: opacity 0.35s ease;
+}
+.wearth-pdp-motion__video.wearth-pdp-motion--playing,
+.wearth-pdp-motion--active .wearth-pdp-motion__video {
+  opacity: 1;
+}
+@media (max-width: 749px) {
+  .wearth-pdp-motion { margin: 18px 0 4px; border-radius: 4px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wearth-pdp-motion__video { opacity: 1; }
+}
+
+/* WEARTH BLOG FEAR ARTICLE V1 */
+.wearth-blog-fear { max-width: 640px; margin: 0 auto; color: #1f1b17; line-height: 1.55; }
+.wearth-blog-fear h2 {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 1.35rem;
+  font-weight: 600;
+  margin: 28px 0 12px;
+  color: #2a241d;
+}
+.wearth-blog-fear p { margin: 0 0 16px; font-size: 1rem; }
+.wearth-blog-fear ul { margin: 0 0 18px; padding-left: 1.1rem; }
+.wearth-blog-fear li { margin: 0 0 10px; }
+.wearth-blog-fear li strong { color: #1f1b17; }
+.wearth-blog-fear em { font-style: italic; color: #4a3226; }
+.wearth-blog-fear a { color: #7a6344; font-weight: 500; }
+/* WEARTH BLOG FEAR ARTICLE V1 */
+.wearth-blog-fear { max-width: 640px; margin: 0 auto; color: #1f1b17; line-height: 1.55; }
+.wearth-blog-fear h2 {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 1.35rem;
+  font-weight: 600;
+  margin: 28px 0 12px;
+  color: #2a241d;
+}
+.wearth-blog-fear p { margin: 0 0 16px; font-size: 1rem; }
+.wearth-blog-fear ul { margin: 0 0 18px; padding-left: 1.1rem; }
+.wearth-blog-fear li { margin: 0 0 10px; }
+.wearth-blog-fear li strong { color: #1f1b17; }
+.wearth-blog-fear em { font-style: italic; color: #4a3226; }
+.wearth-blog-fear a { color: #7a6344; font-weight: 500; }
+/* WEARTH BLOG FEAR ARTICLE V1 */
+.wearth-blog-fear { max-width: 640px; margin: 0 auto; color: #1f1b17; line-height: 1.55; }
+.wearth-blog-fear h2 {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 1.35rem;
+  font-weight: 600;
+  margin: 28px 0 12px;
+  color: #2a241d;
+}
+.wearth-blog-fear p { margin: 0 0 16px; font-size: 1rem; }
+.wearth-blog-fear ul { margin: 0 0 18px; padding-left: 1.1rem; }
+.wearth-blog-fear li { margin: 0 0 10px; }
+.wearth-blog-fear li strong { color: #1f1b17; }
+.wearth-blog-fear em { font-style: italic; color: #4a3226; }
+.wearth-blog-fear a { color: #7a6344; font-weight: 500; }
+/* WEARTH ABOUT US PAGE V1 */
+.wearth-about-page {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 40px 24px 80px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+  color: #1f1b17;
+  line-height: 1.62;
+}
+.wearth-about-headline {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-style: italic;
+  font-size: clamp(1.6rem, 5.5vw, 2.4rem);
+  font-weight: 400;
+  color: #1f1b17;
+  text-align: center;
+  letter-spacing: 0.003em;
+  line-height: 1.25;
+  margin: 16px 0 48px;
+}
+.wearth-about-questions p {
+  font-family: Georgia, serif;
+  font-size: clamp(1.04rem, 3vw, 1.2rem);
+  font-style: italic;
+  color: #2a241d;
+  line-height: 1.45;
+  margin: 0 0 22px;
+}
+.wearth-about-answer {
+  margin: 32px 0 0;
+  font-family: -apple-system, sans-serif;
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: #1f1b17;
+  letter-spacing: 0.01em;
+  text-align: center;
+}
+.wearth-about-rule {
+  border: 0;
+  border-top: 1px solid rgba(31, 27, 23, 0.12);
+  margin: 48px auto;
+  max-width: 60px;
+}
+.wearth-about-section-head {
+  font-family: Georgia, serif;
+  font-size: clamp(1.2rem, 4vw, 1.5rem);
+  font-weight: 400;
+  letter-spacing: 0.005em;
+  color: #1f1b17;
+  margin: 0 0 18px;
+}
+.wearth-about-shai-quote {
+  font-family: Georgia, serif;
+  font-style: italic;
+  font-size: 1.15rem;
+  color: #2a241d;
+  margin: 0 0 22px;
+  padding-left: 18px;
+  border-left: 2px solid #a08454;
+}
+.wearth-about-page p {
+  font-size: 0.98rem;
+  margin: 0 0 18px;
+  color: #2a241d;
+}
+.wearth-about-science {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.wearth-about-science li {
+  position: relative;
+  padding: 12px 0 12px 22px;
+  font-size: 0.96rem;
+  line-height: 1.55;
+  border-bottom: 1px solid rgba(31, 27, 23, 0.08);
+}
+.wearth-about-science li:last-child { border-bottom: 0; }
+.wearth-about-science li:before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 19px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #a08454;
+}
+.wearth-about-closer {
+  font-family: Georgia, serif;
+  font-style: italic;
+  font-size: 1.15rem;
+  text-align: center;
+  color: #2a241d;
+  margin: 32px 0 12px;
+}
+.wearth-about-signoff {
+  text-align: center;
+  font-size: 0.78rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: #6f6357;
+  font-weight: 500;
+  margin: 0;
+}
+
+/* WEARTH RETURN POLICY V1 */
+.wearth-policy-page {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 40px 24px 80px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+  color: #1f1b17;
+  line-height: 1.6;
+}
+.wearth-policy-lead {
+  font-family: Georgia, serif;
+  font-style: italic;
+  font-size: clamp(1.2rem, 4vw, 1.6rem);
+  text-align: center;
+  color: #2a241d;
+  margin: 0 0 40px;
+}
+.wearth-policy-page h2 {
+  font-family: Georgia, serif;
+  font-size: 1.12rem;
+  font-weight: 500;
+  letter-spacing: 0.005em;
+  color: #1f1b17;
+  margin: 28px 0 12px;
+}
+.wearth-policy-page p,
+.wearth-policy-page ul {
+  font-size: 0.96rem;
+  color: #2a241d;
+  margin: 0 0 14px;
+}
+.wearth-policy-page ul { padding-left: 22px; }
+.wearth-policy-page li { margin: 0 0 8px; }
+.wearth-policy-closer {
+  margin: 32px 0 18px;
+  font-family: Georgia, serif;
+  font-style: italic;
+  text-align: center;
+  color: #2a241d;
+  font-size: 1.05rem;
+}
+/* WEARTH PDP COMPOSITION — small, grey, editorial tone */
+.wearth-pdp-composition {
+  margin: 20px 0 0;
+  font-size: 10.5px;
+  letter-spacing: 0.01em;
+  color: #9a9387;
+  font-weight: 400;
+  line-height: 1.45;
+  font-style: italic;
+}
+@media (max-width: 749px) {
+  .wearth-pdp-composition {
+    font-size: 10px;
+    margin-top: 16px;
+    line-height: 1.5;
+  }
+}
+
+/* WEARTH — Remove sticky cart UI
+/* WEARTH — Remove sticky cart UI. One decisive ATC per PDP. */
+.stickyCart,
+.stickyCart-active,
+.sticky-cart,
+.sticky-add-to-cart,
+.sticky-product-bar,
+#sticky-cart,
+#sticky-add-to-cart,
+[data-sticky-cart],
+[data-sticky-add-to-cart],
+.product-sticky-cart,
+.product-sticky-bar,
+.wearth-sticky-checkout,
+.SCC,
+.scc-sticky-cart {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+/* WEARTH HOMEPAGE HERO — staggered
+/* WEARTH HOMEPAGE HERO — staggered editorial fade-in (first index slideshow) */
+.template-index #shopify-section-166055755464f3a9f4 .banner__text,
+.template-index #shopify-section-166055755464f3a9f4 .banner__heading,
+.template-index #shopify-section-166055755464f3a9f4 .banner__rte,
+.template-index #shopify-section-166055755464f3a9f4 .banner__buttons,
+.template-index .shopify-section:first-of-type .banner__text,
+.template-index .shopify-section:first-of-type .banner__heading,
+.template-index .shopify-section:first-of-type .banner__rte,
+.template-index .shopify-section:first-of-type .banner__buttons {
+  opacity: 0;
+  transform: translateY(14px);
+  animation-duration: 700ms;
+  animation-timing-function: cubic-bezier(0.22, 0.61, 0.36, 1);
+  animation-fill-mode: forwards;
+}
+.template-index #shopify-section-166055755464f3a9f4 .banner__text,
+.template-index .shopify-section:first-of-type .banner__text {
+  animation-name: wearthHeroFadeUp;
+  animation-delay: 200ms;
+}
+.template-index #shopify-section-166055755464f3a9f4 .banner__heading,
+.template-index .shopify-section:first-of-type .banner__heading {
+  animation-name: wearthHeroFadeUp;
+  animation-delay: 400ms;
+}
+.template-index #shopify-section-166055755464f3a9f4 .banner__rte,
+.template-index .shopify-section:first-of-type .banner__rte {
+  animation-name: wearthHeroFadeUp;
+  animation-delay: 600ms;
+}
+.template-index #shopify-section-166055755464f3a9f4 .banner__buttons,
+.template-index .shopify-section:first-of-type .banner__buttons {
+  animation-name: wearthHeroFadeUp;
+  animation-delay: 800ms;
+}
+@keyframes wearthHeroFadeUp {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .template-index #shopify-section-166055755464f3a9f4 .banner__text,
+  .template-index #shopify-section-166055755464f3a9f4 .banner__heading,
+  .template-index #shopify-section-166055755464f3a9f4 .banner__rte,
+  .template-index #shopify-section-166055755464f3a9f4 .banner__buttons,
+  .template-index .shopify-section:first-of-type .banner__text,
+  .template-index .shopify-section:first-of-type .banner__heading,
+  .template-index .shopify-section:first-of-type .banner__rte,
+  .template-index .shopify-section:first-of-type .banner__buttons {
+    opacity: 1 !important;
+    transform: none !important;
+    animation: none !important;
+  }
+}
+
+/* WEARTH RECENTLY VIEWED / PAIRING
+/* WEARTH RECENTLY VIEWED / PAIRING — editorial 2-up mobile */
+.wearth-pairing {
+  padding: 36px 20px 40px;
+  max-width: 1180px;
+  margin: 0 auto;
+}
+.wearth-pairing__title {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(1.1rem, 3.5vw, 1.35rem);
+  font-weight: 400;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-align: center;
+  color: #1f1b17;
+  margin: 0 0 24px;
+}
+.wearth-pairing__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  max-width: 520px;
+  margin: 0 auto;
+}
+@media (min-width: 750px) {
+  .wearth-pairing__grid {
+    gap: 28px;
+    max-width: 640px;
+  }
+}
+.wearth-pairing__card {
+  display: flex;
+  flex-direction: column;
+  text-decoration: none;
+  color: inherit;
+}
+.wearth-pairing__img {
+  width: 100%;
+  aspect-ratio: 4 / 5;
+  object-fit: cover;
+  background: #f3f0ea;
+}
+.wearth-pairing__meta {
+  padding: 10px 2px 0;
+  text-align: center;
+}
+.wearth-pairing__name {
+  display: block;
+  font-size: 0.82rem;
+  letter-spacing: 0.04em;
+  color: #1f1b17;
+  line-height: 1.35;
+}
+.wearth-pairing__price {
+  display: block;
+  font-size: 0.75rem;
+  color: #6f6357;
+  margin-top: 4px;
+}
+/* WEARTH pairing — hero video inside fixed 4:5 tile (dimensions unchanged) */
+.wearth-pairing__media {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 5;
+  overflow: hidden;
+  background: #f3f0ea;
+}
+.wearth-pairing__img {
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;
+  object-fit: cover;
+  display: block;
+  background: #f3f0ea;
+}
+.wearth-pairing__video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.35s ease;
+}
+.wearth-pairing__card.wearth-pairing--video-playing .wearth-pairing__video {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .wearth-pairing__video {
+    display: none !important;
+  }
+}
+
+
+/* WEARTH ABOUT — desktop readability only
+/* WEARTH ABOUT — desktop readability only (mobile unchanged at max-width 749px) */
+@media (min-width: 750px) {
+  .wearth-about-page {
+    padding: 48px 32px 96px;
+  }
+  .wearth-about-headline {
+    font-size: 2.65rem;
+    margin-bottom: 56px;
+  }
+  .wearth-about-questions p {
+    font-size: 1.22rem;
+    margin-bottom: 26px;
+  }
+  .wearth-about-answer {
+    font-size: 1.28rem;
+  }
+  .wearth-about-section-head {
+    font-size: 1.55rem;
+    margin-bottom: 22px;
+  }
+  .wearth-about-shai-quote {
+    font-size: 1.28rem;
+  }
+  .wearth-about-page p {
+    font-size: 1.08rem;
+    line-height: 1.68;
+    margin-bottom: 20px;
+  }
+  .wearth-about-science li {
+    font-size: 1.04rem;
+    line-height: 1.62;
+  }
+  .wearth-about-closer {
+    font-size: 1.28rem;
+  }
+  .wearth-about-signoff {
+    font-size: 0.82rem;
+  }
+}
+/* WEARTH PDP SOCIAL PROOF — see wearth-pdp-social-proof.css */
+
+/* WEARTH TRIBE MOBILE FIX V2 — wins over section CSS; full 750×800 art visible on all phones */
+.template-index #shopify-section-image_with_text_overlay_nnNtYV,
+.template-product #shopify-section-image_with_text_overlay_t83bkj {
+  overflow-x: clip !important;
+  max-width: 100% !important;
+  width: 100% !important;
+  padding-left: max(14px, env(safe-area-inset-left, 0px)) !important;
+  padding-right: max(14px, env(safe-area-inset-right, 0px)) !important;
+  box-sizing: border-box !important;
+}
+
+.template-index #shopify-section-image_with_text_overlay_nnNtYV .FlexboxIeFix,
+.template-product #shopify-section-image_with_text_overlay_t83bkj .FlexboxIeFix {
+  overflow: hidden !important;
+  max-width: 100% !important;
+  width: 100% !important;
+  margin: 0 auto !important;
+}
+
+.template-index #shopify-section-image_with_text_overlay_nnNtYV .FlexboxIeFix .ImageHero,
+.template-product #shopify-section-image_with_text_overlay_t83bkj .FlexboxIeFix .ImageHero,
+.template-index #shopify-section-image_with_text_overlay_nnNtYV [class*="image_block"],
+.template-product #shopify-section-image_with_text_overlay_t83bkj [class*="image_block"] {
+  background-color: #f5f1ea !important;
+  background-repeat: no-repeat !important;
+  background-size: contain !important;
+  background-position: center center !important;
+  background-attachment: scroll !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  box-sizing: border-box !important;
+}
+
+@media screen and (min-width: 768px) {
+  .template-index #shopify-section-image_with_text_overlay_nnNtYV .FlexboxIeFix .ImageHero--large,
+  .template-product #shopify-section-image_with_text_overlay_t83bkj .FlexboxIeFix .ImageHero--large {
+    height: auto !important;
+    min-height: 0 !important;
+    aspect-ratio: 1500 / 800;
+    max-height: min(52vw, 720px);
+  }
+}
+
+@media screen and (max-width: 767px) {
+  .template-index #shopify-section-image_with_text_overlay_nnNtYV .FlexboxIeFix .ImageHero--large,
+  .template-product #shopify-section-image_with_text_overlay_t83bkj .FlexboxIeFix .ImageHero--large,
+  .template-index #shopify-section-image_with_text_overlay_nnNtYV [class*="image_block"],
+  .template-product #shopify-section-image_with_text_overlay_t83bkj [class*="image_block"] {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    aspect-ratio: 750 / 800;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+}
+
+/* WEARTH RATING SUMMARY (high, near title) */
+.wearth-rating-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-decoration: none;
+  margin: 6px 0 2px;
+  font-size: 0.82rem;
+  color: #6f6357;
+  letter-spacing: 0.02em;
+}
+.wearth-rating-summary .wearth-stars { color: #a08454; letter-spacing: 1px; font-size: 0.8rem; }
+.wearth-rating-num { font-weight: 600; color: #1f1b17; }
+.wearth-rating-count { color: #8a8175; }
+.wearth-rating-summary:hover .wearth-rating-num { text-decoration: underline; }
+
+/* WEARTH REVIEWS BLOCK (above Add to Bag) */
+.wearth-reviews {
+  margin: 18px 0 14px;
+  border-top: 1px solid rgba(31,27,23,0.10);
+  border-bottom: 1px solid rgba(31,27,23,0.10);
+}
+.wearth-reviews-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: none;
+  border: none;
+  padding: 16px 2px;
+  cursor: pointer;
+  font-family: Georgia, 'Times New Roman', serif;
+}
+.wearth-reviews-toggle-label {
+  font-size: 1rem;
+  font-style: italic;
+  color: #1f1b17;
+  letter-spacing: 0.01em;
+}
+.wearth-reviews-toggle-meta {
+  margin-left: auto;
+  font-family: -apple-system, sans-serif;
+  font-size: 0.78rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #a08454;
+  font-weight: 600;
+}
+.wearth-reviews-toggle-chev {
+  font-size: 1.1rem;
+  color: #6f6357;
+  width: 16px;
+  text-align: center;
+}
+.wearth-reviews-panel { padding: 4px 2px 18px; }
+.wearth-reviews-panel[hidden] { display: none; }
+.wearth-review {
+  margin: 0 0 16px;
+  padding: 0 0 16px;
+  border-bottom: 1px solid rgba(31,27,23,0.06);
+}
+.wearth-review:last-child { border-bottom: 0; margin-bottom: 0; }
+.wearth-review-stars { color: #a08454; letter-spacing: 1px; font-size: 0.78rem; }
+.wearth-review-text {
+  font-family: Georgia, serif;
+  font-size: 0.96rem;
+  font-style: italic;
+  color: #2a241d;
+  line-height: 1.5;
+  margin: 6px 0 6px;
+}
+.wearth-review-cite {
+  font-style: normal;
+  font-size: 0.72rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #6f6357;
+  font-weight: 500;
+}
+@media (max-width: 749px) {
+  .wearth-reviews-toggle-label { font-size: 0.94rem; }
+  .wearth-review-text { font-size: 0.92rem; }
+}
+/* WEARTH founder note — homepage (short copy) */
+.template-index #shopify-section-image_with_text_zVwdYg .title {
+  text-transform: none;
+  font-weight: 700;
+  font-size: clamp(1.05rem, 2vw, 1.3rem);
+  letter-spacing: 0.01em;
+  margin: 0 0 1rem;
+  color: var(--wearth-deep, #2a241d);
+}
+.template-index #shopify-section-image_with_text_zVwdYg .image-with-text__text.rte {
+  border-left: 2px solid #a08454;
+  padding-left: 1.15rem;
+}
+.template-index #shopify-section-image_with_text_zVwdYg .image-with-text__text.rte p {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(0.98rem, 1.3vw, 1.12rem);
+  line-height: 1.55;
+  margin: 0 0 0.75rem;
+  text-transform: none;
+  letter-spacing: 0.02em;
+  color: #2a241d;
+  font-weight: 400;
+}
+.template-index #shopify-section-image_with_text_zVwdYg .image-with-text__text.rte p:last-child {
+  margin-bottom: 0;
+}
+/* WEARTH_PDP_DESKTOP_ATC_DEDUPE — one ADD TO BAG above color on desktop */
+@media screen and (min-width: 750px) {
+  .template-product .wearth-pdp-mobile-atc {
+    display: none !important;
+  }
+  .template-product .wearth-pdp-desktop-atc-slot {
+    display: block;
+    margin: 0 0 1.25rem;
+    width: 100%;
+  }
+  .template-product .wearth-pdp-desktop-atc-slot__btn {
+    width: 100%;
+    display: block;
+  }
+  .template-product .wearth-pdp-block--buy .product_addtocart_from > button.AddToCart,
+  .template-product .wearth-pdp-block--buy button.wearth-pdp-desktop-atc-btn {
+    display: none !important;
+  }
+}
+@media screen and (max-width: 749px) {
+  .template-product .wearth-pdp-desktop-atc-slot {
+    display: none !important;
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "sections": {
+    "banner": {
+      "type": "main-collection-banner",
+      "settings": {
+        "show_collection_description": true,
+        "show_collection_image": false,
+        "color_scheme": "#f9fbf7"
+      }
+    },
+    "editorial": {
+      "type": "wearth-editorial-collection",
+      "settings": {
+        "products_per_page": 12
+      }
+    },
+    "1661490261dcf61df7": {
+      "type": "recently-view-product",
+      "disabled": true,
+      "settings": {
+        "title": "Recently viewed",
+        "show_recentProduct": false,
+        "products_limit": 12,
+        "show_secondary_image": false,
+        "show_vendor": false,
+        "show_rating": false,
+        "padding_top": 36,
+        "padding_bottom": 36
+      }
+    },
+    "wearth_pairing_coll": {
+      "type": "wearth-recently-pairing",
+      "settings": {
+        "heading_recent": "Recently viewed",
+        "heading_fallback": "You may also like",
+        "fallback_handles": "terra-sports-bra,align-sports-bra,womens-power-crop,womens-everyday-joggers,men-raglan-tshirt",
+        "padding_top": 36,
+        "padding_bottom": 40
+      }
+    }
+  },
+  "order": [
+    "banner",
+    "editorial",
+    "wearth_pairing_coll",
+    "1661490261dcf61df7"
+  ]
+}

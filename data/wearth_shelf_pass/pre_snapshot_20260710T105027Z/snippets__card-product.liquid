@@ -1,0 +1,632 @@
+{%- comment -%} WEARTH card-product — collection grid card {%- endcomment -%}
+
+{%- liquid
+  assign ratio = 1
+  if card_product.featured_media and media_aspect_ratio == 'portrait'
+    assign ratio = 0.8
+  elsif card_product.featured_media and media_aspect_ratio == 'adapt'
+    assign ratio = card_product.featured_media.aspect_ratio
+  endif
+  if ratio == 0 or ratio == nil
+    assign ratio = 0.8
+  endif
+  assign wearth_default_variant = card_product.selected_or_first_available_variant | default: card_product.first_available_variant | default: card_product.variants.first
+  assign wearth_color_key = 'option1'
+  assign wearth_size_key = 'option2'
+  assign wearth_has_color = false
+  assign wearth_has_size = false
+  for option in card_product.options_with_values
+    assign option_name_down = option.name | downcase
+    if option_name_down == 'color' or option_name_down == 'colour'
+      assign wearth_has_color = true
+      case option.position
+        when 1
+          assign wearth_color_key = 'option1'
+        when 2
+          assign wearth_color_key = 'option2'
+        when 3
+          assign wearth_color_key = 'option3'
+      endcase
+    elsif option_name_down == 'size'
+      assign wearth_has_size = true
+      case option.position
+        when 1
+          assign wearth_size_key = 'option1'
+        when 2
+          assign wearth_size_key = 'option2'
+        when 3
+          assign wearth_size_key = 'option3'
+      endcase
+    endif
+  endfor
+
+  assign wearth_default_color = ''
+  if wearth_color_key == 'option1'
+    assign wearth_default_color = wearth_default_variant.option1
+  elsif wearth_color_key == 'option2'
+    assign wearth_default_color = wearth_default_variant.option2
+  elsif wearth_color_key == 'option3'
+    assign wearth_default_color = wearth_default_variant.option3
+  endif
+
+  if card_product.handle == 'mens-essential-shorts'
+    assign wearth_shorts_full = all_products['mens-essential-shorts']
+    if wearth_shorts_full.metafields.wearth.card_image.value != blank
+      assign wearth_card_poster = wearth_shorts_full.metafields.wearth.card_image.value
+    endif
+  elsif card_product.handle == 'sleeveless-regular-fit-tshirt-men'
+    assign wearth_edge_full = all_products['sleeveless-regular-fit-tshirt-men']
+    if wearth_edge_full.metafields.wearth.card_image.value != blank
+      assign wearth_card_poster = wearth_edge_full.metafields.wearth.card_image.value
+    endif
+  elsif card_product.handle == 'mens-everyday-joggers'
+    assign wearth_mj_full = all_products['mens-everyday-joggers']
+    if wearth_mj_full.metafields.wearth.card_image.value != blank
+      assign wearth_card_poster = wearth_mj_full.metafields.wearth.card_image.value
+    endif
+  elsif card_product.metafields.wearth.card_image.value != blank
+    assign wearth_card_poster = card_product.metafields.wearth.card_image.value
+  endif
+  assign wearth_card_hero_color = ''
+  if card_product.handle == 'womens-everyday-joggers'
+    assign wearth_card_hero_color = 'Brown'
+  elsif card_product.handle == 'terra-sports-bra'
+    assign wearth_card_hero_color = 'Brown'
+  elsif card_product.handle == 'womens-biker-shorts'
+    assign wearth_card_hero_color = 'Black'
+  elsif card_product.handle == 'align-sports-bra'
+    assign wearth_card_hero_color = 'Black'
+  elsif card_product.handle == 'men-raglan-tshirt'
+    assign wearth_card_hero_color = 'Black'
+  elsif card_product.handle == 'mens-essential-shorts'
+    assign wearth_card_hero_color = 'Black'
+  endif
+
+  assign wearth_hero_color_exact = wearth_card_hero_color
+  assign wearth_hero_variant = wearth_default_variant
+  assign wearth_card_media_product = card_product
+  if card_product.handle == 'womens-biker-shorts'
+    assign wearth_card_media_product = all_products['womens-biker-shorts']
+  endif
+  assign wearth_card_video = nil
+  if wearth_card_hero_color != ''
+    for option in card_product.options_with_values
+      assign option_name_down = option.name | downcase
+      if option_name_down == 'color' or option_name_down == 'colour'
+        for value in option.values
+          assign value_down = value | downcase | strip
+          assign hero_down = wearth_card_hero_color | downcase | strip
+          if value_down == hero_down or value == wearth_card_hero_color
+            assign wearth_hero_color_exact = value
+            assign wearth_default_color = value
+          endif
+        endfor
+      endif
+    endfor
+    for variant in card_product.variants
+      assign wearth_variant_color = variant.option1
+      if wearth_color_key == 'option2'
+        assign wearth_variant_color = variant.option2
+      elsif wearth_color_key == 'option3'
+        assign wearth_variant_color = variant.option3
+      endif
+      if wearth_variant_color == wearth_hero_color_exact
+        assign wearth_hero_variant = variant
+        if card_product.handle != 'men-raglan-tshirt'
+          if variant.featured_media != blank
+            assign wearth_card_poster = variant.featured_media
+          elsif variant.image != blank
+            assign wearth_card_poster = variant.image
+          endif
+        endif
+      endif
+    endfor
+    if card_product.handle != 'men-raglan-tshirt'
+      assign wearth_card_img_alt = 'CARD:' | append: wearth_hero_color_exact
+      for wm in wearth_card_media_product.media
+        if wm.media_type == 'image' and wm.alt == wearth_card_img_alt
+          assign wearth_card_poster = wm
+          break
+        endif
+      endfor
+    else
+      assign wearth_raglan_full = all_products['men-raglan-tshirt']
+      assign wearth_ph_alt = 'PDP:Black-02'
+      for wm in wearth_raglan_full.media
+        if wm.media_type == 'image'
+          assign wearth_wm_alt_down = wm.alt | downcase
+          if wm.alt == wearth_ph_alt or wearth_wm_alt_down contains 'black'
+            assign wearth_card_poster = wm
+            break
+          endif
+        endif
+      endfor
+    endif
+    assign match_alt = 'VARIANT:' | append: wearth_hero_color_exact
+    unless card_product.handle == 'men-raglan-tshirt'
+      for wm in wearth_card_media_product.media
+        if wm.media_type == 'video' and wm.alt == match_alt
+          assign wearth_card_video = wm
+          break
+        endif
+      endfor
+    endunless
+  endif
+
+  if card_product.handle == 'mens-essential-shorts'
+    assign wearth_shorts_full = all_products['mens-essential-shorts']
+    assign wearth_ph_alt = 'CARD:Black'
+    for wm in wearth_shorts_full.media
+      if wm.media_type == 'image' and wm.alt == wearth_ph_alt
+        assign wearth_card_poster = wm
+        break
+      endif
+    endfor
+  elsif card_product.handle == 'men-raglan-tshirt'
+    assign wearth_raglan_full = all_products['men-raglan-tshirt']
+    assign wearth_ph_alt = 'PDP:Black-02'
+    for wm in wearth_raglan_full.media
+      if wm.media_type == 'image' and wm.alt == wearth_ph_alt
+        assign wearth_card_poster = wm
+        break
+      endif
+    endfor
+  elsif card_product.handle == 'sleeveless-regular-fit-tshirt-men'
+    assign wearth_edge_full = all_products['sleeveless-regular-fit-tshirt-men']
+    assign wearth_ph_alt = 'CARD:Black'
+    for wm in wearth_edge_full.media
+      if wm.media_type == 'image' and wm.alt == wearth_ph_alt
+        assign wearth_card_poster = wm
+        break
+      endif
+    endfor
+  elsif card_product.handle == 'mens-everyday-joggers'
+    assign wearth_mj_full = all_products['mens-everyday-joggers']
+    assign wearth_ph_alt = 'CARD:Black'
+    for wm in wearth_mj_full.media
+      if wm.media_type == 'image' and wm.alt == wearth_ph_alt
+        assign wearth_card_poster = wm
+        break
+      endif
+    endfor
+  endif
+
+  assign wearth_card_mp4_url = ''
+  if wearth_card_video != blank
+    if wearth_card_video.sources.size == 0
+      assign wearth_card_video = nil
+    else
+      for source in wearth_card_video.sources
+        if source.format == 'mp4' or source.mime_type contains 'mp4'
+          assign wearth_card_mp4_url = source.url
+          break
+        endif
+      endfor
+      if wearth_card_mp4_url == blank
+        assign wearth_card_video = nil
+      elsif wearth_card_mp4_url contains '//'
+        unless wearth_card_mp4_url contains 'https:'
+          assign wearth_card_mp4_url = wearth_card_mp4_url | prepend: 'https:'
+        endunless
+      endif
+    endif
+  endif
+
+  assign wearth_card_video = nil
+  assign wearth_card_mp4_url = ''
+
+  assign wearth_default_url = card_product.url
+  if wearth_hero_variant
+    assign wearth_default_url = card_product.url | append: '?variant=' | append: wearth_hero_variant.id
+  elsif wearth_default_variant
+    assign wearth_default_url = card_product.url | append: '?variant=' | append: wearth_default_variant.id
+  endif
+
+  assign wearth_card_hook = card_product.metafields.custom.card_hook.value
+  if wearth_card_hook == blank
+    case card_product.handle
+      when 'womens-biker-shorts'
+        assign wearth_card_hook = 'No ride-up. Zero polyester.'
+      when 'terra-sports-bra'
+        assign wearth_card_hook = 'Worn all day. Never holds heat.'
+      when 'womens-everyday-joggers'
+        assign wearth_card_hook = 'Drapes like cloth, not plastic.'
+      when 'the-studio-crop'
+        assign wearth_card_hook = 'Wide-leg. Zero polyester. Built to breathe.'
+      when 'womens-tank-top'
+        assign wearth_card_hook = 'The tank you forget you are wearing.'
+      when 'womens-power-crop'
+        assign wearth_card_hook = 'Cropped hold. Never squeezes.'
+      when 'the-off-hours-wide-leg'
+        assign wearth_card_hook = 'The trouser for the hours that are yours.'
+      else
+        assign wearth_card_hook = 'Zero polyester. Grown from eucalyptus.'
+    endcase
+  endif
+-%}
+
+<div id="variant_image_{{ card_product.id }}" class="card-wrapper underline-links-hover wearth-phase1-card{% if card_product.metafields.wearth.card_image.value != blank or card_product.handle == 'mens-essential-shorts' or card_product.handle == 'men-raglan-tshirt' or card_product.handle == 'sleeveless-regular-fit-tshirt-men' or card_product.handle == 'mens-everyday-joggers' %} wearth-phase1-card--static-image{% endif %}{% if wearth_card_video and wearth_card_mp4_url != '' %} wearth-phase1-card--video-active wearth-phase1-card--video-playing{% endif %}" data-wearth-phase1-card data-product-id="{{ card_product.id }}" data-product-handle="{{ card_product.handle }}" data-product-url="{{ card_product.url }}" {% if card_product.handle == 'men-raglan-tshirt' and wearth_card_poster %}data-wearth-mt-black-src="{{ wearth_card_poster | img_url: '533x' }}" {% endif %}data-default-color="{{ wearth_default_color | escape }}" data-color-option="{{ wearth_color_key }}" data-size-option="{{ wearth_size_key }}" {% if card_product.handle == 'womens-everyday-joggers' %}data-wearth-joggers-multiview="1" {% endif %}{% if wearth_card_video and wearth_card_mp4_url != '' %} data-wearth-card-has-video="1" data-wearth-card-hero-color="{{ wearth_hero_color_exact | escape }}" data-wearth-card-mp4="{{ wearth_card_mp4_url | escape }}"{% endif %}{% if card_product.featured_media or wearth_card_poster %}{% else %}style="padding-top: 125%;"{% endif %}>
+  <script type="application/json" class="wearth-phase1-variants-json">{{ card_product.variants | json }}</script>
+  <div class="card text card--{{ settings.card_style }}{% if card_product.featured_media %} card--media{% else %} card--text{% endif %}{% if extend_height %} card--extend-height{% endif %}{% if card_product.featured_media == nil and settings.card_style == 'card' %} ratio{% endif %}" style="--ratio-percent: {{ 1 | divided_by: ratio | times: 100 }}%;">
+    <div class="card__inner {% if card_product.featured_media or settings.card_style == 'standard' %}color-background-2 gradient ratio{% endif %}">
+      {%- unless card_product.handle == 'mens-essential-shorts' or card_product.handle == 'men-raglan-tshirt' or card_product.handle == 'sleeveless-regular-fit-tshirt-men' or card_product.handle == 'mens-everyday-joggers' -%}
+        {%- assign wearth_card_poster = wearth_card_poster | default: card_product.featured_media -%}
+      {%- endunless -%}
+      <div class="card__media wearth-phase1-media{% if wearth_card_video %} wearth-phase1-media--card-video{% endif %}" data-wearth-phase1-media>
+        <a href="{{ wearth_default_url }}" class="card__media-link wearth-phase1-pdp-link" data-wearth-phase1-link aria-label="{{ card_product.title | escape }}">
+          <div class="media media--transparent media--{{ media_aspect_ratio }} media--hover-effect">
+                        {%- comment -%} WEARTH_MOTION_TEE_BLACK_MODEL_HERO: Motion Tee SSR hero = PDP:Black-02 model, not CARD:Black file {%- endcomment -%}
+            {% if card_product.handle == 'men-raglan-tshirt' and wearth_card_poster %}
+              <img
+                srcset="{{ wearth_card_poster | img_url: '360x' }} 360w, {{ wearth_card_poster | img_url: '533x' }} 533w, {{ wearth_card_poster | img_url: '720x' }} 720w"
+                src="{{ wearth_card_poster | img_url: '533x' }}"
+                sizes="(min-width: 750px) 25vw, 50vw"
+                alt="{{ card_product.title | escape }} Black"
+                {% if lazy_load %}loading="lazy"{% else %}loading="eager" fetchpriority="high"{% endif %}
+                class="motion-reduce wearth-phase1-image"
+                data-wearth-phase1-image
+                data-wearth-mt-black-card="1"
+              >{% elsif wearth_card_poster %}
+              <img
+                srcset="{{ wearth_card_poster | img_url: '360x' }} 360w, {{ wearth_card_poster | img_url: '533x' }} 533w, {{ wearth_card_poster | img_url: '720x' }} 720w"
+                src="{{ wearth_card_poster | img_url: '533x' }}"
+                sizes="(min-width: 750px) 25vw, 50vw"
+                alt="{{ wearth_card_poster.alt | default: card_product.title | escape }}"
+                {% if lazy_load %}loading="lazy"{% else %}loading="eager" fetchpriority="high"{% endif %}
+                class="motion-reduce wearth-phase1-image"
+                data-wearth-phase1-image
+              >
+            {% endif %}
+            {%- if wearth_card_video and wearth_card_mp4_url != '' -%}
+              <div class="wearth-card-video-host" data-wearth-card-video-root aria-hidden="true">
+                <video
+                  class="wearth-card-hero-video wearth-card-video--playing"
+                  data-wearth-card-video
+                  muted
+                  playsinline
+                  loop
+                  autoplay
+                  preload="metadata"
+                  {%- assign wearth_card_poster_url = wearth_card_poster | img_url: '960x' -%}
+                  {%- if wearth_card_poster_url contains '//' -%}
+                    {%- unless wearth_card_poster_url contains 'https:' -%}
+                      {%- assign wearth_card_poster_url = wearth_card_poster_url | prepend: 'https:' -%}
+                    {%- endunless -%}
+                  {%- endif -%}
+                  poster="{{ wearth_card_poster_url }}"
+                >
+                  <source src="{{ wearth_card_mp4_url }}" type="video/mp4" data-src="{{ wearth_card_mp4_url }}">
+                </video>
+              </div>
+            {%- endif -%}
+          </div>
+        </a>
+      </div>
+    </div>
+
+    <div class="wearth-phase1-color-rail" data-wearth-phase1-color-rail aria-label="Color options">
+      {%- for option in card_product.options_with_values -%}
+        {%- assign option_name_down = option.name | downcase -%}
+        {%- if option_name_down == 'color' or option_name_down == 'colour' -%}
+          {%- for value in option.values -%}
+            {%- assign wearth_color_variant = nil -%}
+            {%- for variant in card_product.variants -%}
+              {%- assign wearth_variant_color = variant.option1 -%}
+              {%- if wearth_color_key == 'option2' -%}
+                {%- assign wearth_variant_color = variant.option2 -%}
+              {%- elsif wearth_color_key == 'option3' -%}
+                {%- assign wearth_variant_color = variant.option3 -%}
+              {%- endif -%}
+              {%- if wearth_variant_color == value and variant.available -%}
+                {%- assign wearth_color_variant = variant -%}
+                {%- break -%}
+              {%- endif -%}
+            {%- endfor -%}
+            {%- if wearth_color_variant == nil -%}
+              {%- for variant in card_product.variants -%}
+                {%- assign wearth_variant_color = variant.option1 -%}
+                {%- if wearth_color_key == 'option2' -%}
+                  {%- assign wearth_variant_color = variant.option2 -%}
+                {%- elsif wearth_color_key == 'option3' -%}
+                  {%- assign wearth_variant_color = variant.option3 -%}
+                {%- endif -%}
+                {%- if wearth_variant_color == value -%}
+                  {%- assign wearth_color_variant = variant -%}
+                  {%- break -%}
+                {%- endif -%}
+              {%- endfor -%}
+            {%- endif -%}
+            {%- if wearth_color_variant -%}
+              {%- assign wearth_swatch_down = value | downcase | strip -%}
+              {%- assign wearth_swatch_hex = '' -%}
+              {%- case wearth_swatch_down -%}
+                {%- when 'black' -%}
+                  {%- assign wearth_swatch_hex = '#0b0b0b' -%}
+                {%- when 'white' -%}
+                  {%- assign wearth_swatch_hex = '#f7f4ee' -%}
+                {%- when 'maroon' -%}
+                  {%- assign wearth_swatch_hex = '#6d1f2d' -%}
+                {%- when 'brown' -%}
+                  {%- assign wearth_swatch_hex = '#4a3226' -%}
+                {%- when 'dark brown' -%}
+                  {%- assign wearth_swatch_hex = '#4a3226' -%}
+                {%- when 'chocolate' -%}
+                  {%- assign wearth_swatch_hex = '#4a3226' -%}
+                {%- when 'light brown' -%}
+                  {%- assign wearth_swatch_hex = '#a67c52' -%}
+                {%- when 'tan' -%}
+                  {%- assign wearth_swatch_hex = '#a67c52' -%}
+                {%- when 'camel' -%}
+                  {%- assign wearth_swatch_hex = '#a67c52' -%}
+                {%- when 'olive' -%}
+                  {%- assign wearth_swatch_hex = '#6f6a4f' -%}
+                {%- when 'olive green' -%}
+                  {%- assign wearth_swatch_hex = '#6f6a4f' -%}
+                {%- when 'navy' -%}
+                  {%- assign wearth_swatch_hex = '#1f2a38' -%}
+                {%- when 'navy blue' -%}
+                  {%- assign wearth_swatch_hex = '#1f2a38' -%}
+                {%- when 'beige' -%}
+                  {%- assign wearth_swatch_hex = '#c4b8a8' -%}
+                {%- when 'sand' -%}
+                  {%- assign wearth_swatch_hex = '#c4b8a8' -%}
+                {%- when 'stone' -%}
+                  {%- assign wearth_swatch_hex = '#c4b8a8' -%}
+                {%- when 'grey' -%}
+                  {%- assign wearth_swatch_hex = '#5c5a56' -%}
+                {%- when 'gray' -%}
+                  {%- assign wearth_swatch_hex = '#5c5a56' -%}
+                {%- when 'charcoal' -%}
+                  {%- assign wearth_swatch_hex = '#5c5a56' -%}
+              {%- endcase -%}
+              {%- assign wearth_color_available = false -%}
+              {%- assign wearth_color_has_media = false -%}
+              {%- for variant in card_product.variants -%}
+                {%- assign wearth_variant_color = variant.option1 -%}
+                {%- if wearth_color_key == 'option2' -%}
+                  {%- assign wearth_variant_color = variant.option2 -%}
+                {%- elsif wearth_color_key == 'option3' -%}
+                  {%- assign wearth_variant_color = variant.option3 -%}
+                {%- endif -%}
+                {%- if wearth_variant_color == value -%}
+                  {%- if variant.available -%}
+                    {%- assign wearth_color_available = true -%}
+                  {%- endif -%}
+                  {%- if variant.featured_media != blank or variant.image != blank -%}
+                    {%- assign wearth_color_has_media = true -%}
+                  {%- endif -%}
+                {%- endif -%}
+              {%- endfor -%}
+              {%- comment -%} WEARTH_COLOR_MEDIA_FULL_PRODUCT: collection cards may truncate media — use all_products {%- endcomment -%}
+              {%- comment -%} WEARTH_CM_USE_MJ_FULL {%- endcomment -%}
+              {%- if card_product.handle == 'mens-everyday-joggers' -%}
+                {%- assign wearth_cm_full_product = wearth_mj_full -%}
+              {%- else -%}
+                {%- assign wearth_cm_full_product = all_products[card_product.handle] | default: card_product -%}
+              {%- endif -%}
+              {%- comment -%} WEARTH_COLOR_MEDIA_RESOLVE: alt-tagged media counts as swatch image {%- endcomment -%}
+              {%- unless wearth_color_has_media -%}
+                {%- assign wearth_cm_card_alt = 'CARD:' | append: value -%}
+                {%- for m in wearth_cm_full_product.media -%}
+                  {%- if m.media_type == 'image' and m.alt == wearth_cm_card_alt -%}
+                    {%- assign wearth_color_has_media = true -%}
+                    {%- break -%}
+                  {%- endif -%}
+                {%- endfor -%}
+              {%- endunless -%}
+              {%- unless wearth_color_has_media -%}
+                {%- assign wearth_cm_pdp02 = 'PDP:' | append: value | append: '-02' -%}
+                {%- assign wearth_cm_pdp03 = 'PDP:' | append: value | append: '-03' -%}
+                {%- assign wearth_cm_pdp01 = 'PDP:' | append: value | append: '-01' -%}
+                {%- assign wearth_cm_pdp = 'PDP:' | append: value -%}
+                {%- for m in wearth_cm_full_product.media -%}
+                  {%- if m.media_type == 'image' -%}
+                    {%- assign m_alt = m.alt | default: '' -%}
+                    {%- if m_alt == wearth_cm_pdp02 or m_alt == wearth_cm_pdp03 or m_alt == wearth_cm_pdp01 or m_alt == wearth_cm_pdp -%}
+                      {%- assign wearth_color_has_media = true -%}
+                      {%- break -%}
+                    {%- endif -%}
+                  {%- endif -%}
+                {%- endfor -%}
+              {%- endunless -%}
+              {%- comment -%} WEARTH_COLOR_GATE_AVAILABLE_ONLY {%- endcomment -%}
+              {%- if wearth_color_available -%}
+              {%- assign wearth_color_image = wearth_color_variant.featured_media | default: wearth_color_variant.image | default: card_product.featured_media -%}
+              {%- comment -%} WEARTH_MOTION_TEE_CARD_MODEL_IMG: Motion Tee swatches use PDP model shots (-02/-03), not -01 fabric {%- endcomment -%}
+              {%- if card_product.handle == 'men-raglan-tshirt' -%}
+                {%- assign wearth_mt_full = all_products['men-raglan-tshirt'] -%}
+                {%- assign wearth_color_image = blank -%}
+                {%- assign wearth_mt_pdp_alt = 'PDP:' | append: value | append: '-02' -%}
+                {%- for m in wearth_mt_full.media -%}
+                  {%- if m.media_type == 'image' and m.alt == wearth_mt_pdp_alt -%}
+                    {%- assign wearth_color_image = m -%}
+                    {%- break -%}
+                  {%- endif -%}
+                {%- endfor -%}
+                {%- if wearth_color_image == blank -%}
+                  {%- assign wearth_mt_pdp_alt = 'PDP:' | append: value | append: '-03' -%}
+                  {%- for m in wearth_mt_full.media -%}
+                    {%- if m.media_type == 'image' and m.alt == wearth_mt_pdp_alt -%}
+                      {%- assign wearth_color_image = m -%}
+                      {%- break -%}
+                    {%- endif -%}
+                  {%- endfor -%}
+                {%- endif -%}
+                {%- if wearth_color_image == blank -%}
+                  {%- assign wearth_color_image = wearth_color_variant.featured_media | default: wearth_color_variant.image | default: card_product.featured_media -%}
+                {%- endif -%}
+              {%- endif -%}
+              {%- comment -%} WEARTH_EDGE_TANK_CARD_MODEL_IMG: Edge Tank swatches — PDP:-02 model, single PDP, CARD fallback {%- endcomment -%}
+              {%- if card_product.handle == 'sleeveless-regular-fit-tshirt-men' -%}
+                {%- assign wearth_et_full = all_products['sleeveless-regular-fit-tshirt-men'] -%}
+                {%- assign wearth_color_image = blank -%}
+                {%- assign wearth_et_pdp_alt = 'PDP:' | append: value | append: '-02' -%}
+                {%- for m in wearth_et_full.media -%}
+                  {%- if m.media_type == 'image' and m.alt == wearth_et_pdp_alt -%}
+                    {%- assign wearth_color_image = m -%}
+                    {%- break -%}
+                  {%- endif -%}
+                {%- endfor -%}
+                {%- if wearth_color_image == blank -%}
+                  {%- assign wearth_et_pdp_alt = 'PDP:' | append: value | append: '-03' -%}
+                  {%- for m in wearth_et_full.media -%}
+                    {%- if m.media_type == 'image' and m.alt == wearth_et_pdp_alt -%}
+                      {%- assign wearth_color_image = m -%}
+                      {%- break -%}
+                    {%- endif -%}
+                  {%- endfor -%}
+                {%- endif -%}
+                {%- if wearth_color_image == blank -%}
+                  {%- assign wearth_et_pdp_alt = 'PDP:' | append: value -%}
+                  {%- for m in wearth_et_full.media -%}
+                    {%- if m.media_type == 'image' and m.alt == wearth_et_pdp_alt -%}
+                      {%- assign wearth_color_image = m -%}
+                      {%- break -%}
+                    {%- endif -%}
+                  {%- endfor -%}
+                {%- endif -%}
+                {%- if wearth_color_image == blank -%}
+                  {%- assign wearth_color_image = wearth_color_variant.featured_media | default: wearth_color_variant.image | default: card_product.featured_media -%}
+                {%- endif -%}
+              {%- endif -%}
+              {%- comment -%} WEARTH_COLOR_MEDIA_RESOLVE: generic CARD → PDP model → variant fallback {%- endcomment -%}
+              {%- unless card_product.handle == 'men-raglan-tshirt' or card_product.handle == 'sleeveless-regular-fit-tshirt-men' -%}
+                {%- assign wearth_cm_resolved = blank -%}
+                {%- assign wearth_cm_card_alt = 'CARD:' | append: value -%}
+                {%- for m in wearth_cm_full_product.media -%}
+                  {%- if m.media_type == 'image' and m.alt == wearth_cm_card_alt -%}
+                    {%- assign wearth_cm_resolved = m -%}
+                    {%- break -%}
+                  {%- endif -%}
+                {%- endfor -%}
+                {%- if wearth_cm_resolved == blank -%}
+                  {%- assign wearth_cm_pdp_alt = 'PDP:' | append: value | append: '-02' -%}
+                  {%- for m in wearth_cm_full_product.media -%}
+                    {%- if m.media_type == 'image' and m.alt == wearth_cm_pdp_alt -%}
+                      {%- assign wearth_cm_resolved = m -%}
+                      {%- break -%}
+                    {%- endif -%}
+                  {%- endfor -%}
+                {%- endif -%}
+                {%- if wearth_cm_resolved == blank -%}
+                  {%- assign wearth_cm_pdp_alt = 'PDP:' | append: value | append: '-03' -%}
+                  {%- for m in wearth_cm_full_product.media -%}
+                    {%- if m.media_type == 'image' and m.alt == wearth_cm_pdp_alt -%}
+                      {%- assign wearth_cm_resolved = m -%}
+                      {%- break -%}
+                    {%- endif -%}
+                  {%- endfor -%}
+                {%- endif -%}
+                {%- if wearth_cm_resolved == blank -%}
+                  {%- assign wearth_cm_pdp_alt = 'PDP:' | append: value | append: '-01' -%}
+                  {%- for m in wearth_cm_full_product.media -%}
+                    {%- if m.media_type == 'image' and m.alt == wearth_cm_pdp_alt -%}
+                      {%- assign wearth_cm_resolved = m -%}
+                      {%- break -%}
+                    {%- endif -%}
+                  {%- endfor -%}
+                {%- endif -%}
+                {%- if wearth_cm_resolved == blank -%}
+                  {%- assign wearth_cm_pdp_alt = 'PDP:' | append: value -%}
+                  {%- for m in wearth_cm_full_product.media -%}
+                    {%- if m.media_type == 'image' and m.alt == wearth_cm_pdp_alt -%}
+                      {%- assign wearth_cm_resolved = m -%}
+                      {%- break -%}
+                    {%- endif -%}
+                  {%- endfor -%}
+                {%- endif -%}
+                {%- if wearth_cm_resolved != blank -%}
+                  {%- assign wearth_color_image = wearth_cm_resolved -%}
+                {%- endif -%}
+              {%- endunless -%}
+              {%- assign cval_video_url = '' -%}
+              {%- unless card_product.handle == 'men-raglan-tshirt' or card_product.handle == 'sleeveless-regular-fit-tshirt-men' or card_product.handle == 'mens-everyday-joggers' -%}
+              {%- assign cval_alt = 'VARIANT:' | append: value -%}
+              {%- for m in card_product.media -%}
+                {%- if m.media_type == 'video' and m.alt == cval_alt -%}
+                  {%- for src in m.sources -%}
+                    {%- if src.format == 'mp4' or src.mime_type contains 'mp4' -%}
+                      {%- assign cval_video_url = src.url -%}
+                      {%- if cval_video_url contains '//' -%}
+                        {%- unless cval_video_url contains 'https:' -%}
+                          {%- assign cval_video_url = cval_video_url | prepend: 'https:' -%}
+                        {%- endunless -%}
+                      {%- endif -%}
+                      {%- break -%}
+                    {%- endif -%}
+                  {%- endfor -%}
+                  {%- break -%}
+                {%- endif -%}
+              {%- endfor -%}
+              {%- endunless -%}
+              <button
+                type="button"
+                class="wearth-phase1-color-dot{% if value == wearth_default_color %} is-active{% endif %}"
+                data-wearth-phase1-color-dot
+                data-color="{{ value | escape }}"
+                data-variant-id="{{ wearth_color_variant.id }}"
+                data-variant-video="{{ cval_video_url }}"
+                data-image-src="{{ wearth_color_image | img_url: '533x' }}"
+                data-image-srcset="{{ wearth_color_image | img_url: '360x' }} 360w, {{ wearth_color_image | img_url: '533x' }} 533w, {{ wearth_color_image | img_url: '720x' }} 720w"
+                aria-label="{{ value | escape }}"
+                aria-pressed="{% if value == wearth_default_color %}true{% else %}false{% endif %}"
+                {% if wearth_swatch_hex != blank %}style="background-color: {{ wearth_swatch_hex }};"{% endif %}
+              >
+                <span class="wearth-phase1-color-dot__label">{{ value }}</span>
+              </button>
+              {%- endif -%}
+            {%- endif -%}
+          {%- endfor -%}
+        {%- endif -%}
+      {%- endfor -%}
+    </div>
+
+    <div class="card__content card">
+      <div class="card__information">
+        <h3 class="card__heading">
+          <a href="{{ wearth_default_url }}" class="full-unstyled-link wearth-phase1-pdp-link" data-wearth-phase1-link>{{ card_product.title }}</a>
+        </h3>
+        {%- if wearth_card_hook != blank -%}
+          <span class="wearth-card-hook" style="display:block;font-size:11px;letter-spacing:.08em;color:#6b5d4f;margin:2px 0 4px;font-weight:500;">{{ wearth_card_hook }}</span>
+        {%- endif -%}
+        {%- assign wearth_comp_line = '95% Eucalyptus · 0% Polyester' -%}
+        <span class="wearth-card-comp" style="display:block;font-size:10px;letter-spacing:.09em;color:#c4a15f;font-weight:500;text-transform:uppercase;margin:0 0 4px;">{{ wearth_comp_line }}</span>
+        <div class="card-information">
+          <a href="{{ wearth_default_url }}" class="wearth-card-price-link wearth-phase1-pdp-link" data-wearth-phase1-link><span class="price-item">{{ card_product.price | money }}</span></a>
+        </div>
+        <div class="wearth-card-actions">
+          <button type="button" class="wearth-card-action-btn wearth-card-action-atc wearth-phase1-atc" data-wearth-phase1-atc>
+            Add to cart
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{%- if wearth_card_video and wearth_card_mp4_url != '' -%}
+<script>
+(function () {
+  var card = document.getElementById('variant_image_{{ card_product.id }}');
+  if (!card) return;
+  var video = card.querySelector('[data-wearth-card-video]');
+  if (!video) return;
+  card.classList.add('wearth-phase1-card--video-active', 'wearth-phase1-card--video-playing');
+  video.classList.add('wearth-card-video--playing');
+  function playLoop() {
+    try {
+      var p = video.play();
+      if (p && p.catch) p.catch(function () {});
+    } catch (e) {}
+  }
+  if (video.readyState >= 2) playLoop();
+  else video.addEventListener('loadeddata', playLoop, { once: true });
+  if ('IntersectionObserver' in window) {
+    var io = new IntersectionObserver(function (entries) {
+      if (entries[0] && entries[0].isIntersecting) playLoop();
+      else try { video.pause(); } catch (e2) {}
+    }, { threshold: 0.15, rootMargin: '40px' });
+    io.observe(card);
+  }
+})();
+</script>
+{%- endif -%}

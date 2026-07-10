@@ -1,0 +1,107 @@
+.wearth-first-set-block {
+  --wfs-ink: #25211c;
+  --wfs-muted: #675f55;
+  --wfs-cream: #faf7f2;
+  --wfs-line: rgba(37, 33, 28, 0.14);
+  background: var(--wfs-cream);
+  color: var(--wfs-ink);
+  padding: clamp(40px, 6vw, 72px) clamp(16px, 4vw, 48px);
+}
+
+.wearth-first-set-block__inner {
+  width: min(100%, 1080px);
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(280px, 420px) minmax(0, 1fr);
+  gap: clamp(24px, 4vw, 56px);
+  align-items: center;
+  background: #fffaf2;
+  border: 1px solid var(--wfs-line);
+}
+
+.wearth-first-set-block__media {
+  display: block;
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
+  background: #eee6da;
+}
+
+.wearth-first-set-block__image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.wearth-first-set-block__copy {
+  padding: clamp(20px, 4vw, 48px) clamp(20px, 4vw, 48px) clamp(20px, 4vw, 48px) 0;
+}
+
+.wearth-first-set-block__kicker {
+  margin: 0 0 10px;
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--wfs-muted);
+}
+
+.wearth-first-set-block__heading {
+  margin: 0;
+  font-size: clamp(28px, 4vw, 52px);
+  line-height: 1.05;
+  font-weight: 500;
+}
+
+.wearth-first-set-block__text {
+  margin: 16px 0 0;
+  max-width: 520px;
+  font-size: 16px;
+  line-height: 1.72;
+  color: var(--wfs-muted);
+}
+
+.wearth-first-set-block__offer {
+  display: grid;
+  gap: 8px;
+  margin: 22px 0 0;
+  padding: 16px 0;
+  border-top: 1px solid var(--wfs-line);
+  border-bottom: 1px solid var(--wfs-line);
+}
+
+.wearth-first-set-block__offer strong {
+  font-size: 18px;
+  font-weight: 500;
+}
+
+.wearth-first-set-block__offer span {
+  font-size: 14px;
+  color: var(--wfs-muted);
+}
+
+.wearth-first-set-block__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 22px;
+  min-height: 48px;
+  padding: 0 28px;
+  border: 1px solid var(--wfs-ink);
+  background: var(--wfs-ink);
+  color: #fffaf2 !important;
+  -webkit-text-fill-color: #fffaf2;
+  text-decoration: none;
+  font-size: 14px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+@media (max-width: 749px) {
+  .wearth-first-set-block__inner {
+    grid-template-columns: 1fr;
+  }
+
+  .wearth-first-set-block__copy {
+    padding: 0 clamp(20px, 4vw, 28px) clamp(24px, 4vw, 32px);
+  }
+}
