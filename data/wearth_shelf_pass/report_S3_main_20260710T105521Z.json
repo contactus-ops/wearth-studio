@@ -1,0 +1,12 @@
+{
+  "step": "S3",
+  "stamp": "20260710T105521Z",
+  "note": "main-product only; foundation CSS already pushed",
+  "files": [
+    {
+      "file": "sections/main-product.liquid",
+      "bytes_before": 95875,
+      "bytes_after": 99408
+    }
+  ]
+}

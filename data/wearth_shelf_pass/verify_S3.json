@@ -1,0 +1,63 @@
+{
+  "results": [
+    {
+      "name": "the-first-set",
+      "url": "https://www.wearthactive.com/products/the-first-set",
+      "base": {
+        "bar_present": true,
+        "atc_present": true,
+        "btn_label": "Add to Bag",
+        "form_attr": "product-form-template--17842631475380__main8074038378676",
+        "form_exists": true,
+        "price_initial": "Rs. 4,999.00",
+        "visible_before_scroll": true,
+        "z_index": "3200"
+      },
+      "after_scroll": {
+        "visible_after_scroll": true,
+        "aria_hidden": "false",
+        "display": "flex",
+        "z_index": "3200",
+        "price": "Rs. 4,999.00",
+        "btn_disabled": false
+      },
+      "variant_probe": {
+        "select_count": 0,
+        "price_before": "Rs. 4,999.00",
+        "id_before": "44253630529716",
+        "after": {
+          "price_after": "Rs. 4,999.00",
+          "id_after": "44253630562484"
+        }
+      },
+      "page_errors": [],
+      "pass": true
+    },
+    {
+      "name": "the-off-duty-short",
+      "url": "https://www.wearthactive.com/products/the-off-duty-short",
+      "base": {
+        "bar_present": true,
+        "atc_present": true,
+        "btn_label": "Add to Bag",
+        "form_attr": "product-form-template--17842631475380__main8075372036276",
+        "form_exists": true,
+        "price_initial": "Rs. 3,299.00",
+        "visible_before_scroll": true,
+        "z_index": "3200"
+      },
+      "after_scroll": {
+        "visible_after_scroll": true,
+        "aria_hidden": "false",
+        "display": "flex",
+        "z_index": "3200",
+        "price": "Rs. 3,299.00",
+        "btn_disabled": false
+      },
+      "variant_probe": {},
+      "page_errors": [],
+      "pass": true
+    }
+  ],
+  "all_pass": true
+}

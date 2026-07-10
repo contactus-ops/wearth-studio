@@ -1,0 +1,1808 @@
+{%- comment -%} wearth-real-bodies-pdp-v1 20260605T095722Z {%- endcomment -%}
+<link rel="stylesheet" href="{{ 'component-pickup-availability.css' | asset_url }}">
+<link rel="stylesheet" href="{{ 'section-main-product.css' | asset_url }}">
+<link rel="stylesheet" href="{{ 'rte.css' | asset_url }}">
+{% if product.media.size > 1 or section.settings.gallery_layout == 'thumbnail_slider' %}
+<link rel="stylesheet" href="{{ 'component-slider.css' | asset_url }}">
+{% endif %}
+<link rel="stylesheet" href="{{ 'component-deferred-media.css' | asset_url }}">
+{%- if settings.cart_type == 'drawer' -%}<script src="{{ 'wearth-product-form-atc-fix.js' | asset_url }}" defer="defer"></script><script src="{{ 'product-form.js' | asset_url }}" defer="defer"></script>{%- endif -%}
+
+{%- style -%}
+  .section-{{ section.id }}{
+    background: {{ section.settings.background }};
+  }
+  .video-wrapper {
+    width:100%;
+    overflow: hidden;
+  }
+  .video-wrapper video {
+    object-fit: cover;
+    width:100%;
+    height:auto;
+  }
+  {% if section.settings.enable_sticky_info %}
+  @media screen and (min-width: 750px){
+    .template-product{
+        padding-bottom: 80px;
+    }
+  }
+  {% endif %}
+  .ProductForm__Inventory {
+    color: {{ settings.sold_out_badge_color }};
+  }
+  .ProductForm__Inventory svg {
+    fill: {{ settings.sold_out_badge_color }};
+  }
+  {%- if section.settings.enable_size_chart -%}
+  .product-section variant-radios .product-form__input.variant_size {
+    margin-bottom: 5rem !important;
+    position: relative;
+  }
+  {% endif %}
+  @media screen and (max-width: 767px) {
+    .section-{{ section.id }}{
+      padding: 15px;
+    }
+  }
+{%- endstyle -%}
+
+
+{%- assign first_3d_model = product.media | where: "media_type", "model" | first -%}
+{%- if first_3d_model -%}
+  <link rel="stylesheet" href="{{ 'component-product-model.css' | asset_url }}">
+  <link id="ModelViewerStyle" rel="stylesheet" href="https://cdn.shopify.com/shopifycloud/model-viewer-ui/assets/v1.0/model-viewer-ui.css"  >
+  <link id="ModelViewerOverride" rel="stylesheet" href="{{ 'component-model-viewer-ui.css' | asset_url }}"  >
+{%- endif -%}
+
+<section class="section-{{ section.id }} product-section">
+  <div class="product product--{{ section.settings.media_size }} product--{{ section.settings.gallery_layout }} grid grid--1-col {% if product.media.size > 0 %}grid--2-col-tablet{% else %}product--no-media{% endif %}"
+        itemscope itemtype="http://schema.org/Product"
+        id="section-{{ section.id }}"
+        data-picker-type="{{ picker_type }}"
+        data-section-id="{{ section.id }}"
+        data-product-id="{{ product.id }}"
+        data-product-handle="{{ product.handle }}"
+        data-section-type="product-template"
+        data-thumbs-location="{{ thumbs_location }}"
+        data-product-first-available-variant="{{ product.selected_or_first_available_variant.featured_media }}"
+        data-image-zoom-type="true"
+        data-enable-history-state="true"
+        data-product-selector="select">
+    
+    <div class="grid__item product__media-wrapper">
+      <media-gallery id="MediaGallery-{{ section.id }}" product-image="{{ product.media.size }}" role="region" {% if section.settings.enable_sticky_info %}class="product__media-gallery"{% endif %} aria-label="{{ 'products.product.media.gallery_viewer' | t }}" data-desktop-layout="{{ section.settings.gallery_layout }}">
+        <div id="GalleryStatus-{{ section.id }}" class="visually-hidden" role="status"></div>
+        <slider-component id="GalleryViewer-{{ section.id }}" class="slider-mobile-gutter {%- if section.settings.gallery_layout == 'stacked' -%}stack-images{%- endif -%}">
+          <a class="skip-to-content-link button visually-hidden" href="#ProductInfo-{{ section.id }}">
+            {{ "accessibility.skip_to_product_info" | t }}
+          </a>
+          <ul id="my-gallery" class="pswp-gallery product__media-list grid grid--peek list-unstyled slider slider--mobile" role="list">
+            {%- liquid
+              assign variant_images = product.images | where: 'attached_to_variant?', true | map: 'src'
+              assign media_count = product.media.size
+
+              if section.settings.media_size == 'large'
+                assign media_width = 0.65
+              elsif section.settings.media_size == 'medium'
+                assign media_width = 0.55
+              elsif section.settings.media_size == 'small'
+                assign media_width = 0.45
+              endif
+            -%}
+            {%- assign wearth_hero_preloaded = false -%}
+            {%- for wearth_media in product.media -%}
+              {%- if wearth_hero_preloaded -%}{%- break -%}{%- endif -%}
+              {%- if wearth_media.alt contains 'CARD:' or wearth_media.alt contains 'VARIANT:' -%}{%- continue -%}{%- endif -%}
+              {%- if wearth_media.media_type != 'image' -%}{%- continue -%}{%- endif -%}
+              <link
+                rel="preload"
+                as="image"
+                href="{{ wearth_media.preview_image | image_url: width: 823 }}"
+                imagesrcset="{{ wearth_media.preview_image | image_url: width: 550 }} 550w, {{ wearth_media.preview_image | image_url: width: 823 }} 823w{% if wearth_media.preview_image.width >= 1100 %}, {{ wearth_media.preview_image | image_url: width: 1100 }} 1100w{% endif %}"
+                imagesizes="100vw"
+                fetchpriority="high">
+              {%- assign wearth_hero_preloaded = true -%}
+            {%- endfor -%}
+            {%- if product.selected_or_first_available_variant.featured_media != null -%}
+              {%- assign featured_media = product.selected_or_first_available_variant.featured_media -%}
+              {%- unless featured_media.alt contains 'VARIANT:' -%}
+              <li id="Slide-{{ section.id }}-{{ featured_media.id }}" class="product__media-item grid__item slider__slide is-active{% if featured_media.media_type != 'image' %} product__media-item--full{% endif %}{% if section.settings.hide_variants and variant_images contains featured_media.src %} product__media-item--variant{% endif %}" data-media-id="{{ section.id }}-{{ featured_media.id }}">
+                {%- assign media_position = 1 -%}
+                {% render 'product-thumbnail', media: featured_media, position: media_position, loop: section.settings.enable_video_looping, modal_id: section.id, xr_button: true, media_width: media_width, lazy_load: false %}
+              </li>
+              {%- endunless -%}
+            {%- endif -%}
+            {%- for media in product.media -%}
+              {%- if media.alt contains 'CARD:' or media.alt contains 'VARIANT:' -%}{%- continue -%}{%- endif -%}
+              {%- unless media.id == product.selected_or_first_available_variant.featured_media.id -%}
+                <li id="Slide-{{ section.id }}-{{ media.id }}" class="product__media-item grid__item slider__slide{% if product.selected_or_first_available_variant.featured_media == null and forloop.index == 1 %} is-active{% endif %}{% if media.media_type != 'image' %} product__media-item--full{% endif %}{% if section.settings.hide_variants and variant_images contains media.src %} product__media-item--variant{% endif %}" data-media-id="{{ section.id }}-{{ media.id }}">
+                  {%- assign media_position = media_position | default: 0 | plus: 1 -%}
+                  {%- assign thumb_lazy = true -%}
+                  {%- if media_position == 1 -%}
+                    {%- assign thumb_lazy = false -%}
+                  {%- endif -%}
+                  {% render 'product-thumbnail', media: media, position: media_position, loop: section.settings.enable_video_looping, modal_id: section.id, xr_button: true, media_width: media_width, lazy_load: thumb_lazy %}
+                </li>
+              {%- endunless -%}
+            {%- endfor -%}
+          </ul>
+        </slider-component>
+        {%- if media_count > 1 and section.settings.gallery_layout != 'stacked' -%}
+          <slider-component id="GalleryThumbnails-{{ section.id }}" class="thumbnail-slider slider-mobile-gutter quick-add-hidden {% if media_count <= 3 %} thumbnail-slider--no-slide{% endif %}">
+            <button type="button" class="link slide-arrow prev-arrow slider-button slider-button--prev{% if media_count <= 3 %} small-hide{% endif %}{% if media_count <= 4 %} medium-hide large-up-hide{% endif %}" name="previous" aria-label="{{ 'general.slider.previous_slide' | t }}" aria-controls="GalleryThumbnails-{{ section.id }}" data-step="3">
+               <svg xmlns="http://www.w3.org/2000/svg" class="icon icon-caret" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1" viewBox="0 0 256 256" xml:space="preserve"><g style="stroke: none; stroke-width: 0; stroke-dasharray: none; stroke-linecap: butt; stroke-linejoin: miter; stroke-miterlimit: 10; fill: none; fill-rule: nonzero; opacity: 1;" transform="translate(1.4065934065934016 1.4065934065934016) scale(2.81 2.81)" ><path d="M 65.75 90 c 0.896 0 1.792 -0.342 2.475 -1.025 c 1.367 -1.366 1.367 -3.583 0 -4.949 L 29.2 45 L 68.225 5.975 c 1.367 -1.367 1.367 -3.583 0 -4.95 c -1.367 -1.366 -3.583 -1.366 -4.95 0 l -41.5 41.5 c -1.367 1.366 -1.367 3.583 0 4.949 l 41.5 41.5 C 63.958 89.658 64.854 90 65.75 90 z" style="stroke: none; stroke-width: 1; stroke-dasharray: none; stroke-linecap: butt; stroke-linejoin: miter; stroke-miterlimit: 10; fill: rgb(0,0,0); fill-rule: nonzero; opacity: 1;" transform=" matrix(1 0 0 1 0 0) " stroke-linecap="round" /></g></svg>
+            </button>
+            <ul id="Slider-Thumbnails-{{ section.id }}" class="thumbnail-list list-unstyled slider slider--mobile{% if section.settings.gallery_layout == 'thumbnail_slider' %} slider--tablet-up{% endif %}">
+              {%- if featured_media != null -%}
+                {%- unless featured_media.alt contains 'VARIANT:' -%}
+                {%- liquid
+                  capture media_index
+                    if featured_media.media_type == 'model'
+                      increment model_index
+                    elsif featured_media.media_type == 'video' or featured_media.media_type == 'external_video'
+                      increment video_index
+                    elsif featured_media.media_type == 'image'
+                      increment image_index
+                    endif
+                  endcapture
+                  assign media_index = media_index | plus: 1
+                -%}
+                <li id="Slide-Thumbnails-{{ section.id }}-0" class="thumbnail-list__item slider__slide{% if section.settings.hide_variants and variant_images contains featured_media.src %} thumbnail-list_item--variant{% endif %}" data-target="{{ section.id }}-{{ featured_media.id }}" data-media-position="{{ media_index }}">
+                   <button class="thumbnail global-media-settings global-media-settings--no-shadow {% if featured_media.preview_image.aspect_ratio > 1 %}thumbnail--wide{% else %}thumbnail--narrow{% endif %}"
+                    aria-label="{%- if featured_media.media_type == 'image' -%}{{ 'products.product.media.load_image' | t: index: media_index }}{%- elsif featured_media.media_type == 'model' -%}{{ 'products.product.media.load_model' | t: index: media_index }}{%- elsif featured_media.media_type == 'video' or featured_media.media_type == 'external_video' -%}{{ 'products.product.media.load_video' | t: index: media_index }}{%- endif -%}"
+                    aria-current="true"
+                    aria-controls="GalleryViewer-{{ section.id }}"
+                    aria-describedby="Thumbnail-{{ section.id }}-0"
+                  >
+                    <img id="Thumbnail-{{ section.id }}-0" srcset="{% if featured_media.preview_image.width >= 54 %}{{ featured_media.preview_image | image_url: width: 54 }} 54w,{% endif %}
+                      {% if featured_media.preview_image.width >= 74 %}{{ featured_media.preview_image | image_url: width: 74 }} 74w,{% endif %}
+                      {% if featured_media.preview_image.width >= 104 %}{{ featured_media.preview_image | image_url: width: 104 }} 104w,{% endif %}
+                      {% if featured_media.preview_image.width >= 162 %}{{ featured_media.preview_image | image_url: width: 162 }} 162w,{% endif %}
+                      {% if featured_media.preview_image.width >= 208 %}{{ featured_media.preview_image | image_url: width: 208 }} 208w,{% endif %}
+                      {% if featured_media.preview_image.width >= 324 %}{{ featured_media.preview_image | image_url: width: 324 }} 324w,{% endif %}
+                      {% if featured_media.preview_image.width >= 416 %}{{ featured_media.preview_image | image_url: width: 416 }} 416w,{% endif %},
+                      {{ featured_media.preview_image | image_url }} {{ media.preview_image.width }}w"
+                      src="{{ featured_media | image_url: width: 416 }}"
+                      sizes="(min-width: {{ settings.page_width }}px) calc(({{ settings.page_width | minus: 100 | times: media_width | round }} - 4rem) / 4), (min-width: 990px) calc(({{ media_width | times: 100 }}vw - 4rem) / 4), (min-width: 750px) calc((100vw - 15rem) / 8), calc((100vw - 14rem) / 3)"
+                      alt="{{ featured_media.alt | escape }}"
+                      height="208"
+                      width="208"
+                      loading="lazy"
+                    >
+                  </button>
+                </li>
+                {%- endunless -%}
+              {%- endif -%}
+              {%- for media in product.media -%}
+                {%- if media.alt contains 'CARD:' or media.alt contains 'VARIANT:' -%}{%- continue -%}{%- endif -%}
+                {%- unless media.id == product.selected_or_first_available_variant.featured_media.id -%}
+                  {%- liquid
+                    capture media_index
+                      if media.media_type == 'model'
+                        increment model_index
+                      elsif media.media_type == 'video' or media.media_type == 'external_video'
+                        increment video_index
+                      elsif media.media_type == 'image'
+                        increment image_index
+                      endif
+                    endcapture
+                    assign media_index = media_index | plus: 1
+                  -%}
+                   <li id="Slide-Thumbnails-{{ section.id }}-{{ forloop.index }}" class="thumbnail-list__item slider__slide{% if section.settings.hide_variants and variant_images contains media.src %} thumbnail-list_item--variant{% endif %}" data-target="{{ section.id }}-{{ media.id }}"  data-media-position="{{ media_index }}">
+                    {%- if media.media_type == 'model' -%}
+                      <span class="thumbnail__badge" aria-hidden="true">
+                        {%- render 'icon' with '3d-model' -%}
+                      </span>
+                    {%- elsif media.media_type == 'video' or media.media_type == 'external_video' -%}
+                      <span class="thumbnail__badge" aria-hidden="true">
+                        {%- render 'icon' with 'play' -%}
+                      </span>
+                    {%- endif -%}
+                    <button class="thumbnail global-media-settings global-media-settings--no-shadow {% if media.preview_image.aspect_ratio > 1 %}thumbnail--wide{% else %}thumbnail--narrow{% endif %}"
+                      aria-label="{%- if media.media_type == 'image' -%}{{ 'products.product.media.load_image' | t: index: media_index }}{%- elsif media.media_type == 'model' -%}{{ 'products.product.media.load_model' | t: index: media_index }}{%- elsif media.media_type == 'video' or media.media_type == 'external_video' -%}{{ 'products.product.media.load_video' | t: index: media_index }}{%- endif -%}"
+                      {% if media == product.selected_or_first_available_variant.featured_media or product.selected_or_first_available_variant.featured_media == null and forloop.index == 1 %} aria-current="true"{% endif %}
+                      aria-controls="GalleryViewer-{{ section.id }}"
+                      aria-describedby="Thumbnail-{{ section.id }}-{{ forloop.index }}"
+                    >
+                      <img id="Thumbnail-{{ section.id }}-{{ forloop.index }}"
+                        srcset="{% if media.preview_image.width >= 59 %}{{ media.preview_image | image_url: width: 59 }} 59x,{% endif %}
+                                {% if media.preview_image.width >= 118 %}{{ media.preview_image | image_url: width: 118 }} 118w,{% endif %}
+                                {% if media.preview_image.width >= 84 %}{{ media.preview_image | image_url: width: 84 }} 84w,{% endif %}
+                                {% if media.preview_image.width >= 168 %}{{ media.preview_image | image_url: width: 168 }} 168w,{% endif %}
+                                {% if media.preview_image.width >= 130 %}{{ media.preview_image | image_url: width: 130 }} 130w,{% endif %}
+                                {% if media.preview_image.width >= 260 %}{{ media.preview_image | image_url: width: 260 }} 260w{% endif %}"
+                        src="{{ media | image_url: width: 84, height: 84 }}"
+                        sizes="(min-width: 1200px) calc((1200px - 19.5rem) / 12), (min-width: 750px) calc((100vw - 16.5rem) / 8), calc((100vw - 8rem) / 5)"
+                        alt="{{ media.alt | escape }}"
+                        height="200"
+                        width="200"
+                        loading="lazy"
+                      >
+                    </button>
+                  </li>
+                {%- endunless -%}
+              {%- endfor -%}
+            </ul>
+            <button type="button" class="link slide-arrow next-arrow slider-button slider-button--next{% if media_count <= 3 %} small-hide{% endif %}{% if media_count <= 4 %} medium-hide large-up-hide{% endif %}" name="next" aria-label="{{ 'general.slider.next_slide' | t }}" aria-controls="GalleryThumbnails-{{ section.id }}" data-step="3">
+              <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1" class="icon icon-caret" viewBox="0 0 256 256" xml:space="preserve"><g style="stroke: none; stroke-width: 0; stroke-dasharray: none; stroke-linecap: butt; stroke-linejoin: miter; stroke-miterlimit: 10; fill: none; fill-rule: nonzero; opacity: 1;" transform="translate(1.4065934065934016 1.4065934065934016) scale(2.81 2.81)" ><path d="M 24.25 90 c -0.896 0 -1.792 -0.342 -2.475 -1.025 c -1.367 -1.366 -1.367 -3.583 0 -4.949 L 60.8 45 L 21.775 5.975 c -1.367 -1.367 -1.367 -3.583 0 -4.95 c 1.367 -1.366 3.583 -1.366 4.95 0 l 41.5 41.5 c 1.367 1.366 1.367 3.583 0 4.949 l -41.5 41.5 C 26.042 89.658 25.146 90 24.25 90 z" style="stroke: none; stroke-width: 1; stroke-dasharray: none; stroke-linecap: butt; stroke-linejoin: miter; stroke-miterlimit: 10; fill: rgb(0,0,0); fill-rule: nonzero; opacity: 1;" transform=" matrix(1 0 0 1 0 0) " stroke-linecap="round" /></g></svg>
+            </button>
+          </slider-component>
+        {%- endif -%}
+      </media-gallery>
+    </div>
+    <div class="product__info-wrapper {% if settings.page_width > 1400 and section.settings.media_size == 'small' %} product__info-wrapper--extra-padding{% endif %} qu_product">
+      <div id="ProductInfo-{{ section.id }}" class="product__info-container">
+        <div class="wearth-hormozi-guarantee-bar" data-wearth-hormozi-guarantee-bar role="note">
+          Try it for 30 days. If it is not the softest thing you own, full refund. Tags on, that is all we ask.
+        </div>
+
+        {%- assign product_form_id = 'product-form-' | append: section.id | append: product.id -%}
+          {% if section.settings.breadcrumb %}
+            {% include 'breadcrumbs' %}
+          {% endif %}
+        {%- for block in section.blocks -%}
+          {%- case block.type -%}
+          {%- when '@app' -%}
+            {% render block %}
+          {%- when 'text' -%}
+            <p class="product__text{% if block.settings.text_style == 'uppercase' %} caption-with-letter-spacing{% elsif block.settings.text_style == 'subtitle' %} subtitle{% endif %}" {{ block.shopify_attributes }}>
+              {{- block.settings.text -}}
+            </p>
+          {%- when 'title' -%}
+            <h1 class="product__title" {{ block.shopify_attributes }}>
+              {{ product.title | escape }}
+            </h1>
+            {%- render 'wearth-pdp-reviews-v2', product: product, section: section, wearth_reviews_part: 'summary' -%}
+            {%- assign wearth_hormozi_headline = '' -%}
+            {%- assign wearth_hormozi_sub = '' -%}
+            {%- case product.handle -%}
+              {%- when 'womens-everyday-joggers' -%}
+                {%- assign wearth_hormozi_headline = 'The pair you reach for on Sundays.' -%}
+                {%- assign wearth_hormozi_sub = 'And keep on through Monday.' -%}
+              {%- when 'the-off-hours-wide-leg' -%}
+                {%- assign wearth_hormozi_headline = 'Off-hours. On purpose.' -%}
+                {%- assign wearth_hormozi_sub = 'The wide-leg you live in when the day is yours.' -%}
+              {%- when 'mens-everyday-joggers' -%}
+                {%- assign wearth_hormozi_headline = 'Train in them. Travel in them. Forget you have them on.' -%}
+                {%- assign wearth_hormozi_sub = 'The pair that goes from the gym floor to the airport without changing.' -%}
+              {%- when 'men-raglan-tshirt' -%}
+                {%- assign wearth_hormozi_headline = 'The tee that breathes when you cannot.' -%}
+                {%- assign wearth_hormozi_sub = 'Raglan-cut, weightless, built for the hardest part of the session.' -%}
+              {%- when 'womens-biker-shorts' -%}
+                {%- assign wearth_hormozi_headline = 'No ride up. No Polyester/Nylon. No second thoughts.' -%}
+                {%- assign wearth_hormozi_sub = 'Mid-thigh, stays where you put it, breathes through everything.' -%}
+              {%- when 'terra-sports-bra' -%}
+                {%- assign wearth_hormozi_headline = 'Holds you. Never holds heat.' -%}
+                {%- assign wearth_hormozi_sub = 'Low-to-mid support in eucalyptus fibre. Worn all day, not just the session.' -%}
+              {%- when 'womens-tank-top' -%}
+                {%- assign wearth_hormozi_headline = 'The tank you forget you are wearing.' -%}
+                {%- assign wearth_hormozi_sub = 'Drapes instead of clings. Breathes from the first rep to the last.' -%}
+              {%- when 'womens-power-crop' -%}
+                {%- assign wearth_hormozi_headline = 'Built for the rep. Soft for the hours after.' -%}
+                {%- assign wearth_hormozi_sub = 'Structure that holds its shape through the work and softens the moment you stop.' -%}
+              {%- when 'sleeveless-regular-fit-tshirt-men' -%}
+                {%- assign wearth_hormozi_headline = 'Cut for shoulders that move.' -%}
+                {%- assign wearth_hormozi_sub = 'Wide dropped armhole. No Polyester/Nylon. Full range.' -%}
+              {%- when 'mens-essential-shorts' -%}
+                {%- assign wearth_hormozi_headline = 'One pair. Every single day.' -%}
+                {%- assign wearth_hormozi_sub = 'Light enough to forget. Clean enough for morning to evening.' -%}
+              {%- when 'the-first-set' -%}
+                {%- assign wearth_hormozi_headline = 'Stop buying pieces. Start with the set.' -%}
+                {%- assign wearth_hormozi_sub = 'Terra Bra and Biker Shorts in one move. ₹699 less than buying separate. Try at home for 30 days — tags on.' -%}
+              {%- when 'the-studio-crop' -%}
+                {%- assign wearth_hormozi_headline = 'Wide leg. Mid-calf. Zero plastic on skin.' -%}
+                {%- assign wearth_hormozi_sub = 'The cropped pant for class that still looks like cloth when you leave.' -%}
+              {%- when 'the-off-duty-short' -%}
+                {%- assign wearth_hormozi_headline = 'Off duty. Still put together.' -%}
+                {%- assign wearth_hormozi_sub = 'Plant fibre shorts that do not feel like gym gear on your sofa.' -%}
+              {%- when 'womens-essential-shorts' -%}
+                {%- assign wearth_hormozi_headline = 'Shorts that feel like Sunday.' -%}
+                {%- assign wearth_hormozi_sub = 'Plant fibre for heat, not performance theatre.' -%}
+              {%- when 'align-sports-bra' -%}
+                {%- assign wearth_hormozi_headline = 'The band disappears.' -%}
+                {%- assign wearth_hormozi_sub = 'Mid-support that holds without compressing. Breathes without thinning.' -%}
+            {%- endcase -%}
+            {%- if wearth_hormozi_headline != '' -%}
+              <div class="wearth-hormozi-identity" data-wearth-hormozi-identity>
+                <p class="wearth-hormozi-identity__headline">{{ wearth_hormozi_headline }}</p>
+                <p class="wearth-hormozi-identity__sub">{{ wearth_hormozi_sub }}</p>
+              </div>
+            {%- else -%}
+              {%- assign wearth_pdp_micro = '' -%}
+              {%- case product.handle -%}
+                {%- when 'align-sports-bra' -%}
+                  {%- assign wearth_pdp_micro = 'THE BAND DISAPPEARS' -%}
+                {%- when 'womens-biker-shorts' -%}
+                  {%- assign wearth_pdp_micro = 'STAYS WHERE YOU PUT IT' -%}
+                {%- when 'sleeveless-regular-fit-tshirt-men' -%}
+                  {%- assign wearth_pdp_micro = 'CUT FOR SHOULDERS' -%}
+                {%- when 'mens-essential-shorts' -%}
+                  {%- assign wearth_pdp_micro = 'EVERY DAY OF THE WEEK' -%}
+                {%- when 'womens-tank-top' -%}
+                  {%- assign wearth_pdp_micro = 'BREATHES THROUGH EVERYTHING' -%}
+                {%- when 'womens-power-crop' -%}
+                  {%- assign wearth_pdp_micro = 'QUIET STRENGTH' -%}
+                {%- when 'terra-sports-bra' -%}
+                  {%- assign wearth_pdp_micro = 'EARTH-GROUNDED HOLD' -%}
+                {%- else -%}
+                  {%- assign wearth_pdp_micro = 'TAGS ON · 30 DAYS' -%}
+
+              {%- endcase -%}
+              {%- if wearth_pdp_micro != '' -%}
+                <div class="wearth-pdp-microcopy">
+                  <span>{{ wearth_pdp_micro }}</span>
+                </div>
+              {%- endif -%}
+            {%- endif -%}
+          {%- when 'price' -%}
+            {%- if product.metafields.custom.card_hook != blank -%}
+              <p class="wearth-pdp-card-hook">{{ product.metafields.custom.card_hook }}</p>
+            {%- endif -%}
+            <div class="no-js-hidden" id="price-{{ product.id }}" role="status" {{ block.shopify_attributes }}>
+              {%- render 'price', product: product, product_save_amount: true, product_save_type: dollar, use_variant: true, show_badges: true, price_class: 'price--large' -%}
+            </div>
+            {%- if product.metafields.custom.card_hook != blank -%}
+              <p class="wearth-pdp-guarantee-line">30-day return. Full refund. Courier pickup at our cost.</p>
+            {%- endif -%}
+            <div class="wearth-pdp-offer-stack" aria-hidden="true">
+              <span class="wearth-offer-item">Zero polyester. Zero nylon.</span>
+              <span class="wearth-offer-dot">·</span>
+              <span class="wearth-offer-item">Free shipping</span>
+              <span class="wearth-offer-dot">·</span>
+              <span class="wearth-offer-item">Reusable cotton bag</span>
+              <span class="wearth-offer-dot">·</span>
+              <span class="wearth-offer-item">30-day return</span>
+            </div>
+            <style>.wearth-pdp-offer-stack{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;margin:6px 0 10px;font-size:10.5px;letter-spacing:.10em;text-transform:uppercase;color:#5a4f45;font-weight:500}.wearth-offer-dot{color:#c4a15f}</style>
+            {%- if cart.taxes_included or shop.shipping_policy.body != blank -%}
+              <div class="product__tax" style="color: #287c2a;">
+                {%- if cart.taxes_included -%}
+                  {{ 'products.product.include_taxes' | t }}
+                {%- endif -%}
+                {%- if shop.shipping_policy.body != blank -%}
+                  {{ 'products.product.shipping_policy_html' | t: link: shop.shipping_policy.url }}
+                {%- endif -%}
+              </div>
+            {%- endif -%}
+            <div {{ block.shopify_attributes }}>
+              {%- assign product_form_installment_id = 'product-form-installment-' | append: section.id -%}
+                {%- form 'product', product, id: product_form_installment_id, class: 'installment caption-large' -%}
+                  <input type="hidden" name="id" value="{{ product.selected_or_first_available_variant.id }}">
+                  {{ form | payment_terms }}
+                {%- endform -%}
+            </div>
+          {%- when 'trust-badge' -%}
+          {%- if block.settings.image != blank -%}
+            {% assign alt = block.settings.image.alt | default: shop.name | escape %}
+            {% assign title = block.settings.image.alt | default: shop.name | escape %}
+            {{ block.settings.image | image_url: width: block.settings.image.width | image_tag:
+              loading: 'lazy',
+              sizes: sizes,
+              data-sizes: 'auto',
+              alt: alt,
+              title: title,
+              class: 'Image--lazyLoad',
+              widths: '246, 493, 600, 713, 823, 990, 1000, 1500',
+              height: 'auto'
+            }}    
+          {%- endif -%}
+          {%- when 'description' -%}
+            {%- if product.description != blank -%}
+              <div class="product__description rte" data-wearth-pdp-description>
+                {{ product.description }}
+              </div>
+{%- endif -%}
+        <hr>
+          {%- when 'custom_liquid' -%}
+            {{ block.settings.custom_liquid }}
+          {%- when 'collapsible_tab' -%}
+            <link rel="stylesheet" href="{{ 'accordion.css' | asset_url }}">
+            <div class="wearth-pdp-block wearth-pdp-block--size-chart">
+            <div class="product__accordion accordion" {{ block.shopify_attributes }}>
+              <details id="Details-{{ block.id }}-{{ section.id }}">
+                <summary>
+                  <div class="summary__title">
+                    <h2 class="h4 accordion__title">
+                      {{ block.settings.heading | default: block.settings.page.title }}
+                    </h2>
+                  </div>
+                  {% render 'icon' with 'caret' %}
+                </summary>
+                <div class="accordion__content rte" id="ProductAccordion-{{ block.id }}-{{ section.id }}">
+                  {{ block.settings.content }}
+                  {%- comment -%} size-chart-per-product-v3 {%- endcomment -%}
+                  {%- if block.settings.page.handle == 'sizing-chart' -%}
+                    {% render 'wearth-size-chart-v2', product: product %}
+                  {%- elsif block.settings.page != blank -%}
+                    {{ block.settings.page.content }}
+                  {%- endif -%}
+                </div>
+              </details>
+            </div>
+            </div>
+          {%- when 'popup' -%}
+              <modal-opener class="product-popup-modal__opener no-js-hidden" data-modal="#PopupModal-{{ block.id }}" {{ block.shopify_attributes }}>
+                <button id="ProductPopup-{{ block.id }}" class="product-popup-modal__button" type="button" aria-haspopup="dialog">{{ block.settings.text | default: block.settings.page.title }}</button>
+              </modal-opener>
+          
+          {%- when 'share' -%}
+            <div class="social-sharing">            
+              <label class="form__label">{{ block.settings.share_label }}</label>
+                <a target="_blank" rel="noopener" href="//facebook.com/sharer.php?u={{ shop.url | append: product.url }}" class="full-unstyled-link social-sharing__link" title="{{ 'general.social.facebook' | t }}">
+                  {%- render 'icon' with 'facebook' -%}
+                </a>
+                <a target="_blank" rel="noopener" href="//twitter.com/share?text={{ share_title | url_param_escape }}&amp;url={{ shop.url | append: product.url }}" class="full-unstyled-link social-sharing__link" title="{{ 'general.social.twitter' | t }}">
+                  {%- render 'icon' with 'twitter' -%}
+                </a>
+                <a target="_blank" rel="noopener" href="//pinterest.com/pin/create/button/?url={{ shop.url | append: product.url }}&amp;media={{ product.featured_image | img_url: 'large' | prepend: 'https:' }}&amp;description={{ product.description | strip_html | truncatewords: 150 | url_param_escape }}" class="full-unstyled-link social-sharing__link" title="{{ 'general.social.pinterest' | t }}">
+                  {%- render 'icon' with 'pinterest' -%}
+                </a>
+              </div>
+              
+          {%- when 'variant_picker' -%}
+            {%- unless product.has_only_default_variant -%}
+              {%- if block.settings.picker_type == 'button' -%}
+                <div class="wearth-pdp-block wearth-pdp-block--variants" {{ block.shopify_attributes }}>
+                <variant-radios class="no-js-hidden" data-section="{{ section.id }}" data-product="{{ product.id }}" data-url="{{ product.url }}">
+                  
+                  <p class="wearth-pdp-fabric-line" style="text-align:center;font-size:12px;color:#8a8175;margin:0 0 8px;letter-spacing:.01em;">Most activewear starts in a refinery. This starts as a tree.</p>
+
+                  <div class="wearth-pdp-desktop-atc-slot" data-wearth-pdp-desktop-atc>
+                    <button
+                      type="submit"
+                      name="add"
+                      form="{{ product_form_id }}"
+                      class="button button--primary-outline AddToCart wearth-pdp-desktop-atc-slot__btn product-form__submit"
+                      data-add-to-cart
+                      {% if product.selected_or_first_available_variant.available == false %}disabled{% endif %}
+                    >
+                      <span data-add-to-cart-text>
+                        {%- if product.selected_or_first_available_variant.available -%}
+                          ADD TO BAG
+                        {%- else -%}
+                          {{ 'products.product.sold_out' | t }}
+                        {%- endif -%}
+                      </span>
+                    </button>
+                  </div>
+
+<div class="wearth-pdp-mobile-atc" data-wearth-pdp-mobile-atc>
+                    <button
+                      type="submit"
+                      name="add"
+                      form="{{ product_form_id }}"
+                      class="button button--primary-outline AddToCart wearth-pdp-mobile-atc__btn"
+                      data-add-to-cart
+                      {% if product.selected_or_first_available_variant.available == false %}disabled{% endif %}
+                    >
+                      <span data-add-to-cart-text>
+                        {%- if product.selected_or_first_available_variant.available -%}
+                          ADD TO BAG
+                        {%- else -%}
+                          {{ 'products.product.sold_out' | t }}
+                        {%- endif -%}
+                      </span>
+                    </button>
+                  </div>
+                  <p class="wearth-atc-reassure" style="text-align:center;font-size:12px;color:#5a4f45;margin:8px 0 0;letter-spacing:.02em;">Wear it 30 days. Not the softest thing you own? Full refund, we collect it. Tags on.</p>
+
+                  {%- for option in product.options_with_values -%}
+                    {% assign variantCount = forloop.index %}
+                      <fieldset class="js product-form__input variant_{{ option.name | downcase }}">
+                        <legend class="form__label">{{ option.name }}</legend>
+
+                        {%- if section.settings.enable_size_chart -%}
+                          {%- if option.name == 'Size' or option.name == 'size' and section.settings.enable_size_chart -%}
+                            <div>
+                          {%- endif -%}
+                        {%- endif -%}
+                    <div class="variant_name_place">
+                        <div class="variant-options">
+                          {%- for value in option.values -%}
+                             {%- assign variant_option = 'option' | append: variantCount -%}
+                            {%- for variant in product.variants -%}
+                              {%- if variant[variant_option] == value -%}
+                                {%- assign variant_for_value = variant -%}
+                                {%- break -%}
+                              {%- endif -%}                              
+                            {%- endfor -%}
+                            <input type="radio" class="variant_name_{{ option.name | downcase }}" id="{{ section.id }}-{{ product.id }}-{{ option.position }}-{{ forloop.index0 }}"
+                                  name="{{ option.name }}"
+                                  value="{{ value | escape }}"
+                                  form="{{ product_form_id }}"
+                                  {% if option.selected_value == value %}checked{% endif %}
+                            >
+                            <label for="{{ section.id }}-{{ product.id }}-{{ option.position }}-{{ forloop.index0 }}" 
+                                {% if option.name == 'Color' %}
+                                  {%- assign swatchColors = settings.swatchColors | newline_to_br | split: '<br />' -%}
+                                  {%- assign colorMatched = false -%}
+                                    {%- for colorData in swatchColors -%} 
+                                      {%- assign colorDatastep = colorData | split:":" -%}
+                                      {%- assign ruleName = colorDatastep[0] | strip -%}
+                                      {%- if value == ruleName -%}
+                                        {%- assign colorCodes = colorDatastep[1] | strip | split :"#" -%}
+                                        {%- assign colorNumber = 0 | plus: colorCodes.size -%}
+                                        {%- case colorNumber -%} 
+                                          {%- when 2 -%}
+                                            style="background-color: #{{- colorCodes[1] -}};"
+                                          {%- when 3 -%}
+                                            style="background: linear-gradient(135deg, #{{ colorCodes[1] }} 50%, #{{ colorCodes[2] }} 50%);"
+                                          {%- when 4 -%}
+                                            style="background: linear-gradient(to right,#{{ colorCodes[1] }} 33%,#{{ colorCodes[2] }} 33%,#{{ colorCodes[2] }} 66%, #{{ colorCodes[3] }} 66%);"
+                                          {%- else -%}
+                                            style="background-image:url({{ colorCodes[0] | downcase | replace: ' ', '-' | file_img_url }}); background-size: contain; background-repeat: no-repeat;"
+                                        {%- endcase -%}
+                                        {%- assign colorMatched = true -%}
+                                        {%- break -%}
+                                      {%- endif -%}
+                                    {%- endfor -%}
+                                    {%- unless colorMatched -%}
+                                      style="background-color: {{ value }};"
+                                    {%- endunless -%}
+                                {% endif %}
+                            {%- comment -%} WEARTH_COLOR_MEDIA_RESOLVE: resolve color swatch image from media alts {%- endcomment -%}
+                            {%- assign wearth_pdp_color_img = variant_for_value.featured_media | default: variant_for_value.image -%}
+                            {%- if wearth_pdp_color_img == blank -%}
+                              {%- assign wearth_pdp_card_alt = 'CARD:' | append: value -%}
+                              {%- for m in product.media -%}
+                                {%- if m.media_type == 'image' and m.alt == wearth_pdp_card_alt -%}
+                                  {%- assign wearth_pdp_color_img = m -%}
+                                  {%- break -%}
+                                {%- endif -%}
+                              {%- endfor -%}
+                            {%- endif -%}
+                            {%- if wearth_pdp_color_img == blank -%}
+                              {%- assign wearth_pdp_alt_try = 'PDP:' | append: value | append: '-02' -%}
+                              {%- for m in product.media -%}
+                                {%- if m.media_type == 'image' and m.alt == wearth_pdp_alt_try -%}
+                                  {%- assign wearth_pdp_color_img = m -%}
+                                  {%- break -%}
+                                {%- endif -%}
+                              {%- endfor -%}
+                            {%- endif -%}
+                            {%- if wearth_pdp_color_img == blank -%}
+                              {%- assign wearth_pdp_alt_try = 'PDP:' | append: value | append: '-03' -%}
+                              {%- for m in product.media -%}
+                                {%- if m.media_type == 'image' and m.alt == wearth_pdp_alt_try -%}
+                                  {%- assign wearth_pdp_color_img = m -%}
+                                  {%- break -%}
+                                {%- endif -%}
+                              {%- endfor -%}
+                            {%- endif -%}
+                            {%- if wearth_pdp_color_img == blank -%}
+                              {%- assign wearth_pdp_alt_try = 'PDP:' | append: value | append: '-01' -%}
+                              {%- for m in product.media -%}
+                                {%- if m.media_type == 'image' and m.alt == wearth_pdp_alt_try -%}
+                                  {%- assign wearth_pdp_color_img = m -%}
+                                  {%- break -%}
+                                {%- endif -%}
+                              {%- endfor -%}
+                            {%- endif -%}
+                            {%- if wearth_pdp_color_img == blank -%}
+                              {%- assign wearth_pdp_alt_try = 'PDP:' | append: value -%}
+                              {%- for m in product.media -%}
+                                {%- if m.media_type == 'image' and m.alt == wearth_pdp_alt_try -%}
+                                  {%- assign wearth_pdp_color_img = m -%}
+                                  {%- break -%}
+                                {%- endif -%}
+                              {%- endfor -%}
+                            {%- endif -%}
+                              {%- if wearth_pdp_color_img != blank -%}class="image_change" data-variant-src="{{ wearth_pdp_color_img | image_url: width: 2048 }}"{%- endif -%}>
+                              {{ value }}
+                            </label>
+                          {%- endfor -%}
+                        </div>
+                        {%- if option.name == 'Color' %}
+                          {%- for value in option.values limit:1 -%}
+                            {%- assign variant_option = 'option' | append: variantCount -%}
+                            {%- for variant in product.variants -%}
+                              {%- if variant[variant_option] == value -%}
+                                {%- assign variant_for_value = variant -%}
+                                {%- break -%}
+                              {%- endif -%}                              
+                            {%- endfor -%}
+                            <span id="data-variant-name" data-variant-name>{{ value }}</span>
+                          {% endfor %}
+                        {%- endif -%}
+                    </div>
+                  
+                        {%- if section.settings.enable_size_chart and section.settings.page != blank -%}
+                          {%- if option.name == 'Size' or option.name == 'size' and section.settings.enable_size_chart -%}
+                            <modal-opener class="product-popup-modal__opener no-js-hidden" data-modal="#PopupModal-{{ section.id }}" {{ section.shopify_attributes }}>
+                              <button id="ProductPopup-{{ section.id }}" class="product-popup-modal__button" type="button" aria-haspopup="dialog">{{ 'templates.product.size_chart.title' | t }}</button>
+                            </modal-opener>
+                          </div>
+                          {%- endif -%}
+                        {%- endif -%}
+                      </fieldset>                      
+                  {%- endfor -%}
+                  <script type="application/json">
+                    {{ product.variants | json }}
+                  </script>
+                  <hr>
+                </variant-radios>
+                </div>
+              {%- else -%}
+                <variant-selects class="no-js-hidden" data-section="{{ section.id }}" data-product="{{ product.id }}" data-url="{{ product.url }}" {{ block.shopify_attributes }}>
+                  {%- for option in product.options_with_values -%}
+                    {% assign variantCount = forloop.index %}
+                    <div class="product-form__input product-form__input--dropdown sevariant_{{ option.name | downcase }}">
+                      <label class="form__label" for="Option-{{ section.id }}-{{ forloop.index0 }}">
+                        {{ option.name }}
+                      </label>
+                      <div class="select">
+                        <select id="Option-{{ section.id }}-{{ forloop.index0 }}"
+                          class="select__select"
+                          name="options[{{ option.name | escape }}]"
+                          form="{{ product_form_id }}"
+                        >
+                          {%- for value in option.values -%}
+                            {%- assign variant_option = 'option' | append: variantCount -%}
+                            {%- for variant in product.variants -%}
+                              {%- if variant[variant_option] == value -%}
+                                {%- assign variant_for_value = variant -%}
+                                {%- break -%}
+                              {%- endif -%}                              
+                            {%- endfor -%}
+                            {%- comment -%} WEARTH_COLOR_MEDIA_RESOLVE: resolve color swatch image from media alts {%- endcomment -%}
+                            {%- assign wearth_pdp_color_img = variant_for_value.featured_media | default: variant_for_value.image -%}
+                            {%- if wearth_pdp_color_img == blank -%}
+                              {%- assign wearth_pdp_card_alt = 'CARD:' | append: value -%}
+                              {%- for m in product.media -%}
+                                {%- if m.media_type == 'image' and m.alt == wearth_pdp_card_alt -%}
+                                  {%- assign wearth_pdp_color_img = m -%}
+                                  {%- break -%}
+                                {%- endif -%}
+                              {%- endfor -%}
+                            {%- endif -%}
+                            {%- if wearth_pdp_color_img == blank -%}
+                              {%- assign wearth_pdp_alt_try = 'PDP:' | append: value | append: '-02' -%}
+                              {%- for m in product.media -%}
+                                {%- if m.media_type == 'image' and m.alt == wearth_pdp_alt_try -%}
+                                  {%- assign wearth_pdp_color_img = m -%}
+                                  {%- break -%}
+                                {%- endif -%}
+                              {%- endfor -%}
+                            {%- endif -%}
+                            {%- if wearth_pdp_color_img == blank -%}
+                              {%- assign wearth_pdp_alt_try = 'PDP:' | append: value | append: '-03' -%}
+                              {%- for m in product.media -%}
+                                {%- if m.media_type == 'image' and m.alt == wearth_pdp_alt_try -%}
+                                  {%- assign wearth_pdp_color_img = m -%}
+                                  {%- break -%}
+                                {%- endif -%}
+                              {%- endfor -%}
+                            {%- endif -%}
+                            {%- if wearth_pdp_color_img == blank -%}
+                              {%- assign wearth_pdp_alt_try = 'PDP:' | append: value | append: '-01' -%}
+                              {%- for m in product.media -%}
+                                {%- if m.media_type == 'image' and m.alt == wearth_pdp_alt_try -%}
+                                  {%- assign wearth_pdp_color_img = m -%}
+                                  {%- break -%}
+                                {%- endif -%}
+                              {%- endfor -%}
+                            {%- endif -%}
+                            {%- if wearth_pdp_color_img == blank -%}
+                              {%- assign wearth_pdp_alt_try = 'PDP:' | append: value -%}
+                              {%- for m in product.media -%}
+                                {%- if m.media_type == 'image' and m.alt == wearth_pdp_alt_try -%}
+                                  {%- assign wearth_pdp_color_img = m -%}
+                                  {%- break -%}
+                                {%- endif -%}
+                              {%- endfor -%}
+                            {%- endif -%}
+                            <option value="{{ value | escape }}" {% if option.selected_value == value %}selected="selected"{% endif %}{%- if wearth_pdp_color_img != blank -%} data-variant-src="{{ wearth_pdp_color_img | image_url: width: 2048 }}"{%- endif -%}>
+                              {{ value }}
+                            </option>
+                          {%- endfor -%}
+                        </select>
+                        {% render 'icon' with 'caret' %}
+                      </div>
+                    </div>
+                  {%- endfor -%}
+
+                  <script type="application/json">
+                    {{ product.variants | json }}
+                  </script>
+                  <hr>
+                </variant-selects>
+              {%- endif -%}
+            {%- endunless -%}
+          
+
+{%- comment -%} WEARTH_PDP_MOBILE_BUY_STACK {%- endcomment -%}
+<style>
+  @media screen and (max-width: 749px) {
+    .product-section variant-radios .product-form__input.variant_size {
+      margin-bottom: 0.75rem !important;
+      position: relative;
+    }
+    .wearth-pdp-block--variants variant-radios {
+      display: flex;
+      flex-direction: column;
+    }
+    .wearth-pdp-block--variants variant-radios > hr {
+      display: none;
+    }
+    .wearth-pdp-mobile-atc {
+      order: 0;
+      margin: 0 0 1rem;
+    }
+    .wearth-pdp-mobile-atc__btn {
+      width: 100%;
+      display: block;
+      padding: 14px 20px;
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      text-align: center;
+      cursor: pointer;
+      background: transparent !important;
+      color: #0a0a0a !important;
+      border: 1px solid #0a0a0a !important;
+      box-shadow: none !important;
+      -webkit-appearance: none;
+      appearance: none;
+    }
+    .wearth-pdp-mobile-atc__btn:hover:not(:disabled) {
+      background: #0a0a0a !important;
+      color: #f5f0f0 !important;
+      border-color: #0a0a0a !important;
+    }
+    .wearth-pdp-block--variants fieldset.variant_color {
+      order: 1;
+      margin-bottom: 0.5rem !important;
+    }
+    .wearth-pdp-block--variants fieldset.variant_size {
+      order: 2;
+      margin-bottom: 0.5rem !important;
+    }
+    .wearth-pdp-block--size-chart {
+      order: 3;
+      margin-bottom: 0.35rem;
+    }
+    .wearth-pdp-block--buy {
+      order: 4;
+    }
+    .wearth-pdp-block--buy .product_addtocart_from > button.AddToCart,
+    .wearth-pdp-block--buy button.wearth-pdp-desktop-atc-btn {
+      display: none !important;
+    }
+    .wearth-pdp-block--buy .product-form__quantity {
+      margin-top: 0.25rem;
+      margin-bottom: 0.5rem;
+    }
+        .wearth-pdp-card-hook {
+      margin: 0 0 6px;
+      font-size: 13px;
+      letter-spacing: 0.06em;
+      color: #5a4f45;
+      font-weight: 600;
+    }
+    .wearth-pdp-guarantee-line {
+      margin: 4px 0 8px;
+      font-size: 12px;
+      color: #287c2a;
+      line-height: 1.4;
+    }
+    .wearth-pdp-block--buy .wearth-pdp-trust {
+      margin: 0.5rem 0 0.75rem;
+      padding: 0.65rem 0.75rem;
+    }
+    .wearth-hormozi-guarantee-bar {
+      font-size: 11px;
+      line-height: 1.35;
+      padding: 8px 10px;
+      margin-bottom: 10px;
+    }
+  }
+</style>
+
+{%- comment -%} WEARTH_PDP_DESKTOP_HIDE_MOBILE_ATC {%- endcomment -%}
+<style>
+  @media screen and (min-width: 750px) {
+    .wearth-pdp-mobile-atc,
+    .template-product .wearth-pdp-mobile-atc {
+      display: none !important;
+    }
+    .wearth-pdp-desktop-atc-slot {
+      display: block;
+      margin: 0 0 1.25rem;
+      width: 100%;
+    }
+    .wearth-pdp-desktop-atc-slot__btn {
+      width: 100%;
+      display: block;
+      padding: 14px 24px;
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      text-align: center;
+      cursor: pointer;
+    }
+    .wearth-pdp-block--buy .product_addtocart_from > button.AddToCart,
+    .wearth-pdp-block--buy button.wearth-pdp-desktop-atc-btn {
+      display: none !important;
+    }
+  }
+  @media screen and (max-width: 749px) {
+    .wearth-pdp-desktop-atc-slot {
+      display: none !important;
+    }
+  }
+</style>
+
+
+{%- comment -%} wearth-pdp-mobile-v2 fix-v2-applied WEARTH_PDP_ATC_BAG_STYLE {%- endcomment -%}
+<style>
+  .template-product .product-form__submit.AddToCart,
+  .template-product button.AddToCart[name="add"],
+  .template-product .button.AddToCart,
+  .template-product .wearth-pdp-jump-atc-btn,
+  .template-product [data-wearth-pdp-description] .wearth-pdp-jump-atc-btn {
+    background: #0a0a0a !important;
+    color: #f5f0e8 !important;
+    border: 1px solid #c4a15f !important;
+    box-shadow: none !important;
+  }
+  .template-product .product-form__submit.AddToCart:hover:not(:disabled),
+  .template-product button.AddToCart[name="add"]:hover:not(:disabled),
+  .template-product .button.AddToCart:hover:not(:disabled),
+  .template-product .wearth-pdp-jump-atc-btn:hover {
+    background: #141414 !important;
+    border-color: #d4b16f !important;
+    color: #fff !important;
+  }
+  .template-product .product-form__submit.AddToCart:disabled,
+  .template-product button.AddToCart[name="add"]:disabled {
+    opacity: 0.45;
+  }
+  .template-product .shopify-payment-button,
+  .template-product .shopify-payment-button__button {
+    display: none !important;
+  }
+
+  .wearth-pdp-whatsapp-team {
+    margin: 12px 0 0;
+    padding: 0;
+    text-align: center;
+  }
+  .wearth-pdp-whatsapp-team__link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    font-size: 14px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    color: #c4a15f;
+    text-decoration: none;
+    border-bottom: 1px solid rgba(196, 161, 95, 0.45);
+    transition: color 0.2s ease, border-color 0.2s ease;
+  }
+  .wearth-pdp-whatsapp-team__link:hover {
+    color: #d4b16f;
+    border-bottom-color: rgba(212, 177, 111, 0.65);
+  }
+  .wearth-pdp-whatsapp-team__icon {
+    display: inline-flex;
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+    color: #c4a15f;
+  }
+  .wearth-pdp-whatsapp-team__icon svg {
+    display: block;
+    width: 16px;
+    height: 16px;
+  }
+</style>
+
+            {%- when 'buy_buttons' -%}
+            {%- liquid
+              assign gift_card_recipient_feature_active = false
+              if block.settings.show_gift_card_recipient and product.gift_card?
+                assign gift_card_recipient_feature_active = true
+              endif
+        
+              assign show_dynamic_checkout = false
+              if block.settings.show_dynamic_checkout and gift_card_recipient_feature_active == false
+                assign show_dynamic_checkout = false
+              endif
+            -%}
+            
+            <div class="wearth-pdp-block wearth-pdp-block--buy" {{ block.shopify_attributes }}>
+              <product-form class="product-form" data-hide-errors="{{ gift_card_recipient_feature_active }}">
+                <div class="product-form__error-message-wrapper" role="alert" hidden>
+                  <svg aria-hidden="true" focusable="false" role="presentation" class="icon icon-error" viewBox="0 0 13 13">
+                    <circle cx="6.5" cy="6.50049" r="5.5" stroke="white" stroke-width="2"/>
+                    <circle cx="6.5" cy="6.5" r="5.5" fill="#EB001B" stroke="#EB001B" stroke-width="0.7"/>
+                    <path d="M5.87413 3.52832L5.97439 7.57216H7.02713L7.12739 3.52832H5.87413ZM6.50076 9.66091C6.88091 9.66091 7.18169 9.37267 7.18169 9.00504C7.18169 8.63742 6.88091 8.34917 6.50076 8.34917C6.12061 8.34917 5.81982 8.63742 5.81982 9.00504C5.81982 9.37267 6.12061 9.66091 6.50076 9.66091Z" fill="white"/>
+                    <path d="M5.87413 3.17832H5.51535L5.52424 3.537L5.6245 7.58083L5.63296 7.92216H5.97439H7.02713H7.36856L7.37702 7.58083L7.47728 3.537L7.48617 3.17832H7.12739H5.87413ZM6.50076 10.0109C7.06121 10.0109 7.5317 9.57872 7.5317 9.00504C7.5317 8.43137 7.06121 7.99918 6.50076 7.99918C5.94031 7.99918 5.46982 8.43137 5.46982 9.00504C5.46982 9.57872 5.94031 10.0109 6.50076 10.0109Z" fill="white" stroke="#EB001B" stroke-width="0.7" />
+                  </svg>
+                  <span class="product-form__error-message"></span>
+                </div>
+
+                {%- form 'product', product, id: product_form_id, class: 'form', novalidate: 'novalidate', data-type: 'add-to-cart-form' -%}
+                <div class="product_addtocart_from">
+                  <div class="product-form__input product-form__quantity" {{ block.shopify_attributes }}>
+                  {%- assign cart_qty = cart | item_count_for_variant: product.selected_or_first_available_variant.id -%}
+                    <label class="form__label" for="Quantity-{{ section.id }}">
+                      {{ 'products.product.quantity.label' | t }}
+                    </label>
+                    <quantity-input class="quantity">
+                      <button class="quantity__button  {% if settings.cart_type == 'drawer' %} no-js-hidden{% endif %}" name="minus" type="button">
+                        <span class="visually-hidden">{{ 'products.product.quantity.decrease' | t: product: product.title | escape }}</span>
+                        {%- render 'icon' with 'minus' -%}
+                      </button>
+                      <input class="quantity__input" type="number" name="quantity" id="Quantity-{{ section.id }}" min="1" value="1" form="{{ product_form_id }}">
+                      <button class="{% if settings.cart_type == 'drawer' %} no-js-hidden {% endif %}  quantity__button" name="plus" type="button">
+                        <span class="visually-hidden">{{ 'products.product.quantity.increase' | t: product: product.title | escape }}</span>
+                        {%- render 'icon' with 'plus' -%}
+                      </button>
+                    </quantity-input>
+                  </div>
+                  {%- render 'wearth-seen-on-real-bodies', product: product, section: section -%}
+                  {%- assign wearth_hormozi_risk = '' -%}
+                  {%- case product.handle -%}
+                    {%- when 'womens-everyday-joggers', 'the-off-hours-wide-leg', 'mens-everyday-joggers', 'womens-biker-shorts', 'mens-essential-shorts', 'the-studio-crop' -%}
+                      {%- assign wearth_hormozi_risk = 'Take them home for 30 days. If they are not the softest thing you own, we refund everything and a courier collects them. Tags on, that is all we ask.' -%}
+                    {%- when 'womens-tank-top', 'womens-power-crop', 'men-raglan-tshirt', 'sleeveless-regular-fit-tshirt-men' -%}
+                      {%- assign wearth_hormozi_risk = 'Take it home for 30 days. If it is not the softest thing you own, we refund everything and a courier collects it. Tags on, that is all we ask.' -%}
+                    {%- when 'terra-sports-bra', 'align-sports-bra' -%}
+                      {%- assign wearth_hormozi_risk = 'Take it home for 30 days. If it is not the most comfortable thing you own, we refund everything and a courier collects it. Tags on, that is all we ask.' -%}
+                  {%- endcase -%}
+                  {%- if wearth_hormozi_risk != '' -%}
+                    <p class="wearth-hormozi-risk" data-wearth-hormozi-risk>{{ wearth_hormozi_risk }}</p>
+                  {%- endif -%}
+                  <div class="wearth-pdp-trust">
+  <div class="wearth-pdp-trust-strip">
+    <span>Free Shipping</span>
+    <span class="dot">·</span>
+    <span>COD Available</span>
+    <span class="dot">·</span>
+    <span>30-Day Return</span>
+    <span class="dot">·</span>
+    <span>Free Pickup</span>
+  </div>
+</div>
+
+                  {%- comment -%} WEARTH_PDP_HIDE_STALE_BUY_ATC {%- endcomment -%}
+                  <script>
+                    (function () {
+                      function hideStaleBuyAtc() {
+                        var isDesktop = window.matchMedia("(min-width: 750px)").matches;
+                        var isMobile = !isDesktop;
+                        document.querySelectorAll(
+                          ".wearth-pdp-block--buy button.wearth-pdp-desktop-atc-btn, " +
+                          ".wearth-pdp-block--buy .product_addtocart_from > button.AddToCart"
+                        ).forEach(function (btn) {
+                          btn.style.display = "none";
+                        });
+                        var mobile = document.querySelector("[data-wearth-pdp-mobile-atc]");
+                        var desktop = document.querySelector("[data-wearth-pdp-desktop-atc]");
+                        if (mobile) mobile.style.display = isMobile ? "" : "none";
+                        if (desktop) desktop.style.display = isDesktop ? "" : "none";
+                      }
+                      if (document.readyState === "loading") {
+                        document.addEventListener("DOMContentLoaded", hideStaleBuyAtc);
+                      } else {
+                        hideStaleBuyAtc();
+                      }
+                      window.addEventListener("resize", hideStaleBuyAtc);
+                    })();
+                  </script>
+
+                <p class="wearth-pdp-whatsapp-team">
+                  <a
+                    class="wearth-pdp-whatsapp-team__link"
+                    href="https://wa.me/919004778112?text=Hi%20WEARTH%20%E2%80%94%20I%20have%20a%20question%20about%20your%20eucalyptus%20activewear"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  ><span class="wearth-pdp-whatsapp-team__icon" aria-hidden="true"><svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" focusable="false"><path fill="currentColor" d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.435 9.884-9.881 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg></span><span class="wearth-pdp-whatsapp-team__label">Questions? Message our team →</span></a>
+                </p>
+{%- if product.handle == 'terra-sports-bra'
+    or product.handle == 'align-sports-bra' -%}
+  <p class="wearth-bra-fit-note" style="text-align:center;
+    font-size:12px;color:#5a4f45;margin:6px 0 0;
+    letter-spacing:.02em;font-style:italic;">
+    Not sure on fit? Most women go one size up from their
+    usual. Shai can confirm in minutes.
+  </p>
+{%- endif -%}
+              </div>
+                
+                  <input type="hidden" name="id" data-productid="{{ product.id }}" value="{{ product.selected_or_first_available_variant.id }}">
+
+                  {%- if gift_card_recipient_feature_active -%}
+                    {%- render 'gift-card-recipient-form', product: product, form: form, section: section -%}
+                  {%- endif -%}
+
+
+                   {%- if settings.show_inventory_quantity -%}
+                  <div id="ProductForm__Inventory_main">                  
+                      <p class="ProductForm__Inventory Text--subdued text-italic">
+                        {%- if settings.inventory_quantity_threshold >= product.selected_or_first_available_variant.inventory_quantity and product.selected_or_first_available_variant.inventory_quantity != 0 -%}
+                          <span class="Dot"></span>{{- 'products.product.only_piece_in_stock' | t: product_count: product.selected_or_first_available_variant.inventory_quantity | escape -}}
+                        {%- endif -%}
+                      </p>                                   
+                  </div>
+                {% endif %}
+                  {%- render 'wearth-pdp-reviews-v2', product: product, section: section, wearth_reviews_part: 'panel' -%}
+                {%- endform -%}
+               
+                <a href="{{ product.url }}"  class="quick_href main-link">{{ 'products.product.view_full_details' | t }}</a>
+              </product-form>
+
+              {% if template contains 'product' %}
+              {%- assign pick_up_availabilities = product.selected_or_first_available_variant.store_availabilities | where: 'pick_up_enabled', true -%}
+
+              <pickup-availability class="product__pickup-availabilities no-js-hidden"
+                {% if product.selected_or_first_available_variant.available and pick_up_availabilities.size > 0 %} available{% endif %}
+                data-root-url="{{ routes.root_url }}"
+                data-variant-id="{{ product.selected_or_first_available_variant.id }}"
+                data-has-only-default-variant="{{ product.has_only_default_variant }}"
+              >
+                <template>
+                  <pickup-availability-preview class="pickup-availability-preview">
+                    <div class="pickup-availability-info">
+                      <p class="caption-large">{{ 'products.product.pickup_availability.unavailable' | t }}</p>
+                      <button class="pickup-availability-button link link--text underlined-link">{{ 'products.product.pickup_availability.refresh' | t }}</button>
+                    </div>
+                  </pickup-availability-preview>
+                </template>
+              </pickup-availability>
+                      <script src="{{ 'pickup-availability.js' | asset_url }}" defer="defer"></script>
+              {% endif %}
+            </div>
+            {%- render 'wearth-pdp-motion', product: product, section: section -%}
+        
+        {%- when 'rating' -%}
+        {%- if product.metafields.reviews.rating.value != blank -%}
+          <link rel="stylesheet" href="{{ 'component-rating.css' | asset_url }}">
+        {% liquid
+               assign rating_decimal = 0
+               assign decimal = product.metafields.reviews.rating.value.rating | modulo: 1
+               if decimal >= 0.3 and decimal <= 0.7
+                assign rating_decimal = 0.5
+              elsif decimal > 0.7
+                assign rating_decimal = 1
+               endif
+              %}
+        <div class="rating" role="img" aria-label="{{ 'accessibility.star_reviews_info' | t: rating_value: product.metafields.reviews.rating.value, rating_max: product.metafields.reviews.rating.value.scale_max }}">
+          <span aria-hidden="true" class="rating-star color-icon-{{ settings.accent_icons }}" style="--rating: {{ product.metafields.reviews.rating.value.rating | floor }}; --rating-max: {{ product.metafields.reviews.rating.value.scale_max }}; --rating-decimal: {{ rating_decimal }};"></span>
+        </div>
+        <p class="rating-text caption">
+          <span aria-hidden="true">{{ product.metafields.reviews.rating.value }} / {{ product.metafields.reviews.rating.value.scale_max }}</span>
+        </p>
+        <p class="rating-count caption">
+          <span aria-hidden="true">({{ product.metafields.reviews.rating_count }})</span>
+          <span class="visually-hidden">{{ product.metafields.reviews.rating_count }} {{ "accessibility.total_reviews" | t }}</span>
+        </p>
+        {%- endif -%}
+        {%- when 'complementary' -%}
+          {% if block.settings.enable_quick_add %}
+            {{ 'quickview.css' | asset_url | stylesheet_tag }}
+            {{ 'quickview.js' | asset_url | script_tag }}
+            <script>
+              {% capture content %}{% include 'quickview' %}{% endcapture %}
+              var content = {{ content | json }};
+            </script>
+          {% endif %}
+          {%- if recommendations.performed -%}
+          {%- if recommendations.products_count > 0 -%}
+            <div class="product-recommendations">
+              <div class="box">
+                <div class="wrapper">
+                  {%- unless block.settings.block_heading == blank -%}
+                    <h2 class="title">{{ block.settings.block_heading | escape }}</h2>
+                  {%- endunless -%}
+
+                  <div id="ProductGrid-{{ section.id }}" class="complementary_product grid grid--{{ block.settings.products_per_page }}-col product-grid grid--{{ block.settings.products_per_page }}-col-desktop grid--{{ block.settings.products_per_page }}-col-tablet">
+                    {%- for product in recommendations.products -%}
+                      <div class="recommendations grid__item ">
+                        {% render 'card-product',
+                          card_product: product,
+                          media_aspect_ratio: settings.image_ratio,
+                          show_secondary_image: block.settings.show_secondary_image,
+                          show_quick_add: block.settings.enable_quick_add,
+                          lazy_load: lazy_load
+                        %}
+                      </div>
+                    {%- endfor -%}              
+                  </div>
+                </div>
+              </div>
+            </div>
+          {%- endif -%}
+        {%- else -%}
+          <div id="productRecommendationsSections"
+              class="section-{{ section.id }}-padding"
+              data-product-id="{{ product.id }}"
+              data-section-id="{{ section.id }}"
+              data-section-type="product-recommendations"
+              data-section-url="{{ routes.product_recommendations_url }}"
+              data-limit="{{ block.settings.products_per_page }}">
+          </div>
+         <script>
+            ProductRecommendation = (function () {
+            function ProductRecommendation(containers) {
+              this.$containers = $('#productRecommendationsSections');
+              const selfs = this;
+              const productIds = this.$containers.data("productId");
+              const sectionIds = this.$containers.data("sectionId");
+              const recommendationsURLs = this.$containers.data("sectionUrl");
+              const limits = this.$containers.data("limit");
+              const recommendationsSectionUrls = `${recommendationsURLs}?&section_id=${sectionIds}&product_id=${productIds}&limit=${limits}`;
+              
+              $.get(recommendationsSectionUrls).then(function (section) {
+                const parsedMarkups = new DOMParser().parseFromString(section, "text/html");
+                const recommendationsMarkups = parsedMarkups.querySelector(".product-recommendations");
+                    
+                if (recommendationsMarkups) {
+                  selfs.$containers.html(recommendationsMarkups);
+                  theme.cache.$body.trigger("afterRecommendationLoad");
+                }
+              });
+            }
+            return ProductRecommendation;
+          })();
+          
+          ProductRecommendation();
+        </script>
+        {%- endif -%}
+        {%- if recommendations.performed -%}
+  <div id="product-recommendations">
+    {%- if recommendations.products_count > 0 -%}
+      
+      <ul>
+        {%- for product in recommendations.products -%}
+          <li class="grid__item small--one-half medium-up--one-quarter">
+            <a href="{{ product.url }}">
+              <span>{{ product.title }}</span>
+              <span>{{ product.price | money }}</span>
+            </a>
+          </li>
+        {%- endfor -%}
+      </ul>
+    {%- endif -%}
+  </div>
+{%- endif -%}
+
+        {%- endcase -%}
+        {%- endfor -%}
+      </div>
+    </div>
+  </div>
+
+{%- if section.settings.enable_size_chart or section.settings.page != blank -%}
+<modal-dialog id="PopupModal-{{ section.id }}" class="product-popup-modal" {{ section.shopify_attributes }}>
+  <div role="dialog" aria-label="{{ section.settings.text }}" aria-modal="true" class="product-popup-modal__content" tabindex="-1">
+    <button id="ModalClose-{{ section.id }}" type="button" class="product-popup-modal__toggle" aria-label="{{ 'accessibility.close' | t }}">{% render 'icon' with 'close' %}</button>
+    <div class="product-popup-modal__content-info">
+      <h2 class="title">{{ section.settings.page.title }}</h2>
+      {{ section.settings.page.content }}
+    </div>
+  </div>
+</modal-dialog>
+{% endif %}
+<div class="wearth-pdp-founder-note" style="max-width:620px;margin:32px auto 8px;padding:20px 24px;border-top:1px solid #e8e0d8;text-align:center;">
+  <p style="font-size:14px;line-height:1.6;color:#5a4f45;font-style:italic;margin:0 0 8px;">"I started WEARTH because I was tired of activewear that was just plastic against the skin. Everything we make begins as a tree. If it does not feel like the softest thing you own, send it back and I will refund you myself."</p>
+  <p style="font-size:12px;letter-spacing:0.1em;text-transform:uppercase;color:#8a7d6f;margin:0;">— Shai, founder</p>
+</div>
+{%- render 'wearth-pdp-seo-schema' -%}
+</section>
+
+{% if product.media.size > 1 %}
+  <script src="{{ 'media-gallery.js' | asset_url }}" defer="defer"></script>
+{% endif %}
+
+{% if section.settings.enable_sticky_info %}
+<div class="stickyCart" id="sticky-{{ section.id }}" data-section-id="product-template" data-section-type="product">
+  <div class="main-con-sticky" data-section-id="sticky-cart" data-section-type="sticky-cart" >      
+    <form action="/cart/add" id="stickyform-{{ product.id }}" data-productid="{{ product.id }}" method="post" data-product-form="" class="product-form form">
+      {%- assign current_variant = product.selected_or_first_available_variant -%}
+      {%- assign featured_img_src = current_variant.featured_image.src | default: product.featured_image.src -%}
+      <div class="sticky_main">
+        <div class="img_title">
+          <div class="img">
+          {%- include 'image-size', sizes: '25, 35, 45, 85, 95, 100', image: featured_img_src -%}
+              {%- assign image_url = featured_img_src | img_url: '100x' | replace: '_1x1.', '_{width}x.' -%}
+
+              <img class="Image--lazyLoad FeaturedImage-{{ section.id }} product-featured-img sticky-img"
+                data-src="{{ image_url }}"
+                data-widths="{{ supported_sizes }}"
+                data-sizes="auto"
+                alt="{{ featured_img_src.alt | escape }}"
+                title="{{ featured_img_src.alt | escape }}">
+          </div>
+          <div class="sticky-title-flex">
+            <div class="sticky-title">{{ product.title }}</div>
+            <div class="selectedOpt">{{ product.selected_or_first_available_variant.price | money_without_trailing_zeros }}</div>
+          </div>
+        </div>
+
+        <div class="stickyOptions">
+          <div class="selectedOpt">
+          {% if product.available and product.variants.size > 0 and product.variants[0].title != 'Default Title'  %}
+          {%- for option in product.options_with_values -%}          
+            {%- for value in option.selected_value -%}
+            <div class="sticky_flex">
+              <label class="form__label" for="Option-{{ section.id }}-{{ forloop.index0 }}">{{ option.name }}</label>
+              <span><strong>{{ value }}</strong></span>
+            </div>
+            {%- endfor -%}
+          {% endfor %}
+          {% endif %}
+          </div>
+        </div>
+        
+      <div class="stickyop_variant">
+
+        <input type="hidden" id="var_id" class="sticky-id" name="id" data-productid="{{ product.id }}" value="{{ product.selected_or_first_available_variant.id }}">
+
+        <quantity-input class="quantity">
+        <button class="quantity__button  {% if settings.cart_type == 'drawer' %} no-js-hidden{% endif %}" name="minus" type="button">
+          <span class="visually-hidden">{{ 'products.product.quantity.decrease' | t: product: product.title | escape }}</span>
+          {%- render 'icon' with 'minus' -%}
+        </button>
+          <input class="quantity__input" type="number" name="quantity" id="Quantity-{{ section.id }}" min="1" value="1" form="{{ product_form_id }}">
+        <button class="{% if settings.cart_type == 'drawer' %} no-js-hidden {% endif %}  quantity__button" name="plus" type="button">
+          <span class="visually-hidden">{{ 'products.product.quantity.increase' | t: product: product.title | escape }}</span>
+          {%- render 'icon' with 'plus' -%}
+        </button>
+        </quantity-input>
+      </div>        
+        <div class="Addbtns">
+          <button type="submit" name="add" class="product-form__submit full-btns AddToCart" data-add-to-cart {% if product.selected_or_first_available_variant.available == false %}disabled{% endif %}>
+            <span data-add-to-cart-text>
+              {%- if product.selected_or_first_available_variant.available -%}
+              ADD TO BAG
+              {%- else -%}
+              {{ 'products.product.sold_out' | t }}
+              {%- endif -%}
+            </span>
+            <div class="loading-overlay__spinner hidden">
+              <svg aria-hidden="true" focusable="false" role="presentation" class="spinner" viewBox="0 0 66 66" xmlns="http://www.w3.org/2000/svg">
+                <circle class="path" fill="none" stroke-width="6" cx="33" cy="33" r="30"></circle>
+              </svg>
+            </div>
+          </button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+<script>    
+  $(window).scroll(function(){ 
+    var sticky = false;
+    var top = $(window).scrollTop();
+    if (800 < top) {
+      $(".stickyCart").css('bottom', '10px'); sticky = true;
+      $(".stickyCart").addClass('stickyCart-active');
+    } else {
+      $(".stickyCart").css('bottom', '-150px');
+      $(".stickyCart").removeClass('stickyCart-active');
+    }
+  });
+</script>
+{% endif %}
+
+<script type="module">
+  import PhotoSwipeLightbox from '//cdn.shopify.com/s/files/1/0644/7526/7316/t/2/assets/product-zoom.js';
+  const options = {
+    gallery: '#my-gallery',
+    children: 'a',
+    pswpModule: () => import('//cdn.shopify.com/s/files/1/0644/7526/7316/t/2/assets/product-esm.js')
+  };
+  const lightbox = new PhotoSwipeLightbox(options);
+  lightbox.init();
+</script>
+
+  
+
+{%- if first_3d_model -%}
+  <script type="application/json" id="ProductJSON-{{ product.id }}">
+    {{ product.media | where: 'media_type', 'model' | json }}
+  </script>
+
+  <script src="{{ 'product-model.js' | asset_url }}" defer></script>
+{%- endif -%}
+
+{%- liquid
+  if product.selected_or_first_available_variant.featured_media
+    assign seo_media = product.selected_or_first_available_variant.featured_media
+  else
+    assign seo_media = product.featured_media
+  endif
+-%}
+
+<script type="application/ld+json">
+  {
+    "@context": "http://schema.org/",
+    "@type": "Product",
+    "name": {{ product.title | json }},
+    "url": {{ shop.url | append: product.url | json }},
+    {% if seo_media -%}
+      {%- assign media_size = seo_media.preview_image.width | append: 'x' -%}
+      "image": [
+        {{ seo_media | img_url: media_size | prepend: "https:" | json }}
+      ],
+    {%- endif %}
+    "description": {{ product.description | strip_html | json }},
+    {% if product.selected_or_first_available_variant.sku != blank -%}
+      "sku": {{ product.selected_or_first_available_variant.sku | json }},
+    {%- endif %}
+    "brand": {
+      "@type": "Thing",
+      "name": {{ product.vendor | json }}
+    },
+    "offers": [
+      {%- for variant in product.variants -%}
+        {
+          "@type" : "Offer",
+          {%- if variant.sku != blank -%}
+            "sku": {{ variant.sku | json }},
+          {%- endif -%}
+          "availability" : "http://schema.org/{% if variant.available %}InStock{% else %}OutOfStock{% endif %}",
+          "price" : {{ variant.price | divided_by: 100.00 | json }},
+          "priceCurrency" : {{ cart.currency.iso_code | json }},
+          "url" : {{ shop.url | append: variant.url | json }}
+        }{% unless forloop.last %},{% endunless %}
+      {%- endfor -%}
+    ]
+  }
+</script>
+
+
+<div class="wearth-sticky-checkout" aria-hidden="true">
+  <div class="wearth-sticky-checkout__meta">
+    <span class="wearth-sticky-checkout__title">{{ product.title }}</span>
+    <span class="wearth-sticky-checkout__price">{{ product.selected_or_first_available_variant.price | money }}</span>
+  </div>
+  <form method="post" action="/cart/add" class="wearth-sticky-checkout__form" data-wearth-sticky-sync>
+    <input type="hidden" name="id" value="{{ product.selected_or_first_available_variant.id }}">
+    <input type="hidden" name="quantity" value="1">
+    <button type="submit" name="add" class="wearth-sticky-checkout__btn">Add to cart</button>
+  </form>
+</div>
+
+
+
+{%- comment -%} WEARTH_PDP_VARIANT_ID_SYNC {%- endcomment -%}
+<script>
+(function () {
+  var formId = {{ product_form_id | json }};
+  var sectionKey = {{ section.id | json }};
+  var productKey = {{ product.id | json }};
+  var root = document.querySelector(
+    'variant-radios[data-section="' + sectionKey + '"][data-product="' + productKey + '"],' +
+    'variant-selects[data-section="' + sectionKey + '"][data-product="' + productKey + '"]'
+  );
+  if (!root) return;
+
+  function parseVariants() {
+    try {
+      return JSON.parse(root.querySelector('[type="application/json"]').textContent || '[]');
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function selectedOptions() {
+    if (root.tagName.toLowerCase() === 'variant-selects') {
+      return Array.from(root.querySelectorAll('select')).map(function (sel) {
+        return sel.value;
+      });
+    }
+    return Array.from(root.querySelectorAll('fieldset')).map(function (fieldset) {
+      var checked = fieldset.querySelector('input:checked');
+      return checked ? checked.value : '';
+    });
+  }
+
+  function resolveVariantId() {
+    var options = selectedOptions();
+    if (!options.length || options.some(function (opt) { return !opt; })) return '';
+    var variants = parseVariants();
+    var match = variants.find(function (variant) {
+      return (
+        variant.options &&
+        variant.options.every(function (opt, idx) {
+          return String(opt) === String(options[idx]);
+        })
+      );
+    });
+    return match ? String(match.id) : '';
+  }
+
+  function syncVariantInput() {
+    var variantId = resolveVariantId();
+    if (!variantId) return;
+    var form = document.getElementById(formId);
+    if (!form) return;
+    var input = form.querySelector('input[name="id"]');
+    if (!input) return;
+    input.disabled = false;
+    input.value = variantId;
+    var sticky = document.querySelector('.wearth-sticky-checkout__form[data-wearth-sticky-sync] input[name="id"]');
+    if (sticky) sticky.value = variantId;
+    document.querySelectorAll('#var_id, .sticky-id').forEach(function (node) {
+      node.value = variantId;
+    });
+  }
+
+  root.addEventListener('change', syncVariantInput);
+  document.addEventListener('submit', function (evt) {
+    if (!evt.target || evt.target.id !== formId) return;
+    syncVariantInput();
+  }, true);
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', syncVariantInput);
+  } else {
+    syncVariantInput();
+  }
+})();
+</script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  var stickyForm = document.querySelector('.wearth-sticky-checkout__form[data-wearth-sticky-sync]');
+  if (!stickyForm) return;
+  stickyForm.addEventListener('submit', function () {
+    try {
+      var srcForm = document.getElementById({{ product_form_id | json }});
+      var src = srcForm ? srcForm.querySelector('input[name="id"]') : null;
+      if (src && src.value) {
+        var dst = stickyForm.querySelector('input[name="id"]');
+        if (dst) dst.value = src.value;
+      }
+    } catch (e) {}
+  });
+});
+</script>
+
+<script>
+document.addEventListener('click', function(e){
+  var t = e.target.closest('.wearth-reviews-toggle');
+  if(!t) return;
+  var panel = t.parentElement.querySelector('.wearth-reviews-panel');
+  var chev = t.querySelector('.wearth-reviews-toggle-chev');
+  if(!panel) return;
+  var open = panel.hasAttribute('hidden');
+  if(open){ panel.removeAttribute('hidden'); t.setAttribute('aria-expanded','true'); if(chev) chev.textContent='\u2013'; }
+  else { panel.setAttribute('hidden',''); t.setAttribute('aria-expanded','false'); if(chev) chev.textContent='+'; }
+});
+document.addEventListener('click', function(e){
+  var a = e.target.closest('.wearth-rating-summary');
+  if(!a) return;
+  e.preventDefault();
+  var tgt = document.querySelector('#wearth-reviews');
+  if(tgt){ tgt.scrollIntoView({behavior:'smooth', block:'center'});
+    var toggle = tgt.querySelector('.wearth-reviews-toggle');
+    var panel = tgt.querySelector('.wearth-reviews-panel');
+    if(panel && panel.hasAttribute('hidden') && toggle) toggle.click();
+  }
+});
+</script>
+
+{% schema %}
+{
+  "name": "t:sections.main-product.name",
+  "tag": "section",
+  "class": "section",
+  "blocks": [
+    {
+      "type": "@app"
+    },
+    {
+      "type": "text",
+      "name": "t:sections.main-product.blocks.text.name",
+      "settings": [
+        {
+          "type": "text",
+          "id": "text",
+          "default": "Text block",
+          "label": "t:sections.main-product.blocks.text.settings.text.label"
+        },
+        {
+          "type": "select",
+          "id": "text_style",
+          "options": [
+            {
+              "value": "body",
+              "label": "t:sections.main-product.blocks.text.settings.text_style.options__1.label"
+            },
+            {
+              "value": "subtitle",
+              "label": "t:sections.main-product.blocks.text.settings.text_style.options__2.label"
+            },
+            {
+              "value": "uppercase",
+              "label": "t:sections.main-product.blocks.text.settings.text_style.options__3.label"
+            }
+          ],
+          "default": "body",
+          "label": "t:sections.main-product.blocks.text.settings.text_style.label"
+        }
+      ]
+    },
+    {
+      "type": "title",
+      "name": "t:sections.main-product.blocks.title.name",
+      "limit": 1
+    },
+    {
+      "type": "price",
+      "name": "t:sections.main-product.blocks.price.name",
+      "limit": 1
+    },
+    {
+      "type": "variant_picker",
+      "name": "t:sections.main-product.blocks.variant_picker.name",
+      "limit": 1,
+      "settings": [
+        {
+          "type": "select",
+          "id": "picker_type",
+          "options": [
+            {
+              "value": "dropdown",
+              "label": "t:sections.main-product.blocks.variant_picker.settings.picker_type.options__1.label"
+            },
+            {
+              "value": "button",
+              "label": "t:sections.main-product.blocks.variant_picker.settings.picker_type.options__2.label"
+            }
+          ],
+          "default": "button",
+          "label": "t:sections.main-product.blocks.variant_picker.settings.picker_type.label"
+        }
+      ]
+    },
+    {
+      "type": "buy_buttons",
+      "name": "t:sections.main-product.blocks.buy_buttons.name",
+      "limit": 1,
+      "settings": [
+        {
+          "type": "checkbox",
+          "id": "show_dynamic_checkout",
+          "default": true,
+          "label": "t:sections.main-product.blocks.buy_buttons.settings.show_dynamic_checkout.label",
+          "info": "t:sections.main-product.blocks.buy_buttons.settings.show_dynamic_checkout.info"
+        },
+        {
+          "type": "checkbox",
+          "id": "show_gift_card_recipient",
+          "default": false,
+          "label": "t:sections.main-product.blocks.buy_buttons.settings.show_gift_card_recipient.label",
+          "info": "t:sections.main-product.blocks.buy_buttons.settings.show_gift_card_recipient.info"
+        }
+      ]
+    },
+    {
+      "type": "complementary",
+      "name": "t:sections.main-product.blocks.complementary_products.name",
+      "limit": 1,
+      "settings": [
+        {
+          "type": "paragraph",
+          "content": "t:sections.main-product.blocks.complementary_products.settings.paragraph.content"
+        },
+        {
+          "type": "text",
+          "id": "block_heading",
+          "default": "Pairs well with",
+          "label": "t:sections.main-product.blocks.complementary_products.settings.heading.label"
+        },
+        {
+          "type": "range",
+          "id": "products_per_page",
+          "min": 1,
+          "max": 3,
+          "step": 1,
+          "default": 2,
+          "label": "t:sections.main-product.blocks.complementary_products.settings.products_per_page.label"
+        },
+        {
+          "type": "checkbox",
+          "id": "enable_quick_add",
+          "default": true,
+          "label": "t:sections.featured-collection.settings.enable_quick_buy.label"
+        }
+      ]
+    },
+    {
+      "type": "description",
+      "name": "t:sections.main-product.blocks.description.name",
+      "limit": 1
+    },
+    {
+      "type": "share",
+      "name": "t:sections.main-product.blocks.share.name",
+      "limit": 1,
+      "settings": [
+        {
+          "type": "text",
+          "id": "share_label",
+          "label": "t:sections.main-product.blocks.share.settings.text.label",
+          "default": "Share"
+        },
+        {
+          "type": "paragraph",
+          "content": "t:sections.main-product.blocks.share.settings.featured_image_info.content"
+        },
+        {
+          "type": "paragraph",
+          "content": "t:sections.main-product.blocks.share.settings.title_info.content"
+        }
+      ]
+    },
+    {
+      "type": "custom_liquid",
+      "name": "t:sections.main-product.blocks.custom_liquid.name",
+      "settings": [
+        {
+          "type": "liquid",
+          "id": "custom_liquid",
+          "label": "t:sections.main-product.blocks.custom_liquid.settings.custom_liquid.label",
+          "info": "t:sections.main-product.blocks.custom_liquid.settings.custom_liquid.info"
+        }
+      ]
+    },
+    {
+      "type": "collapsible_tab",
+      "name": "t:sections.main-product.blocks.collapsible_tab.name",
+      "settings": [
+        {
+          "type": "text",
+          "id": "heading",
+          "default": "Collapsible row",
+          "info": "t:sections.main-product.blocks.collapsible_tab.settings.heading.info",
+          "label": "t:sections.main-product.blocks.collapsible_tab.settings.heading.label"
+        },
+        {
+          "type": "richtext",
+          "id": "content",
+          "label": "t:sections.main-product.blocks.collapsible_tab.settings.content.label"
+        },
+        {
+          "type": "page",
+          "id": "page",
+          "label": "t:sections.main-product.blocks.collapsible_tab.settings.page.label"
+        }
+      ]
+    },
+    {
+      "type": "trust-badge",
+      "name": "t:sections.main-product.blocks.trust-badge.name",
+      "settings": [
+        {
+          "type": "image_picker",
+          "id": "image",
+          "label": "t:sections.main-product.blocks.trust-badge.settings.image.label"
+        }
+      ]
+    },
+    {
+      "type": "rating",
+      "name": "t:sections.main-product.blocks.rating.name",
+      "limit": 1,
+      "settings": [
+        {
+          "type": "paragraph",
+          "content": "t:sections.main-product.blocks.rating.settings.paragraph.content"
+        }
+      ]
+    }
+  ],
+  "settings": [
+    {
+      "type": "color",
+      "id": "background",
+      "label": "t:sections.main-product.settings.background.label",
+      "default": "#eff1f3"
+    },
+    {
+      "type": "header",
+      "content": "t:sections.main-product.settings.header.content",
+      "info": "t:sections.main-product.settings.header.info"
+    },
+    {
+      "type": "select",
+      "id": "gallery_layout",
+      "options": [
+        {
+          "value": "stacked",
+          "label": "t:sections.main-product.settings.gallery_layout.options__1.label"
+        },
+        {
+          "value": "thumbnail_slider",
+          "label": "t:sections.main-product.settings.gallery_layout.options__2.label"
+        }
+    ],
+    "default": "thumbnail_slider",
+    "label": "t:sections.main-product.settings.gallery_layout.label"
+    },    
+    {
+      "type": "select",
+      "id": "media_size",
+      "options": [
+        {
+          "value": "small",
+          "label": "t:sections.main-product.settings.media_size.options__1.label"
+        },
+        {
+          "value": "medium",
+          "label": "t:sections.main-product.settings.media_size.options__2.label"
+        },
+        {
+          "value": "large",
+          "label": "t:sections.main-product.settings.media_size.options__3.label"
+        }
+      ],
+      "default": "large",
+      "label": "t:sections.main-product.settings.media_size.label",
+      "info": "t:sections.main-product.settings.media_size.info"
+    },
+	  {
+      "type": "checkbox",
+      "id": "breadcrumb",
+      "default": true,
+      "label": "Show breadcrumb"
+    },
+	  {
+      "type": "checkbox",
+      "id": "enable_sticky_info",
+      "default": true,
+      "label": "Enable sticky product"
+    },
+    {
+      "type": "checkbox",
+      "id": "enable_video_looping",
+      "default": false,
+      "label": "t:sections.main-product.settings.enable_video_looping.label"
+    },
+    {
+      "type": "checkbox",
+      "id": "enable_size_chart",
+      "default": true,
+      "label": "t:sections.main-product.settings.enable_size_chart.label"
+    },
+    {
+      "id": "page",
+      "type": "page",
+      "label": "t:sections.main-product.blocks.popup.settings.page.label",
+      "info": "Select page for size chart"
+    },
+    {
+      "type": "header",
+      "content": "t:sections.all.padding.section_padding_heading"
+    },
+    {
+      "type": "range",
+      "id": "padding_top",
+      "min": 0,
+      "max": 100,
+      "step": 4,
+      "unit": "px",
+      "label": "t:sections.all.padding.padding_top",
+      "default": 36
+    },
+    {
+      "type": "range",
+      "id": "padding_bottom",
+      "min": 0,
+      "max": 100,
+      "step": 4,
+      "unit": "px",
+      "label": "t:sections.all.padding.padding_bottom",
+      "default": 36
+    }
+  ]
+}
+{% endschema %}

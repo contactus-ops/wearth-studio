@@ -1,0 +1,140 @@
+--- live/sections/main-product.liquid
++++ patched/sections/main-product.liquid
+@@ -1358,17 +1358,130 @@
+ </script>
+ 
+ 
+-<div class="wearth-sticky-checkout" aria-hidden="true">
++<div class="wearth-sticky-checkout" data-wearth-sticky-bag aria-hidden="true">
+   <div class="wearth-sticky-checkout__meta">
+     <span class="wearth-sticky-checkout__title">{{ product.title }}</span>
+-    <span class="wearth-sticky-checkout__price">{{ product.selected_or_first_available_variant.price | money }}</span>
++    <span class="wearth-sticky-checkout__price" data-wearth-sticky-price>{{ product.selected_or_first_available_variant.price | money }}</span>
+   </div>
+-  <form method="post" action="/cart/add" class="wearth-sticky-checkout__form" data-wearth-sticky-sync>
+-    <input type="hidden" name="id" value="{{ product.selected_or_first_available_variant.id }}">
+-    <input type="hidden" name="quantity" value="1">
+-    <button type="submit" name="add" class="wearth-sticky-checkout__btn">Add to cart</button>
+-  </form>
++  <button
++    type="submit"
++    name="add"
++    form="{{ product_form_id }}"
++    class="wearth-sticky-checkout__btn"
++    data-wearth-sticky-submit
++    {% if product.selected_or_first_available_variant.available == false %}disabled{% endif %}
++  >Add to Bag</button>
+ </div>
++<script type="application/json" data-wearth-sticky-variants>
++{{ product.variants | json }}
++</script>
++{%- comment -%} WEARTH_STICKY_BAG_SCROLL {%- endcomment -%}
++<script>
++(function () {
++  var bar = document.querySelector('[data-wearth-sticky-bag]');
++  if (!bar) return;
++  var priceEl = bar.querySelector('[data-wearth-sticky-price]');
++  var submitBtn = bar.querySelector('[data-wearth-sticky-submit]');
++  var formId = {{ product_form_id | json }};
++  var sectionKey = {{ section.id | json }};
++  var productKey = {{ product.id | json }};
++  var variants = [];
++  try {
++    var raw = document.querySelector('[data-wearth-sticky-variants]');
++    variants = raw ? JSON.parse(raw.textContent || '[]') : [];
++  } catch (e) { variants = []; }
++
++  function money(cents) {
++    try {
++      if (window.Shopify && Shopify.formatMoney) {
++        return Shopify.formatMoney(cents, {{ shop.money_format | json }});
++      }
++    } catch (e2) {}
++    return '₹' + (Number(cents) / 100).toFixed(0);
++  }
++
++  function root() {
++    return document.querySelector(
++      'variant-radios[data-section="' + sectionKey + '"][data-product="' + productKey + '"],' +
++      'variant-selects[data-section="' + sectionKey + '"][data-product="' + productKey + '"]'
++    );
++  }
++
++  function selectedOptions() {
++    var r = root();
++    if (!r) return [];
++    if (r.tagName.toLowerCase() === 'variant-selects') {
++      return Array.from(r.querySelectorAll('select')).map(function (sel) { return sel.value; });
++    }
++    return Array.from(r.querySelectorAll('fieldset')).map(function (fieldset) {
++      var checked = fieldset.querySelector('input:checked');
++      return checked ? checked.value : '';
++    });
++  }
++
++  function syncFromSelection() {
++    var options = selectedOptions();
++    var match = variants.find(function (variant) {
++      return variant.options && variant.options.every(function (opt, idx) {
++        return String(opt) === String(options[idx]);
++      });
++    });
++    if (!match) return;
++    var form = document.getElementById(formId);
++    if (form) {
++      var input = form.querySelector('input[name="id"]');
++      if (input) {
++        input.disabled = false;
++        input.value = String(match.id);
++      }
++    }
++    if (priceEl) priceEl.textContent = money(match.price);
++    if (submitBtn) submitBtn.disabled = !match.available;
++  }
++
++  function setVisible(on) {
++    bar.classList.toggle('is-visible', !!on);
++    bar.setAttribute('aria-hidden', on ? 'false' : 'true');
++  }
++
++  function watchAtc() {
++    var atc =
++      document.querySelector('[data-wearth-pdp-mobile-atc]') ||
++      document.querySelector('.wearth-pdp-desktop-atc-slot') ||
++      document.querySelector('#' + formId + ' [data-add-to-cart], #' + formId + ' button[name="add"]');
++    if (!atc) {
++      setVisible(false);
++      return;
++    }
++    if (!('IntersectionObserver' in window)) {
++      setVisible(true);
++      return;
++    }
++    var io = new IntersectionObserver(function (entries) {
++      var entry = entries[0];
++      if (!entry) return;
++      setVisible(!entry.isIntersecting);
++    }, { threshold: 0, rootMargin: '0px' });
++    io.observe(atc);
++  }
++
++  var r = root();
++  if (r) r.addEventListener('change', syncFromSelection);
++  document.addEventListener('change', function (evt) {
++    if (!evt.target) return;
++    if (evt.target.closest('variant-radios, variant-selects')) syncFromSelection();
++  });
++  if (document.readyState === 'loading') {
++    document.addEventListener('DOMContentLoaded', function () {
++      syncFromSelection();
++      watchAtc();
++    });
++  } else {
++    syncFromSelection();
++    watchAtc();
++  }
++})();
++</script>
+ 
+ 
+ 
