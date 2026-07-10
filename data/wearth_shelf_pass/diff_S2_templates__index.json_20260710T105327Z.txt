@@ -1,0 +1,276 @@
+--- live/templates/index.json
++++ patched/templates/index.json
+@@ -6,8 +6,8 @@
+         "slider_E43HfN": {
+           "type": "slider",
+           "settings": {
+-            "image": "shopify:\/\/shop_images\/Untitled_design_231.jpg",
+-            "image_2": "shopify:\/\/shop_images\/Untitled_design_12.jpg",
++            "image": "shopify://shop_images/Untitled_design_231.jpg",
++            "image_2": "shopify://shop_images/Untitled_design_12.jpg",
+             "image_overlay": true,
+             "desktop_content_position": "bottom-left",
+             "desktop_content_alignment": "left",
+@@ -17,13 +17,13 @@
+             "heading_size": "medium",
+             "text": "",
+             "text_color": "#ffffff",
+-            "content_text": "<p>Your activewear is still polyester.<\/p>",
++            "content_text": "<p>Your activewear is still polyester.</p>",
+             "content_color": "#ffffff",
+             "button_label_1": "See the fabric",
+-            "button_link_1": "shopify:\/\/pages\/activewear-without-polyester",
++            "button_link_1": "shopify://pages/activewear-without-polyester",
+             "button_new_1": false,
+             "button_label_2": "Shop women",
+-            "button_link_2": "shopify:\/\/collections\/women",
++            "button_link_2": "shopify://collections/women",
+             "button_new_2": false
+           }
+         }
+@@ -114,8 +114,8 @@
+           "type": "testimonial",
+           "settings": {
+             "icon": "5-stars",
+-            "testimonial": "<p>Loved it!<\/p>",
+-            "image": "shopify:\/\/shop_images\/WhatsApp_Image_2026-01-12_at_17.10.36.jpg",
++            "testimonial": "<p>Loved it!</p>",
++            "image": "shopify://shop_images/WhatsApp_Image_2026-01-12_at_17.10.36.jpg",
+             "author": "Arjun Vaidya",
+             "author_info": ""
+           }
+@@ -124,8 +124,8 @@
+           "type": "testimonial",
+           "settings": {
+             "icon": "5-stars",
+-            "testimonial": "<p>Fits perfectly. Love the material<\/p>",
+-            "image": "shopify:\/\/shop_images\/WhatsApp_Image_2026-01-12_at_17.08.07.jpg",
++            "testimonial": "<p>Fits perfectly. Love the material</p>",
++            "image": "shopify://shop_images/WhatsApp_Image_2026-01-12_at_17.08.07.jpg",
+             "author": "Yudun",
+             "author_info": ""
+           }
+@@ -134,8 +134,8 @@
+           "type": "testimonial",
+           "settings": {
+             "icon": "5-stars",
+-            "testimonial": "<p>I have stopped wearing polyester completely after wearing wearth. Please add more products. Love the fabric<\/p>",
+-            "image": "shopify:\/\/shop_images\/WhatsApp_Image_2026-01-12_at_17.27.09.jpg",
++            "testimonial": "<p>I have stopped wearing polyester completely after wearing wearth. Please add more products. Love the fabric</p>",
++            "image": "shopify://shop_images/WhatsApp_Image_2026-01-12_at_17.27.09.jpg",
+             "author": "Abi",
+             "author_info": ""
+           }
+@@ -144,8 +144,8 @@
+           "type": "testimonial",
+           "settings": {
+             "icon": "5-stars",
+-            "testimonial": "<p>We regularly bump into each other wearing wearth stuff!! They are really comfortable!<\/p>",
+-            "image": "shopify:\/\/shop_images\/WhatsApp_Image_2026-01-12_at_17.00.43.jpg",
++            "testimonial": "<p>We regularly bump into each other wearing wearth stuff!! They are really comfortable!</p>",
++            "image": "shopify://shop_images/WhatsApp_Image_2026-01-12_at_17.00.43.jpg",
+             "author": "Nidhi",
+             "author_info": ""
+           }
+@@ -154,8 +154,8 @@
+           "type": "testimonial",
+           "settings": {
+             "icon": "5-stars",
+-            "testimonial": "<p>Wearth has replaced all my activewear. I literally live in them. Need more colors<\/p>",
+-            "image": "shopify:\/\/shop_images\/WhatsApp_Image_2026-01-12_at_17.02.40.jpg",
++            "testimonial": "<p>Wearth has replaced all my activewear. I literally live in them. Need more colors</p>",
++            "image": "shopify://shop_images/WhatsApp_Image_2026-01-12_at_17.02.40.jpg",
+             "author": "Manish",
+             "author_info": ""
+           }
+@@ -164,8 +164,8 @@
+           "type": "testimonial",
+           "settings": {
+             "icon": "5-stars",
+-            "testimonial": "<p>Love the material and the feel of the fabric<\/p>",
+-            "image": "shopify:\/\/shop_images\/WhatsApp_Image_2026-01-12_at_17.05.37.jpg",
++            "testimonial": "<p>Love the material and the feel of the fabric</p>",
++            "image": "shopify://shop_images/WhatsApp_Image_2026-01-12_at_17.05.37.jpg",
+             "author": "",
+             "author_info": ""
+           }
+@@ -194,8 +194,8 @@
+         "slider_9Aj7Hm": {
+           "type": "slider",
+           "settings": {
+-            "image": "shopify:\/\/shop_images\/womm.webp",
+-            "image_2": "shopify:\/\/shop_images\/32941129105588_2fc6e2df-3cf9-48a9-a8f6-06d5d2bcd82a.jpg",
++            "image": "shopify://shop_images/womm.webp",
++            "image_2": "shopify://shop_images/32941129105588_2fc6e2df-3cf9-48a9-a8f6-06d5d2bcd82a.jpg",
+             "image_overlay": true,
+             "desktop_content_position": "bottom-left",
+             "desktop_content_alignment": "left",
+@@ -205,10 +205,10 @@
+             "heading_size": "medium",
+             "text": "PLANT-BASED · SKIN-FIRST",
+             "text_color": "#f2e9dd",
+-            "content_text": "<p>Quiet luxury activewear.<\/p>",
++            "content_text": "<p>Quiet luxury activewear.</p>",
+             "content_color": "#efe5d8",
+             "button_label_1": "Shop her",
+-            "button_link_1": "shopify:\/\/collections\/women",
++            "button_link_1": "shopify://collections/women",
+             "button_new_1": false,
+             "button_label_2": "",
+             "button_link_2": "",
+@@ -233,8 +233,8 @@
+         "slider_JRVYBx": {
+           "type": "slider",
+           "settings": {
+-            "image": "shopify:\/\/shop_images\/man_in_black.webp",
+-            "image_2": "shopify:\/\/shop_images\/1manwow.webp",
++            "image": "shopify://shop_images/man_in_black.webp",
++            "image_2": "shopify://shop_images/1manwow.webp",
+             "image_overlay": true,
+             "desktop_content_position": "bottom-left",
+             "desktop_content_alignment": "left",
+@@ -244,10 +244,10 @@
+             "heading_size": "medium",
+             "text": "EUCALYPTUS FIBRE",
+             "text_color": "#f2e9dd",
+-            "content_text": "<p>Cool through hours. Made in India.<\/p>",
++            "content_text": "<p>Cool through hours. Made in India.</p>",
+             "content_color": "#efe5d8",
+             "button_label_1": "Shop him",
+-            "button_link_1": "shopify:\/\/collections\/men",
++            "button_link_1": "shopify://collections/men",
+             "button_new_1": false,
+             "button_label_2": "",
+             "button_link_2": "",
+@@ -282,8 +282,8 @@
+       "name": "t:sections.video.presets.name",
+       "settings": {
+         "heading": "WHY US?",
+-        "video_url": "https:\/\/vimeo.com\/1122427355?share=copy",
+-        "description": "https:\/\/vimeo.com\/1122427355",
++        "video_url": "https://vimeo.com/1122427355?share=copy",
++        "description": "https://vimeo.com/1122427355",
+         "full_width": true,
+         "padding_top": 0,
+         "padding_bottom": 12
+@@ -293,8 +293,8 @@
+       "type": "image-with-text-overlay",
+       "name": "t:sections.image-with-text-overlay.name",
+       "settings": {
+-        "image": "shopify:\/\/shop_images\/OUR_TRIBE.webp",
+-        "mobile_image": "shopify:\/\/shop_images\/our_tribe_1.webp",
++        "image": "shopify://shop_images/OUR_TRIBE.webp",
++        "mobile_image": "shopify://shop_images/our_tribe_1.webp",
+         "image_size": "large",
+         "title": "",
+         "content": "",
+@@ -310,7 +310,7 @@
+       "name": "t:sections.video.presets.name",
+       "settings": {
+         "heading": "",
+-        "video_url": "https:\/\/vimeo.com\/1182164144?share=copy&fl=sv&fe=ci",
++        "video_url": "https://vimeo.com/1182164144?share=copy&fl=sv&fe=ci",
+         "description": "",
+         "full_width": false,
+         "padding_top": 8,
+@@ -379,7 +379,7 @@
+       "disabled": true,
+       "settings": {
+         "heading": "",
+-        "video_url": "https:\/\/vimeo.com\/1034453436\/62747fd396",
++        "video_url": "https://vimeo.com/1034453436/62747fd396",
+         "description": "",
+         "full_width": false,
+         "padding_top": 36,
+@@ -404,14 +404,14 @@
+         "text_8VjBw4": {
+           "type": "text",
+           "settings": {
+-            "text": "<p>Our fibre comes from eucalyptus pulp, grown in managed forests.<\/p><p>Naturally breathable. Temperature-regulating. Soft in Mumbai's worst.<\/p><p>Polyester traps heat. Smells faster. Sits heavy. Ours breathes, releases moisture, stays gentle.<\/p><p>Made in a closed-loop process. Every drop of water recycled. Every fibre traceable.<\/p><p><strong>This is what your skin remembers.<\/strong><\/p>"
++            "text": "<p>Our fibre comes from eucalyptus pulp, grown in managed forests.</p><p>Naturally breathable. Temperature-regulating. Soft in Mumbai's worst.</p><p>Polyester traps heat. Smells faster. Sits heavy. Ours breathes, releases moisture, stays gentle.</p><p>Made in a closed-loop process. Every drop of water recycled. Every fibre traceable.</p><p><strong>This is what your skin remembers.</strong></p>"
+           }
+         },
+         "button_7VjEGW": {
+           "type": "button",
+           "settings": {
+             "button_label": "Read about the fabric",
+-            "button_link": "shopify:\/\/pages\/fabric",
++            "button_link": "shopify://pages/fabric",
+             "button_link_new": false
+           }
+         }
+@@ -424,7 +424,7 @@
+       ],
+       "name": "t:sections.image-with-text.presets.name",
+       "settings": {
+-        "image": "shopify:\/\/shop_images\/32566027583668_964baddb-91b7-4392-806c-a5a4221a04b5.jpg",
++        "image": "shopify://shop_images/32566027583668_964baddb-91b7-4392-806c-a5a4221a04b5.jpg",
+         "video_url": "",
+         "bg_color": "#faf7f2",
+         "height": "adapt",
+@@ -450,7 +450,7 @@
+         "1659607691771c5f83-1": {
+           "type": "paragraph",
+           "settings": {
+-            "text": "<p>Early access. Fabric stories. Mumbai notes.<br\/>Sent only when it matters.<\/p>"
++            "text": "<p>Early access. Fabric stories. Mumbai notes.<br/>Sent only when it matters.</p>"
+           }
+         },
+         "1659607691771c5f83-2": {
+@@ -465,7 +465,7 @@
+       ],
+       "settings": {
+         "bg_color": "#faf7f2",
+-        "image": "shopify:\/\/shop_images\/32200706621620_32f30c14-ce84-46af-aba7-70d5bc13eab7.jpg",
++        "image": "shopify://shop_images/32200706621620_32f30c14-ce84-46af-aba7-70d5bc13eab7.jpg",
+         "padding_top": 76,
+         "padding_bottom": 76
+       }
+@@ -534,7 +534,7 @@
+         "truth_text": {
+           "type": "text",
+           "settings": {
+-            "text": "<p>Polyester costs a brand almost nothing. It is the cheapest fibre ever invented. Cut it, price it like a premium product, and spend the gap on the advertising that found you.<\/p><p>Our eucalyptus fibre costs around five times more to make. The number on our tag stays the same. The difference is where your money went. Theirs into ads. Ours sitting against your skin.<\/p>",
++            "text": "<p>Polyester costs a brand almost nothing. It is the cheapest fibre ever invented. Cut it, price it like a premium product, and spend the gap on the advertising that found you.</p><p>Our eucalyptus fibre costs around five times more to make. The number on our tag stays the same. The difference is where your money went. Theirs into ads. Ours sitting against your skin.</p>",
+             "rte_color": "#4a4138"
+           }
+         },
+@@ -542,7 +542,7 @@
+           "type": "button",
+           "settings": {
+             "button_label": "Feel the difference. 30 days, risk-free",
+-            "button_link": "shopify:\/\/collections\/bestsellers",
++            "button_link": "shopify://collections/bestsellers",
+             "button_link_new": false
+           }
+         }
+@@ -563,21 +563,21 @@
+       "type": "wearth-first-set-block",
+       "settings": {
+         "product_handle": "the-first-set",
+-        "kicker": "The entry point",
+-        "heading": "Start with the set.",
+-        "text": "Terra Bra and Biker Shorts. The two pieces that make the fabric obvious before the story has to explain it.",
+-        "price_line": "First Set ₹4,999. Separately ₹5,698.",
+-        "guarantee": "30 days to decide at home. Tags on. Pickup support included.",
+-        "button_label": "Shop the First Set",
+-        "link": "shopify:\/\/products\/the-first-set"
++        "kicker": "",
++        "heading": "Most women are not one size.",
++        "text": "The First Set is a bra and biker shorts, sized separately. Pick each. One box, ₹4,999.",
++        "price_line": "",
++        "guarantee": "",
++        "button_label": "See The First Set",
++        "link": "shopify://products/the-first-set"
+       }
+     }
+   },
+   "order": [
+     "166055755464f3a9f4",
++    "wearth_first_set_home",
+     "wearth_mega_truth",
+     "text_slide_k3RKpK",
+-    "wearth_first_set_home",
+     "featured_collection_JfCawz",
+     "wearth_founder_quote_v1",
+     "1cc12f9d-ee22-49f6-bb07-9aac74ae667f",

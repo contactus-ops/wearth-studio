@@ -1,0 +1,25 @@
+--- live/sections/wearth-first-set-block.liquid
++++ patched/sections/wearth-first-set-block.liquid
+@@ -27,13 +27,17 @@
+       {%- endif -%}
+     </a>
+     <div class="wearth-first-set-block__copy">
+-      <p class="wearth-first-set-block__kicker">{{ section.settings.kicker }}</p>
++      {%- if section.settings.kicker != blank -%}
++        <p class="wearth-first-set-block__kicker">{{ section.settings.kicker }}</p>
++      {%- endif -%}
+       <h2 class="wearth-first-set-block__heading">{{ section.settings.heading }}</h2>
+       <p class="wearth-first-set-block__text">{{ section.settings.text }}</p>
+-      <div class="wearth-first-set-block__offer">
+-        <strong>{{ section.settings.price_line }}</strong>
+-        <span>{{ section.settings.guarantee }}</span>
+-      </div>
++      {%- if section.settings.price_line != blank or section.settings.guarantee != blank -%}
++        <div class="wearth-first-set-block__offer">
++          {%- if section.settings.price_line != blank -%}<strong>{{ section.settings.price_line }}</strong>{%- endif -%}
++          {%- if section.settings.guarantee != blank -%}<span>{{ section.settings.guarantee }}</span>{%- endif -%}
++        </div>
++      {%- endif -%}
+       <a class="wearth-first-set-block__btn" href="{{ section.settings.link | default: product.url }}">{{ section.settings.button_label }}</a>
+     </div>
+   </div>

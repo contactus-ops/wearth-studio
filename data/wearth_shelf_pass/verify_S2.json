@@ -1,0 +1,34 @@
+{
+  "structure": {
+    "order_first3": [
+      "166055755464f3a9f4",
+      "wearth_first_set_home",
+      "wearth_mega_truth"
+    ],
+    "first_set_index": 1,
+    "directly_below_hero": true,
+    "settings": {
+      "product_handle": "the-first-set",
+      "kicker": "",
+      "heading": "Most women are not one size.",
+      "text": "The First Set is a bra and biker shorts, sized separately. Pick each. One box, ₹4,999.",
+      "price_line": "",
+      "guarantee": "",
+      "button_label": "See The First Set",
+      "link": "shopify://products/the-first-set"
+    }
+  },
+  "live": {
+    "found": true,
+    "section_index": 3,
+    "heading": "Most women are not one size.",
+    "text": "The First Set is a bra and biker shorts, sized separately. Pick each. One box, ₹4,999.",
+    "button": "See The First Set",
+    "href": "/products/the-first-set",
+    "has_image": true,
+    "image_above_text": true,
+    "kicker_visible": false,
+    "offer_visible": false,
+    "body_has_tencel": false
+  }
+}

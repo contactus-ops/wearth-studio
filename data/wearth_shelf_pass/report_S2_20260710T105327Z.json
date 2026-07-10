@@ -1,0 +1,21 @@
+{
+  "step": "S2",
+  "stamp": "20260710T105327Z",
+  "files": [
+    {
+      "file": "sections/wearth-first-set-block.liquid",
+      "bytes_before": 3231,
+      "bytes_after": 3543
+    },
+    {
+      "file": "assets/wearth-first-set-block.css",
+      "bytes_before": 2257,
+      "bytes_after": 2246
+    },
+    {
+      "file": "templates/index.json",
+      "bytes_before": 20381,
+      "bytes_after": 20156
+    }
+  ]
+}

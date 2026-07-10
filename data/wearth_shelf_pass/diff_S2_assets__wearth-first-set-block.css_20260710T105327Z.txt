@@ -1,0 +1,45 @@
+--- live/assets/wearth-first-set-block.css
++++ patched/assets/wearth-first-set-block.css
+@@ -9,14 +9,14 @@
+ }
+ 
+ .wearth-first-set-block__inner {
+-  width: min(100%, 1080px);
++  width: min(100%, 1120px);
+   margin: 0 auto;
+   display: grid;
+-  grid-template-columns: minmax(280px, 420px) minmax(0, 1fr);
+-  gap: clamp(24px, 4vw, 56px);
++  grid-template-columns: minmax(280px, 1fr) minmax(0, 1fr);
++  gap: clamp(28px, 5vw, 64px);
+   align-items: center;
+-  background: #fffaf2;
+-  border: 1px solid var(--wfs-line);
++  background: transparent;
++  border: 0;
+ }
+ 
+ .wearth-first-set-block__media {
+@@ -83,16 +83,16 @@
+   display: inline-flex;
+   align-items: center;
+   justify-content: center;
+-  margin-top: 22px;
++  margin-top: 28px;
+   min-height: 48px;
+   padding: 0 28px;
+   border: 1px solid var(--wfs-ink);
+-  background: var(--wfs-ink);
+-  color: #fffaf2 !important;
+-  -webkit-text-fill-color: #fffaf2;
++  background: transparent;
++  color: var(--wfs-ink) !important;
++  -webkit-text-fill-color: var(--wfs-ink);
+   text-decoration: none;
+-  font-size: 14px;
+-  letter-spacing: 0.06em;
++  font-size: 12px;
++  letter-spacing: 0.14em;
+   text-transform: uppercase;
+ }
+ 
