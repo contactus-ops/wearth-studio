@@ -1,0 +1,211 @@
+{%- comment -%}
+  Per-product size charts — Liquid only, no JavaScript.
+  Mapping rules:
+  - men tee/tank handles → men_tops
+  - men joggers/shorts → men_bottoms
+  - women tank/crop tops → women_tops
+  - women sports bra → women_bra
+  - women joggers/shorts/pants → women_bottoms
+  - the-first-set (Terra Bra + Biker Shorts bundle) → women_first_set (bra + bottoms)
+  - the-off-hours-set (Longline Tank + Women's Joggers) → women_off_hours_set
+  - the-everyday-set (Motion Tee + Men's Joggers) → men_everyday_set
+  - the-studio-crop → women_bottoms (same as women joggers — founder override)
+{%- endcomment -%}
+
+{%- assign wearth_sc = '' -%}
+{%- case product.handle -%}
+  {%- when 'sleeveless-regular-fit-tshirt-men', 'men-raglan-tshirt' -%}
+    {%- assign wearth_sc = 'men_tops' -%}
+  {%- when 'mens-everyday-joggers', 'mens-essential-shorts' -%}
+    {%- assign wearth_sc = 'men_bottoms' -%}
+  {%- when 'womens-tank-top', 'flow-tank', 'womens-power-crop', 'power-crop' -%}
+    {%- assign wearth_sc = 'women_tops' -%}
+  {%- when 'align-sports-bra', 'terra-sports-bra' -%}
+    {%- assign wearth_sc = 'women_bra' -%}
+  {%- when 'womens-biker-shorts', 'womens-everyday-joggers', 'the-off-hours-wide-leg', 'the-off-duty-short', 'the-studio-crop' -%}
+    {%- assign wearth_sc = 'women_bottoms' -%}
+  {%- when 'the-first-set' -%}
+    {%- assign wearth_sc = 'women_first_set' -%}
+  {%- when 'the-off-hours-set' -%}
+    {%- assign wearth_sc = 'women_off_hours_set' -%}
+  {%- when 'the-everyday-set' -%}
+    {%- assign wearth_sc = 'men_everyday_set' -%}
+{%- endcase -%}
+
+{%- case wearth_sc -%}
+
+{%- when 'men_tops' -%}
+<h3>MEN'S TOPS &amp; T-SHIRTS SIZE CHART</h3>
+<table>
+<thead>
+<tr><th>Size</th><th>Chest (in)</th><th>Waist (in)</th></tr>
+</thead>
+<tbody>
+<tr><td>XS</td><td>31 - 33</td><td>27 - 29</td></tr>
+<tr><td>S</td><td>34 - 36</td><td>30 - 32</td></tr>
+<tr><td>M</td><td>37 - 39</td><td>33 - 35</td></tr>
+<tr><td>L</td><td>40 - 42</td><td>36 - 38</td></tr>
+<tr><td>XL</td><td>43 - 45</td><td>39 - 41</td></tr>
+<tr><td>XXL</td><td>46 - 48</td><td>42 - 44</td></tr>
+</tbody>
+</table>
+
+{%- when 'men_bottoms' -%}
+<h2>MEN'S BOTTOMS SIZE CHART</h2>
+<p><em>(Joggers / Shorts)</em></p>
+<table>
+<thead>
+<tr><th>Size</th><th>Waist (in)</th><th>Hip (in)</th><th>Inseam (in)</th></tr>
+</thead>
+<tbody>
+<tr><td>S</td><td>28 – 30</td><td>35.5 – 37</td><td>28</td></tr>
+<tr><td>M</td><td>30.5 – 32.5</td><td>37.5 – 39</td><td>29</td></tr>
+<tr><td>L</td><td>33 – 35</td><td>39.5 – 41</td><td>29.5</td></tr>
+<tr><td>XL</td><td>35.5 – 37</td><td>41.5 – 43</td><td>30</td></tr>
+<tr><td>2XL</td><td>37.5 – 39.5</td><td>43.5 – 45</td><td>31</td></tr>
+</tbody>
+</table>
+
+{%- when 'women_tops' -%}
+<h3>WOMEN'S TOPS &amp; SPORTS BRAS SIZE CHART</h3>
+<table>
+<thead>
+<tr><th>Size</th><th>Bust (in)</th><th>Waist (in)</th><th>Hip (in)</th></tr>
+</thead>
+<tbody>
+<tr><td>XXS</td><td>27.5 - 29.5</td><td>21.25 - 23.5</td><td>30.5 - 33</td></tr>
+<tr><td>XS</td><td>29.5 - 32.5</td><td>23.5 - 26</td><td>33 - 35.5</td></tr>
+<tr><td>S</td><td>32.5 - 35.5</td><td>26 - 29</td><td>35.5 - 38.5</td></tr>
+<tr><td>M</td><td>35.5 - 38</td><td>29 - 31.5</td><td>38.5 - 41</td></tr>
+<tr><td>L</td><td>38 - 41</td><td>31.5 - 34.5</td><td>41 - 44</td></tr>
+<tr><td>XL</td><td>41 - 44.5</td><td>34.5 - 38.5</td><td>44 - 47</td></tr>
+</tbody>
+</table>
+
+{%- when 'women_bra' -%}
+<h3>SPORTS BRA SIZE CHART (BAND &amp; CUP)</h3>
+<table>
+<thead>
+<tr><th>Size</th><th>Band Size (in)</th><th>Corresponding Cup Size</th></tr>
+</thead>
+<tbody>
+<tr><td>XS</td><td>30 - 32</td><td>A, B, C</td></tr>
+<tr><td>S</td><td>32 - 34</td><td>B, C, D</td></tr>
+<tr><td>M</td><td>34 - 36</td><td>C, D</td></tr>
+<tr><td>L</td><td>36 - 38</td><td>D, DD</td></tr>
+<tr><td>XL</td><td>38 - 40</td><td>D, DD, E</td></tr>
+</tbody>
+</table>
+
+{%- when 'women_bottoms' -%}
+<h2>WOMEN'S BOTTOMS SIZE CHART</h2>
+<p><em>(Joggers / Shorts / Biker Shorts)</em></p>
+<table>
+<thead>
+<tr><th>Size</th><th>Waist (in)</th><th>Hip (in)</th><th>Inseam (in)</th></tr>
+</thead>
+<tbody>
+<tr><td>XS</td><td>24.5 – 26</td><td>34 – 35.5</td><td>26</td></tr>
+<tr><td>S</td><td>26.5 – 28.5</td><td>36 – 38</td><td>26.5</td></tr>
+<tr><td>M</td><td>29 – 31</td><td>38.5 – 40</td><td>27</td></tr>
+<tr><td>L</td><td>31.5 – 33.5</td><td>40.5 – 43</td><td>27.5</td></tr>
+<tr><td>XL</td><td>34 – 36</td><td>43.5 – 45.5</td><td>28</td></tr>
+</tbody>
+</table>
+
+{%- when 'women_first_set' -%}
+<p class="wearth-size-chart__bundle-note"><em>This set includes Terra Bra + Biker Shorts. Use both charts below.</em></p>
+<h3>SPORTS BRA SIZE CHART (BAND &amp; CUP) — Terra Bra</h3>
+<table>
+<thead>
+<tr><th>Size</th><th>Band Size (in)</th><th>Corresponding Cup Size</th></tr>
+</thead>
+<tbody>
+<tr><td>XS</td><td>30 - 32</td><td>A, B, C</td></tr>
+<tr><td>S</td><td>32 - 34</td><td>B, C, D</td></tr>
+<tr><td>M</td><td>34 - 36</td><td>C, D</td></tr>
+<tr><td>L</td><td>36 - 38</td><td>D, DD</td></tr>
+<tr><td>XL</td><td>38 - 40</td><td>D, DD, E</td></tr>
+</tbody>
+</table>
+<h2>WOMEN'S BOTTOMS SIZE CHART — Biker Shorts</h2>
+<p><em>(Joggers / Shorts / Biker Shorts)</em></p>
+<table>
+<thead>
+<tr><th>Size</th><th>Waist (in)</th><th>Hip (in)</th><th>Inseam (in)</th></tr>
+</thead>
+<tbody>
+<tr><td>XS</td><td>24.5 – 26</td><td>34 – 35.5</td><td>26</td></tr>
+<tr><td>S</td><td>26.5 – 28.5</td><td>36 – 38</td><td>26.5</td></tr>
+<tr><td>M</td><td>29 – 31</td><td>38.5 – 40</td><td>27</td></tr>
+<tr><td>L</td><td>31.5 – 33.5</td><td>40.5 – 43</td><td>27.5</td></tr>
+<tr><td>XL</td><td>34 – 36</td><td>43.5 – 45.5</td><td>28</td></tr>
+</tbody>
+</table>
+
+{%- when 'women_off_hours_set' -%}
+<p class="wearth-size-chart__bundle-note"><em>This set includes the Longline Tank + Women's Everyday Joggers. Sized separately. Use both charts below.</em></p>
+<h3>WOMEN'S TOPS SIZE CHART — Longline Tank</h3>
+<table>
+<thead>
+<tr><th>Size</th><th>Bust (in)</th><th>Waist (in)</th><th>Hip (in)</th></tr>
+</thead>
+<tbody>
+<tr><td>XXS</td><td>27.5 - 29.5</td><td>21.25 - 23.5</td><td>30.5 - 33</td></tr>
+<tr><td>XS</td><td>29.5 - 32.5</td><td>23.5 - 26</td><td>33 - 35.5</td></tr>
+<tr><td>S</td><td>32.5 - 35.5</td><td>26 - 29</td><td>35.5 - 38.5</td></tr>
+<tr><td>M</td><td>35.5 - 38</td><td>29 - 31.5</td><td>38.5 - 41</td></tr>
+<tr><td>L</td><td>38 - 41</td><td>31.5 - 34.5</td><td>41 - 44</td></tr>
+<tr><td>XL</td><td>41 - 44.5</td><td>34.5 - 38.5</td><td>44 - 47</td></tr>
+</tbody>
+</table>
+<h2>WOMEN'S BOTTOMS SIZE CHART — Everyday Joggers</h2>
+<p><em>(Joggers / Shorts / Biker Shorts)</em></p>
+<table>
+<thead>
+<tr><th>Size</th><th>Waist (in)</th><th>Hip (in)</th><th>Inseam (in)</th></tr>
+</thead>
+<tbody>
+<tr><td>XS</td><td>24.5 – 26</td><td>34 – 35.5</td><td>26</td></tr>
+<tr><td>S</td><td>26.5 – 28.5</td><td>36 – 38</td><td>26.5</td></tr>
+<tr><td>M</td><td>29 – 31</td><td>38.5 – 40</td><td>27</td></tr>
+<tr><td>L</td><td>31.5 – 33.5</td><td>40.5 – 43</td><td>27.5</td></tr>
+<tr><td>XL</td><td>34 – 36</td><td>43.5 – 45.5</td><td>28</td></tr>
+</tbody>
+</table>
+
+{%- when 'men_everyday_set' -%}
+<p class="wearth-size-chart__bundle-note"><em>This set includes the Motion Tee + Men's Everyday Joggers. Sized separately. Use both charts below.</em></p>
+<h3>MEN'S TOPS SIZE CHART — Motion Tee</h3>
+<table>
+<thead>
+<tr><th>Size</th><th>Chest (in)</th><th>Waist (in)</th></tr>
+</thead>
+<tbody>
+<tr><td>XS</td><td>31 - 33</td><td>27 - 29</td></tr>
+<tr><td>S</td><td>34 - 36</td><td>30 - 32</td></tr>
+<tr><td>M</td><td>37 - 39</td><td>33 - 35</td></tr>
+<tr><td>L</td><td>40 - 42</td><td>36 - 38</td></tr>
+<tr><td>XL</td><td>43 - 45</td><td>39 - 41</td></tr>
+<tr><td>XXL</td><td>46 - 48</td><td>42 - 44</td></tr>
+</tbody>
+</table>
+<h2>MEN'S BOTTOMS SIZE CHART — Everyday Joggers</h2>
+<p><em>(Joggers / Shorts)</em></p>
+<table>
+<thead>
+<tr><th>Size</th><th>Waist (in)</th><th>Hip (in)</th><th>Inseam (in)</th></tr>
+</thead>
+<tbody>
+<tr><td>S</td><td>28 – 30</td><td>35.5 – 37</td><td>28</td></tr>
+<tr><td>M</td><td>30.5 – 32.5</td><td>37.5 – 39</td><td>29</td></tr>
+<tr><td>L</td><td>33 – 35</td><td>39.5 – 41</td><td>29.5</td></tr>
+<tr><td>XL</td><td>35.5 – 37</td><td>41.5 – 43</td><td>30</td></tr>
+<tr><td>2XL</td><td>37.5 – 39.5</td><td>43.5 – 45</td><td>31</td></tr>
+</tbody>
+</table>
+
+{%- else -%}
+<p class="wearth-size-chart__fallback">Size guide for this style is not listed here. Email <a href="mailto:contactus@wearthactive.com">contactus@wearthactive.com</a> for fit help.</p>
+
+{%- endcase -%}

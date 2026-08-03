@@ -1,0 +1,920 @@
+{%- comment -%} WEARTH Editorial Collection — one product per beat, luxury PDP nudge {%- endcomment -%}
+{%- liquid
+  assign coll = collection
+  if section.settings.collection != blank
+    assign coll = section.settings.collection
+  endif
+  assign limit_n = section.settings.products_per_page | default: 12
+-%}
+
+<div class="wearth-editorial-collection" data-wearth-editorial-collection>
+  {%- if coll == blank or coll.products_count == 0 -%}
+    <p class="wearth-ec-empty">{{ 'collections.general.no_matches' | t }}</p>
+  {%- else -%}
+    {%- paginate coll.products by limit_n -%}
+      {%- comment -%} Motion products first (VARIANT: videos), then the rest — display order only {%- endcomment -%}
+      {%- assign wearth_ec_display_idx = 0 -%}
+      {%- assign wearth_ec_hero_motion_used = false -%}
+      {%- assign wearth_ec_sort_passes = 'firstset|motion|rest' | split: '|' -%}
+      {%- for wearth_ec_pass in wearth_ec_sort_passes -%}
+      {%- for product in coll.products -%}
+        {%- if wearth_ec_pass == 'firstset' and product.handle != 'the-first-set' -%}
+          {%- continue -%}
+        {%- endif -%}
+        {%- if wearth_ec_pass != 'firstset' and product.handle == 'the-first-set' -%}
+          {%- continue -%}
+        {%- endif -%}
+
+        {%- assign wearth_ec_sort_has_video = false -%}
+        {%- unless product.handle == 'womens-tank-top' or product.handle == 'flow-tank' -%}
+          {%- for m in product.media -%}
+            {%- if m.media_type == 'video' -%}
+              {%- assign wearth_ec_m_alt = m.alt | default: '' -%}
+              {%- if wearth_ec_m_alt contains 'VARIANT:' -%}
+                {%- assign wearth_ec_sort_has_video = true -%}
+                {%- break -%}
+              {%- endif -%}
+            {%- endif -%}
+          {%- endfor -%}
+        {%- endunless -%}
+        {%- if wearth_ec_pass == 'motion' and wearth_ec_sort_has_video == false -%}
+          {%- continue -%}
+        {%- endif -%}
+        {%- if wearth_ec_pass == 'rest' and wearth_ec_sort_has_video -%}
+          {%- continue -%}
+        {%- endif -%}
+        {%- assign idx = wearth_ec_display_idx -%}
+        {%- assign idx_mod = idx | modulo: 2 -%}
+        {%- assign is_right = false -%}
+        {%- if idx_mod == 1 -%}{%- assign is_right = true -%}{%- endif -%}
+
+        {%- assign display_media = product.featured_media -%}
+        {%- assign white_variant_img = blank -%}
+        {%- for variant in product.variants -%}
+          {%- assign v_title_lower = variant.title | downcase -%}
+          {%- if v_title_lower contains 'white' or v_title_lower contains 'ivory' or v_title_lower contains 'cream' -%}
+            {%- if white_variant_img == blank and variant.featured_image != blank -%}
+              {%- assign white_variant_img = variant.featured_image -%}
+            {%- endif -%}
+          {%- endif -%}
+        {%- endfor -%}
+        {%- if white_variant_img != blank and product.handle != 'men-raglan-tshirt' -%}
+          {%- assign display_media = white_variant_img -%}
+        {%- endif -%}
+
+        {%- assign default_color = '' -%}
+        {%- assign display_video = blank -%}
+        {%- for opt in product.options_with_values -%}
+          {%- assign opt_name_lower = opt.name | downcase -%}
+          {%- if opt_name_lower contains 'color' or opt_name_lower contains 'colour' -%}
+            {%- for val in opt.values -%}
+              {%- if default_color == '' -%}
+                {%- assign default_color = val -%}
+              {%- endif -%}
+              {%- if white_variant_img != blank and val contains 'White' and product.handle != 'men-raglan-tshirt' -%}
+                {%- assign default_color = val -%}
+              {%- endif -%}
+            {%- endfor -%}
+          {%- endif -%}
+        {%- endfor -%}
+        {%- if product.handle == 'align-sports-bra' -%}
+          {%- for opt in product.options_with_values -%}
+            {%- assign opt_name_lower = opt.name | downcase -%}
+            {%- if opt_name_lower contains 'color' or opt_name_lower contains 'colour' -%}
+              {%- for val in opt.values -%}
+                {%- assign val_down = val | downcase | strip -%}
+                {%- if val_down == 'black' or val_down == 'onyx' -%}
+                  {%- assign default_color = val -%}
+                  {%- for variant in product.variants -%}
+                    {%- assign vc = variant.option1 -%}
+                    {%- if opt.position == 2 -%}{%- assign vc = variant.option2 -%}
+                    {%- elsif opt.position == 3 -%}{%- assign vc = variant.option3 -%}{%- endif -%}
+                    {%- if vc == val and variant.featured_image != blank -%}
+                      {%- assign display_media = variant.featured_image -%}
+                    {%- endif -%}
+                  {%- endfor -%}
+                {%- endif -%}
+              {%- endfor -%}
+            {%- endif -%}
+          {%- endfor -%}
+        {%- endif -%}
+        {%- assign wearth_ec_force_img_url = '' -%}
+        {%- comment -%} WEARTH_EC_MT_BLACK_MODEL: Motion Tee editorial default = PDP:Black-02 model {%- endcomment -%}
+        {%- if product.handle == 'men-raglan-tshirt' -%}
+          {%- assign default_color = 'Black' -%}
+          {%- assign wearth_raglan_full = all_products['men-raglan-tshirt'] -%}
+          {%- for m in wearth_raglan_full.media -%}
+            {%- if m.media_type == 'image' and m.alt == 'PDP:Black-02' -%}
+              {%- assign display_media = m -%}
+              {%- assign wearth_ec_force_img_url = m | image_url: width: 1200 -%}
+              {%- break -%}
+            {%- endif -%}
+          {%- endfor -%}
+        {%- endif -%}
+        {%- if product.handle == 'mens-essential-shorts' -%}
+          {%- assign default_color = 'Black' -%}
+          {%- assign wearth_ec_force_img_url = 'mens-essential-shorts-black-card.jpg' | file_img_url: '1200x' -%}
+          {%- if wearth_ec_force_img_url == blank -%}
+            {%- assign wearth_shorts_full = all_products['mens-essential-shorts'] -%}
+            {%- assign wearth_ec_card_alt = 'CARD:Black' -%}
+            {%- for m in wearth_shorts_full.media -%}
+              {%- if m.media_type == 'image' and m.alt == wearth_ec_card_alt -%}
+                {%- assign display_media = m -%}
+                {%- break -%}
+              {%- endif -%}
+            {%- endfor -%}
+            {%- if wearth_shorts_full.metafields.wearth.card_image != blank -%}
+              {%- assign wearth_ec_card_file = wearth_shorts_full.metafields.wearth.card_image.value -%}
+              {%- if wearth_ec_card_file != blank -%}
+                {%- assign wearth_ec_force_img_url = wearth_ec_card_file | image_url: width: 1200 -%}
+              {%- endif -%}
+            {%- endif -%}
+          {%- endif -%}
+        {%- endif -%}
+        {%- if product.handle == 'sleeveless-regular-fit-tshirt-men' -%}
+          {%- assign default_color = 'Black' -%}
+          {%- assign wearth_ec_force_img_url = 'edge-tank-black-card.jpg' | file_img_url: '1200x' -%}
+          {%- if wearth_ec_force_img_url == blank -%}
+            {%- assign wearth_edge_full = all_products['sleeveless-regular-fit-tshirt-men'] -%}
+            {%- assign wearth_ec_card_alt = 'CARD:Black' -%}
+            {%- for m in wearth_edge_full.media -%}
+              {%- if m.media_type == 'image' and m.alt == wearth_ec_card_alt -%}
+                {%- assign display_media = m -%}
+                {%- break -%}
+              {%- endif -%}
+            {%- endfor -%}
+            {%- if wearth_edge_full.metafields.wearth.card_image != blank -%}
+              {%- assign wearth_ec_card_file = wearth_edge_full.metafields.wearth.card_image.value -%}
+              {%- if wearth_ec_card_file != blank -%}
+                {%- assign wearth_ec_force_img_url = wearth_ec_card_file | image_url: width: 1200 -%}
+              {%- endif -%}
+            {%- endif -%}
+          {%- endif -%}
+        {%- endif -%}
+        {%- if product.handle == 'mens-everyday-joggers' -%}
+          {%- assign default_color = 'Black' -%}
+          {%- assign wearth_ec_force_img_url = 'mens-everyday-joggers-black-card.jpg' | file_img_url: '1200x' -%}
+          {%- if wearth_ec_force_img_url == blank -%}
+            {%- assign wearth_mj_full = all_products['mens-everyday-joggers'] -%}
+            {%- assign wearth_ec_card_alt = 'CARD:Black' -%}
+            {%- for m in wearth_mj_full.media -%}
+              {%- if m.media_type == 'image' and m.alt == wearth_ec_card_alt -%}
+                {%- assign display_media = m -%}
+                {%- break -%}
+              {%- endif -%}
+            {%- endfor -%}
+            {%- if wearth_mj_full.metafields.wearth.card_image != blank -%}
+              {%- assign wearth_ec_card_file = wearth_mj_full.metafields.wearth.card_image.value -%}
+              {%- if wearth_ec_card_file != blank -%}
+                {%- assign wearth_ec_force_img_url = wearth_ec_card_file | image_url: width: 1200 -%}
+              {%- endif -%}
+            {%- endif -%}
+          {%- endif -%}
+        {%- endif -%}
+        {%- if product.handle == 'womens-everyday-joggers' -%}
+          {%- for opt in product.options_with_values -%}
+            {%- assign opt_name_lower = opt.name | downcase -%}
+            {%- if opt_name_lower contains 'color' or opt_name_lower contains 'colour' -%}
+              {%- for val in opt.values -%}
+                {%- assign val_down = val | downcase | strip -%}
+                {%- if val_down == 'brown' or val_down == 'dark brown' -%}
+                  {%- assign default_color = val -%}
+                  {%- for variant in product.variants -%}
+                    {%- assign vc = variant.option1 -%}
+                    {%- if opt.position == 2 -%}{%- assign vc = variant.option2 -%}
+                    {%- elsif opt.position == 3 -%}{%- assign vc = variant.option3 -%}{%- endif -%}
+                    {%- if vc == val and variant.featured_image != blank -%}
+                      {%- assign display_media = variant.featured_image -%}
+                    {%- endif -%}
+                  {%- endfor -%}
+                {%- endif -%}
+              {%- endfor -%}
+            {%- endif -%}
+          {%- endfor -%}
+        {%- endif -%}
+        {%- if product.handle == 'womens-tank-top' or product.handle == 'flow-tank' -%}
+          {%- for opt in product.options_with_values -%}
+            {%- assign opt_name_lower = opt.name | downcase -%}
+            {%- if opt_name_lower contains 'color' or opt_name_lower contains 'colour' -%}
+              {%- for val in opt.values -%}
+                {%- assign val_down = val | downcase | strip -%}
+                {%- if val_down == 'white' or val contains 'White' -%}
+                  {%- assign default_color = val -%}
+                  {%- for variant in product.variants -%}
+                    {%- assign vc = variant.option1 -%}
+                    {%- if opt.position == 2 -%}{%- assign vc = variant.option2 -%}
+                    {%- elsif opt.position == 3 -%}{%- assign vc = variant.option3 -%}{%- endif -%}
+                    {%- if vc == val and variant.featured_image != blank -%}
+                      {%- assign display_media = variant.featured_image -%}
+                      {%- assign white_variant_img = variant.featured_image -%}
+                    {%- endif -%}
+                  {%- endfor -%}
+                {%- endif -%}
+              {%- endfor -%}
+            {%- endif -%}
+          {%- endfor -%}
+        {%- endif -%}
+        {%- comment -%} Collection motion via VARIANT:{color} media (gallery/PDP still skip VARIANT:) {%- endcomment -%}
+        {%- assign display_video = blank -%}
+        {%- assign wearth_ec_suppress_video = false -%}
+        {%- if product.handle == 'womens-biker-shorts' or product.handle == 'womens-tank-top' or product.handle == 'flow-tank' or product.handle == 'mens-everyday-joggers' or product.handle == 'men-raglan-tshirt' or product.handle == 'sleeveless-regular-fit-tshirt-men' or product.handle == 'mens-essential-shorts' -%}
+          {%- assign wearth_ec_suppress_video = true -%}
+        {%- endif -%}
+        {%- unless wearth_ec_suppress_video -%}
+          {%- if default_color != blank -%}
+            {%- assign wearth_ec_vid_alt = 'VARIANT:' | append: default_color -%}
+            {%- assign wearth_ec_vid_alt_lc = wearth_ec_vid_alt | downcase | strip -%}
+            {%- for m in product.media -%}
+              {%- if m.media_type == 'video' -%}
+                {%- assign m_alt_lc = m.alt | downcase | strip -%}
+                {%- if m.alt == wearth_ec_vid_alt or m_alt_lc == wearth_ec_vid_alt_lc -%}
+                  {%- assign display_video = m -%}
+                  {%- break -%}
+                {%- endif -%}
+              {%- endif -%}
+            {%- endfor -%}
+          {%- endif -%}
+        {%- endunless -%}
+
+        {%- assign wearth_ec_mp4_url = '' -%}
+        {%- assign wearth_ec_motion_ssr = false -%}
+        {%- if display_video != blank and display_video.sources != blank -%}
+          {%- for src in display_video.sources -%}
+            {%- if src.format == 'mp4' or src.mime_type contains 'mp4' -%}
+              {%- assign wearth_ec_mp4_url = src.url -%}
+              {%- break -%}
+            {%- endif -%}
+          {%- endfor -%}
+          {%- if wearth_ec_mp4_url contains '//' -%}
+            {%- unless wearth_ec_mp4_url contains 'https:' -%}
+              {%- assign wearth_ec_mp4_url = wearth_ec_mp4_url | prepend: 'https:' -%}
+            {%- endunless -%}
+          {%- endif -%}
+          {%- if wearth_ec_hero_motion_used == false and wearth_ec_mp4_url != '' -%}
+            {%- assign wearth_ec_motion_ssr = true -%}
+            {%- assign wearth_ec_hero_motion_used = true -%}
+          {%- endif -%}
+        {%- endif -%}
+
+        {%- assign wearth_micro = 'TAGS ON · 30 DAYS' -%}
+        {%- assign wearth_hook = 'Try at home. Full refund if it is not the softest thing you own.' -%}
+        {%- case product.handle -%}
+          {%- when 'the-first-set' -%}
+            {%- assign wearth_micro = 'BRA + SHORTS · ONE MOVE' -%}
+            {%- assign wearth_hook = 'Terra Bra and Biker Shorts. The pair customers were already buying together. ₹4,999, not ₹5,698.' -%}
+          {%- when 'the-off-hours-set' -%}
+            {%- assign wearth_micro = 'FIFTEEN HOURS · ONE SET' -%}
+            {%- assign wearth_hook = 'Longline Tank and Everyday Joggers for the hours after class. Sized separately. ₹6,799, not ₹7,498.' -%}
+          {%- when 'the-everyday-set' -%}
+            {%- assign wearth_micro = 'READ THE LABEL · THEN THE SET' -%}
+            {%- assign wearth_hook = 'Motion Tee and Everyday Joggers in eucalyptus. No polyester. No nylon. ₹6,799, not ₹7,498.' -%}
+          {%- when 'the-studio-crop' -%}
+            {%- assign wearth_micro = 'MID-CALF · HIGH WAIST' -%}
+            {%- assign wearth_hook = 'Hot yoga in Indian heat does not forgive polyester. This does.' -%}
+          {%- when 'the-off-hours-wide-leg' -%}
+            {%- assign wearth_micro = 'OFF-HOURS · ON PURPOSE' -%}
+            {%- assign wearth_hook = 'Humidity asks for air. Wide leg answers without looking like gym gear.' -%}
+          {%- when 'the-off-duty-short' -%}
+            {%- assign wearth_micro = 'REST DAY · REAL CLOTH' -%}
+            {%- assign wearth_hook = 'Your rest-day shorts are usually polyester. You know how that feels by evening.' -%}
+          {%- when 'align-sports-bra' -%}
+            {%- assign wearth_micro = 'THE BAND DISAPPEARS' -%}
+            {%- assign wearth_hook = 'Light hold. Cool against the ribs.' -%}
+          {%- when 'womens-biker-shorts' -%}
+            {%- assign wearth_micro = 'STAYS WHERE YOU PUT IT' -%}
+            {%- assign wearth_hook = 'Second-skin without squeeze.' -%}
+          {%- when 'sleeveless-regular-fit-tshirt-men' -%}
+            {%- assign wearth_micro = 'CUT FOR SHOULDERS' -%}
+            {%- assign wearth_hook = 'High armhole. Straight fall.' -%}
+          {%- when 'mens-essential-shorts' -%}
+            {%- assign wearth_micro = 'EVERY DAY OF THE WEEK' -%}
+            {%- assign wearth_hook = 'Mid-thigh. No heat trap.' -%}
+          {%- when 'womens-essential-shorts' -%}
+            {%- assign wearth_micro = 'REST · NOT GYM' -%}
+            {%- assign wearth_hook = 'Soft waist. No cling.' -%}
+          {%- when 'womens-everyday-joggers' -%}
+            {%- assign wearth_micro = 'AIRPORT TO ARMCHAIR' -%}
+            {%- assign wearth_hook = 'Drapes like cloth, not polyester.' -%}
+          {%- when 'mens-everyday-joggers' -%}
+            {%- assign wearth_micro = 'FLIGHT TO MEETING' -%}
+            {%- assign wearth_hook = 'Drawcord ease. Steady breath.' -%}
+          {%- when 'womens-tank-top' -%}
+            {%- assign wearth_micro = 'LAYER OR ALONE' -%}
+            {%- assign wearth_hook = 'Long through the body. Nothing rides up when you reach.' -%}
+          {%- when 'men-raglan-tshirt' -%}
+            {%- assign wearth_micro = 'RAGLAN MEANS REACH' -%}
+            {%- assign wearth_hook = 'Seams follow the shoulder.' -%}
+          {%- when 'womens-power-crop' -%}
+            {%- assign wearth_micro = 'STRUCTURE · THEN EASE' -%}
+            {%- assign wearth_hook = 'Most crops squeeze to prove they hold. This one holds, then forgets it is there.' -%}
+          {%- when 'terra-sports-bra' -%}
+            {%- assign wearth_micro = 'EARTH-GROUNDED HOLD' -%}
+            {%- assign wearth_hook = 'Medium hold. Wide band.' -%}
+        {%- endcase -%}
+
+        <article
+          class="wearth-ec-module{% if is_right %} wearth-ec-right{% endif %}{% if display_video != blank %} wearth-ec-module--has-video wearth-ec-module--video-active{% endif %}{% if wearth_ec_motion_ssr %} wearth-ec-module--video-playing{% endif %}"
+          data-product-handle="{{ product.handle }}"
+          data-wearth-default-color="{{ default_color | escape }}"
+          {% if wearth_ec_suppress_video %}data-wearth-ec-images-only="1"{% endif %}
+          {% if wearth_ec_motion_ssr %}data-wearth-ec-motion-ssr="1"{% endif %}
+        >
+          <a class="wearth-ec-image" href="{{ product.url }}" aria-label="{{ product.title | escape }}">
+            {%- if display_video != blank and display_video.sources != blank -%}
+              {%- if product.handle == 'men-raglan-tshirt' and wearth_ec_force_img_url != blank -%}
+                {%- assign poster_url = wearth_ec_force_img_url -%}
+              {%- else -%}
+                {%- assign poster_url = display_media | image_url: width: 1200 -%}
+              {%- endif -%}
+              {%- if poster_url contains '//' -%}
+                {%- unless poster_url contains 'https:' -%}
+                  {%- assign poster_url = poster_url | prepend: 'https:' -%}
+                {%- endunless -%}
+              {%- endif -%}
+              <video
+                class="wearth-ec-video{% if wearth_ec_motion_ssr %} wearth-ec-video--playing{% endif %}"
+                data-wearth-video
+                muted
+                playsinline
+                loop
+                {% if wearth_ec_motion_ssr %}autoplay{% endif %}
+                preload="{% if wearth_ec_motion_ssr %}auto{% else %}none{% endif %}"
+                poster="{{ poster_url }}"
+                aria-label="{{ product.title | escape }}"
+              >
+                {%- if wearth_ec_mp4_url != '' -%}
+                  <source {% if wearth_ec_motion_ssr %}src{% else %}data-src{% endif %}="{{ wearth_ec_mp4_url }}" type="video/mp4">
+                {%- else -%}
+                  {%- for src in display_video.sources -%}
+                    {%- if src.format == 'mp4' or src.mime_type contains 'mp4' -%}
+                      <source data-src="{{ src.url }}" type="{{ src.mime_type | default: 'video/mp4' }}">
+                    {%- endif -%}
+                  {%- endfor -%}
+                {%- endif -%}
+              </video>
+              <img
+                class="wearth-ec-video-fallback"
+                src="{{ poster_url }}"
+                alt="{{ display_media.alt | default: product.title | escape }}"
+                loading="{% if forloop.first %}eager{% else %}lazy{% endif %}"
+                width="{{ display_media.width | default: 1200 }}"
+                height="{{ display_media.height | default: 1500 }}"
+              >
+              <span class="wearth-ec-video-badge" aria-hidden="true">See it move</span>
+            {%- elsif wearth_ec_force_img_url != blank -%}
+              <img
+                src="{{ wearth_ec_force_img_url }}"
+                srcset="{{ wearth_ec_force_img_url | replace: '1200x', '600x' }} 600w, {{ wearth_ec_force_img_url }} 1200w"
+                sizes="(max-width: 749px) 100vw, 55vw"
+                loading="{% if forloop.first %}eager{% else %}lazy{% endif %}"
+                {% if forloop.first %}fetchpriority="high"{% endif %}
+                width="922"
+                height="1152"
+                alt="{{ product.title | escape }} — Black"
+              >
+            {%- elsif display_media -%}
+              <img
+                src="{{ display_media | image_url: width: 1200 }}"
+                srcset="{{ display_media | image_url: width: 600 }} 600w, {{ display_media | image_url: width: 1200 }} 1200w, {{ display_media | image_url: width: 1800 }} 1800w"
+                sizes="(max-width: 749px) 100vw, 55vw"
+                loading="{% if forloop.first %}eager{% else %}lazy{% endif %}"
+                {% if forloop.first %}fetchpriority="high"{% endif %}
+                width="{{ display_media.width | default: 1200 }}"
+                height="{{ display_media.height | default: 1500 }}"
+                alt="{{ display_media.alt | default: product.title | escape }}"
+              >
+            {%- else -%}
+              {{ 'product-1' | placeholder_svg_tag: 'wearth-ec-placeholder' }}
+            {%- endif -%}
+          </a>
+          <div class="wearth-ec-card">
+            <span class="wearth-ec-micro">{{ wearth_micro }}</span>
+            <p class="wearth-ec-hook">{{ wearth_hook }}</p>
+            <h2 class="wearth-ec-title">
+              <a href="{{ product.url }}">{{ product.title }}</a>
+            </h2>
+            {%- if product.handle == 'the-first-set' -%}
+              <span class="wearth-ec-start-badge">the place to start</span>
+            {%- endif -%}
+
+            {%- assign color_option_idx = -1 -%}
+            {%- for opt in product.options -%}
+              {%- assign opt_lower = opt | downcase -%}
+              {%- if opt_lower contains 'color' or opt_lower contains 'colour' -%}
+                {%- assign color_option_idx = forloop.index0 -%}
+              {%- endif -%}
+            {%- endfor -%}
+
+            {%- if color_option_idx > -1 and product.variants.size > 1 -%}
+              {%- assign color_values_seen = '|' -%}
+              <div class="wearth-ec-swatches" role="group" aria-label="Available colours">
+                {%- for variant in product.variants -%}
+                  {%- assign cval = variant.options[color_option_idx] -%}
+                  {%- assign cval_key = '|' | append: cval | append: '|' -%}
+                  {%- unless color_values_seen contains cval_key -%}
+                    {%- assign color_values_seen = color_values_seen | append: cval | append: '|' -%}
+                    {%- assign cval_lower = cval | downcase -%}
+                    {%- comment -%} WEARTH_SET_SWATCH: compound "Top + Bottom" — map TOP first (never match bottom "black" before olive/navy). Dual-tone gradient for sets. {%- endcomment -%}
+                    {%- assign wearth_sw_top = cval_lower -%}
+                    {%- assign wearth_sw_bot = cval_lower -%}
+                    {%- assign wearth_sw_is_pair = false -%}
+                    {%- if cval_lower contains ' + ' -%}
+                      {%- assign wearth_sw_parts = cval_lower | split: ' + ' -%}
+                      {%- assign wearth_sw_top = wearth_sw_parts[0] | strip -%}
+                      {%- assign wearth_sw_bot = wearth_sw_parts[1] | strip -%}
+                      {%- assign wearth_sw_is_pair = true -%}
+                    {%- endif -%}
+                    {%- assign sw_color = '#d0c5b0' -%}
+                    {%- assign sw_color_bot = '#d0c5b0' -%}
+                    {%- assign sw_border = 'rgba(31,27,23,0.18)' -%}
+                    {%- for wearth_sw_pass in (1..2) -%}
+                      {%- if wearth_sw_pass == 1 -%}
+                        {%- assign wearth_sw_key = wearth_sw_top -%}
+                      {%- else -%}
+                        {%- assign wearth_sw_key = wearth_sw_bot -%}
+                      {%- endif -%}
+                      {%- assign wearth_sw_hex = '#d0c5b0' -%}
+                      {%- if wearth_sw_key == 'white' or wearth_sw_key contains 'ivory' or wearth_sw_key contains 'cream' -%}
+                        {%- assign wearth_sw_hex = '#ffffff' -%}
+                      {%- elsif wearth_sw_key == 'olive' or wearth_sw_key contains 'sage' -%}
+                        {%- assign wearth_sw_hex = '#5c4a3a' -%}
+                      {%- elsif wearth_sw_key == 'navy' or wearth_sw_key contains 'blue' -%}
+                        {%- assign wearth_sw_hex = '#2a3a5c' -%}
+                      {%- elsif wearth_sw_key == 'brown' or wearth_sw_key contains 'chocolate' or wearth_sw_key contains 'espresso' -%}
+                        {%- assign wearth_sw_hex = '#6b4423' -%}
+                      {%- elsif wearth_sw_key == 'maroon' or wearth_sw_key contains 'burgundy' or wearth_sw_key contains 'wine' -%}
+                        {%- assign wearth_sw_hex = '#6b2c2c' -%}
+                      {%- elsif wearth_sw_key == 'charcoal' -%}
+                        {%- assign wearth_sw_hex = '#4a4a4a' -%}
+                      {%- elsif wearth_sw_key == 'grey' or wearth_sw_key == 'gray' -%}
+                        {%- assign wearth_sw_hex = '#8a8a8a' -%}
+                      {%- elsif wearth_sw_key == 'tan' or wearth_sw_key contains 'beige' or wearth_sw_key contains 'sand' -%}
+                        {%- assign wearth_sw_hex = '#c4b896' -%}
+                      {%- elsif wearth_sw_key contains 'rose' or wearth_sw_key contains 'pink' or wearth_sw_key contains 'blush' -%}
+                        {%- assign wearth_sw_hex = '#d4a99a' -%}
+                      {%- elsif wearth_sw_key == 'black' or wearth_sw_key contains 'onyx' or wearth_sw_key contains 'jet' -%}
+                        {%- assign wearth_sw_hex = '#1a1a1a' -%}
+                      {%- endif -%}
+                      {%- if wearth_sw_pass == 1 -%}
+                        {%- assign sw_color = wearth_sw_hex -%}
+                        {%- if wearth_sw_hex == '#ffffff' -%}
+                          {%- assign sw_border = 'rgba(31,27,23,0.35)' -%}
+                        {%- endif -%}
+                      {%- else -%}
+                        {%- assign sw_color_bot = wearth_sw_hex -%}
+                      {%- endif -%}
+                    {%- endfor -%}
+                    {%- if wearth_sw_is_pair -%}
+                      {%- assign sw_bg = 'linear-gradient(135deg, ' | append: sw_color | append: ' 50%, ' | append: sw_color_bot | append: ' 50%)' -%}
+                    {%- else -%}
+                      {%- assign sw_bg = sw_color -%}
+                    {%- endif -%}
+                    {%- comment -%} WEARTH_EC_SWATCH_IMG: CARD → PDP model (-02) → PDP single → variant {%- endcomment -%}
+                    {%- assign vimg = blank -%}
+                    {%- assign wearth_ec_swatch_card_alt = 'CARD:' | append: cval -%}
+                    {%- for m in product.media -%}
+                      {%- if m.media_type == 'image' and m.alt == wearth_ec_swatch_card_alt -%}
+                        {%- assign vimg = m -%}
+                        {%- break -%}
+                      {%- endif -%}
+                    {%- endfor -%}
+                    {%- if vimg == blank -%}
+                      {%- assign wearth_ec_swatch_pdp_alt = 'PDP:' | append: cval | append: '-02' -%}
+                      {%- for m in product.media -%}
+                        {%- if m.media_type == 'image' and m.alt == wearth_ec_swatch_pdp_alt -%}
+                          {%- assign vimg = m -%}
+                          {%- break -%}
+                        {%- endif -%}
+                      {%- endfor -%}
+                    {%- endif -%}
+                    {%- comment -%} WEARTH_EC_SWATCH_IMG_EXT: -03/-01 before bare PDP alt {%- endcomment -%}
+                    {%- if vimg == blank -%}
+                      {%- assign wearth_ec_swatch_pdp_alt = 'PDP:' | append: cval | append: '-03' -%}
+                      {%- for m in product.media -%}
+                        {%- if m.media_type == 'image' and m.alt == wearth_ec_swatch_pdp_alt -%}
+                          {%- assign vimg = m -%}
+                          {%- break -%}
+                        {%- endif -%}
+                      {%- endfor -%}
+                    {%- endif -%}
+                    {%- if vimg == blank -%}
+                      {%- assign wearth_ec_swatch_pdp_alt = 'PDP:' | append: cval | append: '-01' -%}
+                      {%- for m in product.media -%}
+                        {%- if m.media_type == 'image' and m.alt == wearth_ec_swatch_pdp_alt -%}
+                          {%- assign vimg = m -%}
+                          {%- break -%}
+                        {%- endif -%}
+                      {%- endfor -%}
+                    {%- endif -%}
+                    {%- if vimg == blank -%}
+                      {%- assign wearth_ec_swatch_pdp_alt = 'PDP:' | append: cval -%}
+                      {%- for m in product.media -%}
+                        {%- if m.media_type == 'image' and m.alt == wearth_ec_swatch_pdp_alt -%}
+                          {%- assign vimg = m -%}
+                          {%- break -%}
+                        {%- endif -%}
+                      {%- endfor -%}
+                    {%- endif -%}
+                    {%- if vimg == blank -%}
+                      {%- assign vimg = variant.featured_image -%}
+                    {%- endif -%}
+                    {%- if vimg == blank -%}{%- assign vimg = display_media -%}{%- endif -%}
+                    {%- assign cval_video_url = '' -%}
+                    {%- unless wearth_ec_suppress_video -%}
+                      {%- assign cval_alt = 'VARIANT:' | append: cval -%}
+                      {%- assign cval_alt_lc = cval_alt | downcase | strip -%}
+                      {%- for m in product.media -%}
+                        {%- if m.media_type == 'video' -%}
+                          {%- assign m_alt_lc = m.alt | downcase | strip -%}
+                          {%- if m.alt == cval_alt or m_alt_lc == cval_alt_lc -%}
+                            {%- for src in m.sources -%}
+                              {%- if src.format == 'mp4' or src.mime_type contains 'mp4' -%}
+                                {%- assign cval_video_url = src.url -%}
+                                {%- if cval_video_url contains '//' -%}
+                                  {%- unless cval_video_url contains 'https:' -%}
+                                    {%- assign cval_video_url = cval_video_url | prepend: 'https:' -%}
+                                  {%- endunless -%}
+                                {%- endif -%}
+                                {%- break -%}
+                              {%- endif -%}
+                            {%- endfor -%}
+                            {%- break -%}
+                          {%- endif -%}
+                        {%- endif -%}
+                      {%- endfor -%}
+                    {%- endunless -%}
+                    <button
+                      type="button"
+                      class="wearth-ec-swatch"
+                      data-variant-img="{{ vimg | image_url: width: 1200 }}"
+                      data-variant-srcset="{{ vimg | image_url: width: 600 }} 600w, {{ vimg | image_url: width: 1200 }} 1200w"
+                      data-variant-video="{{ cval_video_url }}"
+                      data-variant-color="{{ cval | escape }}"
+                      style="background: {{ sw_bg }}; border-color: {{ sw_border }};"
+                      aria-label="View in {{ cval | escape }}"
+                      {% if cval == default_color %}aria-pressed="true"{% endif %}
+                    ></button>
+                  {%- endunless -%}
+                {%- endfor -%}
+              </div>
+            {%- endif -%}
+
+            {%- assign wearth_ec_vjson_needed = false -%}
+            {%- for m in product.media -%}
+              {%- if m.media_type == 'video' -%}
+                {%- assign wearth_ec_m_alt_v = m.alt | default: '' -%}
+                {%- if wearth_ec_m_alt_v contains 'VARIANT:' -%}
+                  {%- assign wearth_ec_vjson_needed = true -%}
+                  {%- break -%}
+                {%- endif -%}
+              {%- endif -%}
+            {%- endfor -%}
+            {%- if wearth_ec_vjson_needed -%}
+              <script type="application/json" class="wearth-ec-variant-videos">{"default":{{ default_color | json }},"videos":{
+              {%- assign wearth_ec_vsep = '' -%}
+              {%- for m in product.media -%}
+                {%- if m.media_type == 'video' -%}
+                  {%- assign wearth_ec_m_alt_v = m.alt | default: '' -%}
+                  {%- if wearth_ec_m_alt_v contains 'VARIANT:' -%}
+                    {%- assign vcolor = wearth_ec_m_alt_v | remove: 'VARIANT:' | strip -%}
+                    {%- assign vurl = '' -%}
+                    {%- for src in m.sources -%}
+                      {%- if src.format == 'mp4' or src.mime_type contains 'mp4' -%}
+                        {%- assign vurl = src.url -%}
+                        {%- if vurl contains '//' -%}
+                          {%- unless vurl contains 'https:' -%}
+                            {%- assign vurl = vurl | prepend: 'https:' -%}
+                          {%- endunless -%}
+                        {%- endif -%}
+                        {%- break -%}
+                      {%- endif -%}
+                    {%- endfor -%}
+                    {{ wearth_ec_vsep }}{{ vcolor | json }}:{{ vurl | json }}
+                    {%- assign wearth_ec_vsep = ',' -%}
+                  {%- endif -%}
+                {%- endif -%}
+              {%- endfor -%}
+              }}</script>
+            {%- endif -%}
+
+            <div class="wearth-ec-price">
+              {%- if product.compare_at_price > product.price -%}
+                <s class="wearth-ec-compare">{{ product.compare_at_price | money }}</s>
+              {%- endif -%}
+              <span>{{ product.price | money }}</span>
+            </div>
+            <p class="wearth-ec-fabric">eucalyptus fibre, no polyester</p>
+            <a class="wearth-ec-cta" href="{{ product.url }}">Explore the piece</a>
+          </div>
+        </article>
+
+        {%- assign wearth_ec_display_idx = wearth_ec_display_idx | plus: 1 -%}
+        {%- if wearth_ec_display_idx == 3 and coll.products_count >= 5 -%}
+          <aside class="wearth-ec-breaker wearth-ec-breaker--1">
+            <div class="wearth-ec-breaker-inner">
+              <p class="wearth-ec-breaker-eyebrow">WEARTH · TRIBE</p>
+              <h3 class="wearth-ec-breaker-head">Worn most this season.</h3>
+              <p class="wearth-ec-breaker-sub">The pieces that stay in rotation.</p>
+            </div>
+          </aside>
+        {%- endif -%}
+
+        {%- if wearth_ec_display_idx == 6 and coll.products_count >= 8 -%}
+          <aside class="wearth-ec-breaker wearth-ec-breaker--2">
+            <div class="wearth-ec-breaker-inner">
+              <p class="wearth-ec-breaker-eyebrow">PLANT FIBRE</p>
+              <h3 class="wearth-ec-breaker-head">Made for Indian heat and everything after.</h3>
+              <p class="wearth-ec-breaker-sub">Eucalyptus breathes where polyester traps.</p>
+            </div>
+          </aside>
+        {%- endif -%}
+      {%- endfor -%}
+      {%- endfor -%}
+
+      {%- if paginate.pages > 1 -%}
+        <nav class="wearth-ec-pagination" aria-label="Collection pages">
+          {%- if paginate.previous -%}
+            <a href="{{ paginate.previous.url }}" class="wearth-ec-page-link">Previous</a>
+          {%- endif -%}
+          <span class="wearth-ec-page-num">Page {{ paginate.current_page }} of {{ paginate.pages }}</span>
+          {%- if paginate.next -%}
+            <a href="{{ paginate.next.url }}" class="wearth-ec-page-link wearth-ec-page-link--next">Continue</a>
+          {%- endif -%}
+        </nav>
+      {%- endif -%}
+    {%- endpaginate -%}
+  {%- endif -%}
+</div>
+
+{{ 'wearth-editorial-collection.css' | asset_url | stylesheet_tag }}
+
+<script>
+(function() {
+  function toHttps(u) {
+    if (!u) return u;
+    if (u.indexOf('//') === 0) return 'https:' + u;
+    return u;
+  }
+
+  function hydrateVideoSources(video) {
+    if (!video || video.getAttribute('data-wearth-src-ready') === '1') return;
+    video.querySelectorAll('source').forEach(function(s) {
+      var raw = s.getAttribute('src') || s.getAttribute('data-src') || '';
+      if (!raw) return;
+      s.src = toHttps(raw);
+      s.removeAttribute('data-src');
+    });
+    video.setAttribute('data-wearth-src-ready', '1');
+    try { video.load(); } catch (_) {}
+  }
+
+  function bindEcVideoPlaying(module, video) {
+    if (!video || video.getAttribute('data-wearth-ec-playing-bound') === '1') return;
+    video.setAttribute('data-wearth-ec-playing-bound', '1');
+    function on() {
+      video.classList.add('wearth-ec-video--playing');
+      if (module) module.classList.add('wearth-ec-module--video-playing');
+    }
+    function off() {
+      video.classList.remove('wearth-ec-video--playing');
+      if (module) module.classList.remove('wearth-ec-module--video-playing');
+    }
+    video.addEventListener('playing', on);
+    video.addEventListener('loadeddata', on);
+    video.addEventListener('pause', function() {
+      if (module && module.classList.contains('wearth-ec-module--video-active')) return;
+      off();
+    });
+  }
+
+  function playVideo(video, module) {
+    if (!video || video.style.display === 'none') return;
+    if (module) bindEcVideoPlaying(module, video);
+    hydrateVideoSources(video);
+    try {
+      var p = video.play();
+      if (p && p.catch) p.catch(function() {});
+    } catch (_) {}
+  }
+
+  function pauseVideo(video, module, keepFallbackHidden) {
+    if (!video) return;
+    try { video.pause(); } catch (_) {}
+    if (!keepFallbackHidden) {
+      if (module) module.classList.remove('wearth-ec-module--video-playing');
+      video.classList.remove('wearth-ec-video--playing');
+    }
+  }
+
+  function showEcVideoLayer(module, show) {
+    if (!module) return;
+    var fb = module.querySelector('.wearth-ec-video-fallback');
+    if (show) {
+      module.classList.add('wearth-ec-module--video-playing');
+      if (fb) {
+        fb.style.opacity = '0';
+        fb.style.visibility = 'hidden';
+      }
+    } else if (fb) {
+      fb.style.opacity = '';
+      fb.style.visibility = '';
+      module.classList.remove('wearth-ec-module--video-playing');
+    }
+  }
+
+  function readEcVideoMap(module) {
+    var el = module.querySelector('.wearth-ec-variant-videos');
+    if (!el) return null;
+    try { return JSON.parse(el.textContent || '{}'); } catch (_) { return null; }
+  }
+
+  function resolveEcVideoUrl(module, sw) {
+    var url = (sw && sw.getAttribute('data-variant-video')) || '';
+    if (url) return url;
+    var map = readEcVideoMap(module);
+    if (!map || !map.videos) return '';
+    var color = (sw && sw.getAttribute('data-variant-color')) || '';
+    if (!color && map.default) color = map.default;
+    if (map.videos[color]) return map.videos[color];
+    var lc = String(color || '').trim().toLowerCase();
+    var keys = Object.keys(map.videos);
+    for (var i = 0; i < keys.length; i++) {
+      if (String(keys[i]).trim().toLowerCase() === lc) return map.videos[keys[i]];
+    }
+    return '';
+  }
+
+  function setModuleVideo(module, url) {
+    var video = module.querySelector('.wearth-ec-video');
+    if (!video) return;
+    if (url) {
+      url = toHttps(url);
+      video.style.display = '';
+      module.classList.add('wearth-ec-module--video-active');
+      module.classList.add('wearth-ec-module--video-swapping');
+      showEcVideoLayer(module, true);
+      video.classList.add('wearth-ec-video--playing');
+      try {
+        var src = video.querySelector('source');
+        var cur = src && src.src ? src.src : '';
+        if (src && cur !== url) {
+          src.src = url;
+          src.removeAttribute('data-src');
+          video.setAttribute('data-wearth-src-ready', '0');
+          try { video.pause(); } catch (_) {}
+          hydrateVideoSources(video);
+        } else if (!src) {
+          hydrateVideoSources(video);
+        }
+        bindEcVideoPlaying(module, video);
+        var p = video.play();
+        if (p && p.catch) p.catch(function() {});
+      } catch (_) {}
+      module.classList.remove('wearth-ec-module--video-swapping');
+    } else {
+      video.style.display = 'none';
+      module.classList.remove('wearth-ec-module--video-active');
+      module.classList.remove('wearth-ec-module--video-swapping');
+      pauseVideo(video, module, false);
+      showEcVideoLayer(module, false);
+    }
+  }
+
+  document.addEventListener('click', function(e) {
+    var sw = e.target.closest('.wearth-ec-swatch');
+    if (!sw) return;
+    e.preventDefault();
+    var module = sw.closest('.wearth-ec-module');
+    if (!module) return;
+    var newImgSrc = sw.getAttribute('data-variant-img');
+    var newImgSrcset = sw.getAttribute('data-variant-srcset');
+    var imagesOnly = module.getAttribute('data-wearth-ec-images-only') === '1';
+    var newVideoUrl = imagesOnly ? '' : resolveEcVideoUrl(module, sw);
+
+    var img = module.querySelector('.wearth-ec-video-fallback, .wearth-ec-image img:not(.wearth-ec-video-fallback)');
+    var video = module.querySelector('.wearth-ec-video');
+
+    if (newVideoUrl && !imagesOnly) {
+      if (video && newImgSrc) video.setAttribute('poster', newImgSrc);
+      setModuleVideo(module, newVideoUrl);
+    } else {
+      setModuleVideo(module, '');
+      if (img) {
+        if (newImgSrcset) img.srcset = newImgSrcset;
+        if (newImgSrc) img.src = newImgSrc;
+      }
+      if (video && newImgSrc) video.setAttribute('poster', newImgSrc);
+    }
+
+    module.querySelectorAll('.wearth-ec-swatch').forEach(function(s) {
+      s.removeAttribute('aria-pressed');
+    });
+    sw.setAttribute('aria-pressed', 'true');
+  });
+
+  document.querySelectorAll('[data-wearth-ec-motion-ssr="1"]').forEach(function(mod) {
+    /* first collection card with VARIANT video — autoplay when in view */
+    var v = mod.querySelector('.wearth-ec-video');
+    if (!v) return;
+    bindEcVideoPlaying(mod, v);
+    hydrateVideoSources(v);
+    mod.classList.add('wearth-ec-module--video-playing');
+    v.classList.add('wearth-ec-video--playing');
+    playVideo(v, mod);
+  });
+
+  var videos = document.querySelectorAll('.wearth-ec-video');
+  if (videos.length && 'IntersectionObserver' in window) {
+    videos.forEach(hydrateVideoSources);
+
+    var videoObs = new IntersectionObserver(
+      function(entries) {
+        entries.forEach(function(en) {
+          var v = en.target;
+          var mod = v.closest('.wearth-ec-module');
+          if (!mod || mod.classList.contains('wearth-ec-module--video-paused')) return;
+          if (en.isIntersecting && en.intersectionRatio >= 0.35) {
+            playVideo(v, mod);
+          } else {
+            pauseVideo(v, mod);
+          }
+        });
+      },
+      { threshold: [0, 0.35, 0.55], rootMargin: '40px 0px' }
+    );
+    videos.forEach(function(v) { videoObs.observe(v); });
+
+    document.addEventListener('visibilitychange', function() {
+      if (document.hidden) {
+        videos.forEach(function(v) {
+          pauseVideo(v, v.closest('.wearth-ec-module'));
+        });
+      }
+    });
+
+    if (window.matchMedia && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      document.querySelectorAll('.wearth-ec-module--has-video').forEach(function(mod) {
+        var v = mod.querySelector('.wearth-ec-video');
+        if (!v) return;
+        mod.addEventListener('mouseenter', function() {
+          mod.classList.remove('wearth-ec-module--video-paused');
+          playVideo(v, mod);
+        });
+        mod.addEventListener('mouseleave', function() {
+          mod.classList.add('wearth-ec-module--video-paused');
+          pauseVideo(v, mod);
+        });
+      });
+    }
+  }
+
+  // Editorial breakers — fade-up on scroll
+  if ('IntersectionObserver' in window) {
+    var brks = document.querySelectorAll('.wearth-ec-breaker');
+    if (brks.length) {
+      var io = new IntersectionObserver(function(entries) {
+        entries.forEach(function(en) {
+          if (en.isIntersecting) {
+            en.target.classList.add('in-view');
+            io.unobserve(en.target);
+          }
+        });
+      }, { rootMargin: '0px 0px -10% 0px', threshold: 0.1 });
+      brks.forEach(function(b) { io.observe(b); });
+    }
+  } else {
+    document.querySelectorAll('.wearth-ec-breaker').forEach(function(b) {
+      b.classList.add('in-view');
+    });
+  }
+})();
+</script>
+
+{% schema %}
+{
+  "name": "Editorial Collection",
+  "tag": "section",
+  "class": "wearth-editorial-collection-section",
+  "settings": [
+    {
+      "type": "collection",
+      "id": "collection",
+      "label": "Collection (optional override)"
+    },
+    {
+      "type": "range",
+      "id": "products_per_page",
+      "min": 4,
+      "max": 24,
+      "step": 1,
+      "label": "Products to show",
+      "default": 12
+    }
+  ],
+  "presets": [
+    {
+      "name": "WEARTH Editorial Collection"
+    }
+  ]
+}
+{% endschema %}
